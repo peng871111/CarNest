@@ -3,17 +3,13 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-function readPublicEnv(name: string) {
-  return process.env[name]?.trim() ?? "";
-}
-
 const firebaseConfig = {
-  apiKey: readPublicEnv("NEXT_PUBLIC_FIREBASE_API_KEY"),
-  authDomain: readPublicEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
-  projectId: readPublicEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID"),
-  storageBucket: readPublicEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"),
-  messagingSenderId: readPublicEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"),
-  appId: readPublicEnv("NEXT_PUBLIC_FIREBASE_APP_ID")
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY?.trim() ?? "",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN?.trim() ?? "",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim() ?? "",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ?? "",
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID?.trim() ?? "",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID?.trim() ?? ""
 };
 
 export const missingFirebaseConfigKeys = [
