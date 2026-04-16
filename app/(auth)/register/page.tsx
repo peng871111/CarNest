@@ -17,6 +17,9 @@ export default function RegisterPage() {
           <p className="mt-4 text-sm leading-6 text-ink/65">
             Create an account to save vehicles, submit offers, request inspections, and manage your CarNest activity.
           </p>
+          <p className="mt-3 text-sm leading-6 text-ink/55">
+            Buyer and seller accounts can be created here. Admin access is assigned internally for approved team emails only.
+          </p>
         </div>
         <Suspense fallback={<div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">Loading registration form...</div>}>
           <AuthForm mode="register" />

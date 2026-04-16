@@ -9,12 +9,35 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function isSuperAdmin() {
+      return signedIn() && userDoc().data.role == "super_admin";
+    }
+
     function isAdmin() {
-      return signedIn() && userDoc().data.role == "admin";
+      return signedIn()
+        && (
+          userDoc().data.role == "admin"
+          || userDoc().data.role == "super_admin"
+        );
     }
 
     function isSeller() {
       return signedIn() && userDoc().data.role == "seller";
+    }
+
+    function isCraigEmail(email) {
+      return email == "peng871111@gmail.com";
+    }
+
+    function isLeonEmail(email) {
+      return email == "dengue0111@gmail.com";
+    }
+
+    function isAllowedProfileRole(role, email) {
+      return role == "buyer"
+        || role == "seller"
+        || (role == "admin" && isLeonEmail(email))
+        || (role == "super_admin" && isCraigEmail(email));
     }
 
     function isValidOfferStatus(status) {
@@ -67,7 +90,8 @@ service cloud.firestore {
       return role == "guest"
         || role == "buyer"
         || role == "seller"
-        || role == "admin";
+        || role == "admin"
+        || role == "super_admin";
     }
 
     function isValidDeviceType(deviceType) {
@@ -153,7 +177,34 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
-      allow write: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly([
+          "uid",
+          "email",
+          "role",
+          "createdAt",
+          "displayName",
+          "name",
+          "phone",
+          "accountReference",
+          "adminPermissions"
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && isAllowedProfileRole(request.resource.data.role, request.resource.data.email)
+        && request.resource.data.createdAt is timestamp;
+      allow update: if isSuperAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.adminPermissions == resource.data.adminPermissions
+        );
+      allow delete: if isSuperAdmin();
     }
 
     match /vehicles/{vehicleId} {

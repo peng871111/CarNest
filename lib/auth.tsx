@@ -12,7 +12,7 @@ import {
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
-import { AppUser, UserRole } from "@/types";
+import { AppUser } from "@/types";
 import { resolveManagedUserAccess } from "@/lib/permissions";
 
 interface AuthContextValue {
@@ -91,17 +91,22 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
       data.role !== user.role ||
       JSON.stringify(data.adminPermissions ?? null) !== JSON.stringify(user.adminPermissions ?? null)
     ) {
+      const profileUpdate: Record<string, unknown> = {
+        uid: firebaseUser.uid,
+        name: user.name,
+        displayName: user.displayName,
+        email: user.email,
+        phone: user.phone ?? "",
+        role: user.role
+      };
+
+      if (user.adminPermissions || "adminPermissions" in data) {
+        profileUpdate.adminPermissions = user.adminPermissions ?? {};
+      }
+
       await setDoc(
         ref,
-        {
-          uid: firebaseUser.uid,
-          name: user.name,
-          displayName: user.displayName,
-          email: user.email,
-          phone: user.phone ?? "",
-          role: user.role,
-          adminPermissions: user.adminPermissions ?? {}
-        },
+        profileUpdate,
         { merge: true }
       );
     }
@@ -122,7 +127,15 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
     })
   };
 
-  await setDoc(ref, { uid: firebaseUser.uid, ...user, adminPermissions: user.adminPermissions ?? {}, createdAt: serverTimestamp() });
+  await setDoc(
+    ref,
+    {
+      uid: firebaseUser.uid,
+      ...user,
+      ...(user.adminPermissions ? { adminPermissions: user.adminPermissions } : {}),
+      createdAt: serverTimestamp()
+    }
+  );
   setSessionCookies(user);
   return user;
 }
@@ -222,7 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             uid: credential.user.uid,
             name,
             ...user,
-            adminPermissions: user.adminPermissions ?? {},
+            ...(user.adminPermissions ? { adminPermissions: user.adminPermissions } : {}),
             createdAt: serverTimestamp()
           });
 
