@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/auth";
 import { ROLE_PLACEHOLDERS } from "@/lib/roles";
 import { UserRole } from "@/types";
 
+type PublicRegistrationRole = "buyer" | "seller";
+
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,6 +23,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError("");
     const form = new FormData(event.currentTarget);
     const redirect = searchParams.get("redirect");
+    const email = String(form.get("email") ?? "").trim().toLowerCase();
+    const password = String(form.get("password") ?? "");
+    const name = String(form.get("name") ?? "").trim();
 
     function resolveDestination(role: UserRole) {
       if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
@@ -28,15 +33,33 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     }
 
     try {
+      if (!email) {
+        throw new Error("Please enter your email address.");
+      }
+
+      if (!password) {
+        throw new Error("Please enter your password.");
+      }
+
+      if (mode === "register") {
+        if (!name) {
+          throw new Error("Please enter your full name.");
+        }
+
+        if (password.length < 6) {
+          throw new Error("Please use a password with at least 6 characters.");
+        }
+      }
+
       if (mode === "login") {
-        const user = await login(String(form.get("email")), String(form.get("password")));
+        const user = await login(email, password);
         router.push(resolveDestination(user.role));
       } else {
-        const role = String(form.get("role")) as UserRole;
+        const role = String(form.get("role")) as PublicRegistrationRole;
         const user = await register({
-          name: String(form.get("name")),
-          email: String(form.get("email")),
-          password: String(form.get("password")),
+          name,
+          email,
+          password,
           role
         });
         router.push(resolveDestination(user.role));
@@ -52,7 +75,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <form onSubmit={handleSubmit} className="space-y-4 rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
       {mode === "register" && <Input name="name" placeholder="Full name" required />}
       <Input type="email" name="email" placeholder="Email address" required />
-      <Input type="password" name="password" placeholder="Password" required />
+      <Input type="password" name="password" placeholder="Password" minLength={6} required />
       {mode === "register" && (
         <select name="role" className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm">
           <option value="buyer">Buyer</option>

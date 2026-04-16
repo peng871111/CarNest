@@ -1,7 +1,5 @@
-import { UserRole } from "@/types";
-
 export const ROLE_PLACEHOLDERS: Array<{
-  role: UserRole;
+  role: "buyer" | "seller";
   title: string;
   description: string;
 }> = [
@@ -13,11 +11,6 @@ export const ROLE_PLACEHOLDERS: Array<{
   {
     role: "seller",
     title: "Seller",
-    description: "List vehicles through CarNest and manage approvals once seller tools are added in the next phase."
-  },
-  {
-    role: "admin",
-    title: "Admin",
-    description: "Oversee vehicle approvals and marketplace operations when the admin console is introduced."
+    description: "List vehicles through CarNest, manage your submissions, and respond through your protected seller workspace."
   }
 ];

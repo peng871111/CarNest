@@ -16,6 +16,12 @@ const adminPermissionRoutes = [
   { prefix: "/admin/quotes", permission: "manageQuotes" }
 ];
 
+function getRoleHome(role?: string) {
+  if (role === "admin" || role === "super_admin") return "/admin/vehicles";
+  if (role === "seller") return "/seller/vehicles";
+  return "/dashboard";
+}
+
 function parsePermissions(value?: string) {
   if (!value) return {} as Record<string, boolean>;
 
@@ -42,13 +48,13 @@ export function middleware(request: NextRequest) {
   }
 
   if (match.roles && !match.roles.includes(role ?? "")) {
-    return NextResponse.redirect(new URL("/dashboard", request.url));
+    return NextResponse.redirect(new URL(getRoleHome(role), request.url));
   }
 
   if (request.nextUrl.pathname.startsWith("/admin") && role !== "super_admin") {
     const permissionRoute = adminPermissionRoutes.find((route) => request.nextUrl.pathname.startsWith(route.prefix));
     if (permissionRoute && !permissions[permissionRoute.permission]) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      return NextResponse.redirect(new URL(getRoleHome(role), request.url));
     }
   }
 

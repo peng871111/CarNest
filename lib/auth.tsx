@@ -1,6 +1,14 @@
 "use client";
 
-import { createUserWithEmailAndPassword, onAuthStateChanged, signInWithEmailAndPassword, signOut, updateProfile, User } from "firebase/auth";
+import {
+  AuthError,
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  User
+} from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
@@ -13,23 +21,13 @@ interface AuthContextValue {
   loading: boolean;
   authError: string;
   login: (email: string, password: string) => Promise<AppUser>;
-  register: (input: { name: string; email: string; password: string; role: UserRole }) => Promise<AppUser>;
+  register: (input: { name: string; email: string; password: string; role: "buyer" | "seller" }) => Promise<AppUser>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function buildDemoUser(input?: Partial<AppUser>): AppUser {
-  return {
-    id: input?.id ?? "demo-user",
-    email: input?.email ?? "demo@carnest.com",
-    displayName: input?.displayName ?? "CarNest Demo",
-    name: input?.name ?? input?.displayName ?? "CarNest Demo",
-    phone: input?.phone ?? "",
-    role: input?.role ?? "buyer",
-    adminPermissions: input?.adminPermissions
-  };
-}
+const AUTH_UNAVAILABLE_MESSAGE = "Secure account access is temporarily unavailable. Please try again later.";
+const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
 
 function setSessionCookies(user: AppUser | null) {
   if (typeof document === "undefined") return;
@@ -39,24 +37,29 @@ function setSessionCookies(user: AppUser | null) {
   document.cookie = `carnest_permissions=${user?.adminPermissions ? encodeURIComponent(JSON.stringify(user.adminPermissions)) : ""}; path=/; ${maxAge}`;
 }
 
-async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
-  if (!isFirebaseConfigured) {
-    const role = (typeof window !== "undefined" && (localStorage.getItem("carnest-role") as UserRole)) || "buyer";
-    const managedAccess = resolveManagedUserAccess({
-      email: firebaseUser.email || "demo@carnest.com",
-      storedRole: role
-    });
-    const demoUser = buildDemoUser({
-      id: firebaseUser.uid,
-      email: firebaseUser.email || "demo@carnest.com",
-      displayName: firebaseUser.displayName || "CarNest Demo",
-      role: managedAccess.role,
-      adminPermissions: managedAccess.adminPermissions
-    });
-    setSessionCookies(demoUser);
-    return demoUser;
-  }
+function mapAuthError(error: unknown) {
+  const code = error && typeof error === "object" && "code" in error ? String((error as AuthError).code) : "";
 
+  switch (code) {
+    case "auth/invalid-email":
+      return "Please enter a valid email address.";
+    case "auth/missing-password":
+    case "auth/weak-password":
+      return "Please use a stronger password.";
+    case "auth/email-already-in-use":
+      return "An account with this email already exists. Please sign in instead.";
+    case "auth/invalid-credential":
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+      return "We couldn’t sign you in with those details. Please try again.";
+    case "auth/network-request-failed":
+      return LIVE_DATA_MESSAGE;
+    default:
+      return "Something went wrong. Please try again.";
+  }
+}
+
+async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
   const ref = doc(db, "users", firebaseUser.uid);
   const snapshot = await getDoc(ref);
 
@@ -131,6 +134,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authError, setAuthError] = useState("");
 
   useEffect(() => {
+    if (!isFirebaseConfigured) {
+      setFirebaseUser(null);
+      setAppUser(null);
+      setSessionCookies(null);
+      setAuthError("");
+      setLoading(false);
+      return;
+    }
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (!user) {
@@ -151,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setAppUser(null);
         setSessionCookies(null);
-        setAuthError("We’re having trouble loading live data right now. Please check your connection and try again.");
+        setAuthError(LIVE_DATA_MESSAGE);
       } finally {
         setLoading(false);
       }
@@ -167,23 +179,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authError,
       login: async (email, password) => {
         if (!isFirebaseConfigured) {
-          const role = (localStorage.getItem("carnest-role") as UserRole) || "buyer";
-          const managedAccess = resolveManagedUserAccess({
-            email,
-            storedRole: role
-          });
-          const user = buildDemoUser({
-            id: `demo-${managedAccess.role}`,
-            email,
-            displayName: managedAccess.role === "admin" || managedAccess.role === "super_admin" ? "CarNest Admin" : "CarNest Demo",
-            name: managedAccess.role === "admin" || managedAccess.role === "super_admin" ? "CarNest Admin" : "CarNest Demo",
-            phone: "",
-            role: managedAccess.role,
-            adminPermissions: managedAccess.adminPermissions
-          });
-          setAppUser(user);
-          setSessionCookies(user);
-          return user;
+          throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         }
 
         try {
@@ -196,30 +192,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (process.env.NODE_ENV === "development") {
             console.error("Login failed", error);
           }
-          throw new Error("We’re having trouble loading live data right now. Please check your connection and try again.");
+          throw new Error(mapAuthError(error));
         }
       },
       register: async ({ name, email, password, role }) => {
-        if (role === "admin" || role === "super_admin") {
-          throw new Error("Admin accounts are created internally.");
-        }
-
         if (!isFirebaseConfigured) {
-          const user = buildDemoUser({
-            id: `demo-${role}`,
-            email,
-            displayName: name,
-            role
-          });
-          localStorage.setItem("carnest-role", role);
-          setAppUser(user);
-          setSessionCookies(user);
-          return user;
+          throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         }
 
         try {
           const credential = await createUserWithEmailAndPassword(auth, email, password);
           await updateProfile(credential.user, { displayName: name });
+          const managedAccess = resolveManagedUserAccess({
+            email,
+            storedRole: role
+          });
 
           const user: AppUser = {
             id: credential.user.uid,
@@ -227,20 +214,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             displayName: name,
             name,
             phone: "",
-            role
+            role: managedAccess.role,
+            adminPermissions: managedAccess.adminPermissions
           };
 
-          if (isFirebaseConfigured) {
-            await setDoc(doc(db, "users", credential.user.uid), {
-              uid: credential.user.uid,
-              name,
-              ...user,
-              adminPermissions: {},
-              createdAt: serverTimestamp()
-            });
-          } else {
-            localStorage.setItem("carnest-role", role);
-          }
+          await setDoc(doc(db, "users", credential.user.uid), {
+            uid: credential.user.uid,
+            name,
+            ...user,
+            adminPermissions: user.adminPermissions ?? {},
+            createdAt: serverTimestamp()
+          });
 
           setAppUser(user);
           setSessionCookies(user);
@@ -250,16 +234,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (process.env.NODE_ENV === "development") {
             console.error("Registration failed", error);
           }
-          throw new Error("We’re having trouble loading live data right now. Please check your connection and try again.");
+          throw new Error(mapAuthError(error));
         }
       },
       logout: async () => {
         setSessionCookies(null);
-        if (!isFirebaseConfigured) {
-          setAppUser(null);
-          setAuthError("");
-          return;
-        }
+        if (!isFirebaseConfigured) throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         try {
           await signOut(auth);
           setAuthError("");
@@ -267,7 +247,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (process.env.NODE_ENV === "development") {
             console.error("Logout failed", error);
           }
-          throw new Error("We’re having trouble loading live data right now. Please check your connection and try again.");
+          throw new Error(LIVE_DATA_MESSAGE);
         }
       }
     }),
