@@ -1,0 +1,13 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" fill="#EEE6DA"/>
+  <rect x="80" y="80" width="1040" height="640" rx="40" fill="#F8F3EC" stroke="#D8C4AA" stroke-width="4"/>
+  <path d="M320 490L400 350C416 322 446 304 478 304H716C748 304 778 322 794 350L874 490" stroke="#A98455" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M288 490H912" stroke="#0A0F14" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="418" cy="520" r="54" fill="#0A0F14"/>
+  <circle cx="782" cy="520" r="54" fill="#0A0F14"/>
+  <path d="M470 360H724" stroke="#0A0F14" stroke-width="18" stroke-linecap="round"/>
+  <path d="M530 250H670" stroke="#A98455" stroke-width="10" stroke-linecap="round"/>
+  <text x="600" y="650" text-anchor="middle" fill="#0A0F14" font-family="Arial, sans-serif" font-size="34" letter-spacing="7">
+    CARNEST VEHICLE
+  </text>
+</svg>

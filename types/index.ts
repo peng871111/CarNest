@@ -1,0 +1,276 @@
+export type UserRole = "buyer" | "seller" | "admin" | "super_admin";
+export type AdminPermissionKey =
+  | "manageVehicles"
+  | "manageOffers"
+  | "manageEnquiries"
+  | "manageInspections"
+  | "managePricing"
+  | "manageQuotes"
+  | "manageUsers"
+  | "manageAdmins";
+export type AdminPermissions = Record<AdminPermissionKey, boolean>;
+export type ListingType = "warehouse" | "private";
+export type VehicleStatus = "pending" | "approved" | "rejected";
+export type SellerVehicleStatus = "ACTIVE" | "PAUSED" | "WITHDRAWN" | "SOLD";
+export type OfferStatus = "new" | "under_review" | "accepted" | "declined" | "withdrawn";
+export type InspectionRequestStatus = "NEW" | "CONTACTED" | "BOOKED" | "CLOSED";
+export type QuoteStatus = "NEW" | "CONTACTED" | "QUOTED" | "CLOSED";
+export type QuoteType = "SERVICE_SUPPORT" | "WAREHOUSE_UPGRADE";
+export type QuoteSource = "sell_flow" | "seller_edit";
+export type ContactMessageCategory = "SELLING MY CAR" | "BUYING A CAR" | "SECURE WAREHOUSE STORAGE" | "GENERAL ENQUIRY";
+export type ContactMessageStatus = "NEW" | "CONTACTED" | "CLOSED";
+export type PricingRequestTimeline = "ASAP (within 2 weeks)" | "2–4 weeks" | "1–2 months" | "Just exploring";
+export type PricingRequestStatus = "NEW" | "REPLIED" | "CLOSED";
+export type PricingLeadRating = "HOT" | "WARM" | "COLD";
+export type PricingNextAction = "Recommend warehouse" | "Follow up later" | "Not suitable";
+export type VehicleViewRole = "guest" | UserRole;
+export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
+
+export interface AppUser {
+  id: string;
+  email: string;
+  displayName: string;
+  name?: string;
+  phone?: string;
+  accountReference?: string;
+  role: UserRole;
+  adminPermissions?: AdminPermissions;
+  createdAt?: string;
+}
+
+export interface Vehicle {
+  id: string;
+  sellerId: string;
+  ownerUid: string;
+  ownerRole: "seller" | "admin";
+  listingType: ListingType;
+  status: VehicleStatus;
+  sellerStatus: SellerVehicleStatus;
+  ownershipVerified: boolean;
+  publishAuthorized: boolean;
+  storedInWarehouse: boolean;
+  warehouseAddress?: string;
+  sellerLocationSuburb?: string;
+  sellerLocationState?: string;
+  make: string;
+  model: string;
+  variant: string;
+  year: number;
+  price: number;
+  mileage: number;
+  transmission: string;
+  fuelType: string;
+  drivetrain: string;
+  bodyType: string;
+  colour: string;
+  vin: string;
+  rego: string;
+  description: string;
+  features: string[];
+  conditionNotes: string;
+  serviceHistory: string;
+  keyCount: string;
+  displayReference?: string;
+  coverImage?: string;
+  coverImageUrl?: string;
+  imageUrls: string[];
+  images: string[];
+  submissionPreference?: "basic" | "service_quote";
+  serviceQuoteNotes?: string;
+  soldAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VehicleFormInput {
+  listingType: ListingType;
+  make: string;
+  model: string;
+  year: number;
+  price: number;
+  mileage: number;
+  transmission: string;
+  fuelType: string;
+  drivetrain: string;
+  bodyType: string;
+  colour: string;
+  serviceHistory: string;
+  keyCount: string;
+  sellerLocationSuburb?: string;
+  sellerLocationState?: string;
+  description: string;
+  coverImage?: string;
+  coverImageUrl?: string;
+  imageUrls: string[];
+  images: string[];
+  submissionPreference?: "basic" | "service_quote";
+  serviceQuoteNotes?: string;
+}
+
+export interface VehicleActor {
+  id: string;
+  role: UserRole;
+  email?: string;
+  adminPermissions?: AdminPermissions;
+}
+
+export interface Enquiry {
+  id: string;
+  vehicleId: string;
+  buyerId: string;
+  sellerId: string;
+  message: string;
+  createdAt?: string;
+}
+
+export interface Offer {
+  id: string;
+  userId: string;
+  vehicleId: string;
+  vehicleTitle: string;
+  vehiclePrice: number;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string;
+  offerAmount: number;
+  message: string;
+  sellerOwnerUid: string;
+  submittedByUid?: string;
+  status: OfferStatus;
+  createdAt?: string;
+}
+
+export interface InspectionRequest {
+  id: string;
+  vehicleId: string;
+  vehicleTitle: string;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string;
+  preferredTime: string;
+  message: string;
+  status: InspectionRequestStatus;
+  listingType: ListingType;
+  sellerOwnerUid: string;
+  submittedByUid?: string;
+  createdAt?: string;
+}
+
+export interface SavedVehicle {
+  id: string;
+  userId: string;
+  vehicleId: string;
+  createdAt?: string;
+}
+
+export interface VehicleViewEvent {
+  id: string;
+  vehicleId: string;
+  viewedAt?: string;
+  sessionId: string;
+  userId?: string;
+  role: VehicleViewRole;
+  source: string;
+  referrer: string;
+  deviceType: VehicleDeviceType;
+  country?: string;
+  state?: string;
+  city?: string;
+  listingType: ListingType;
+  sellerOwnerUid: string;
+}
+
+export interface VehicleAnalyticsBreakdown {
+  label: string;
+  count: number;
+}
+
+export interface VehicleAnalytics {
+  id: string;
+  vehicleId: string;
+  sellerOwnerUid: string;
+  totalViews: number;
+  uniqueVisitors: number;
+  views7d: number;
+  views30d: number;
+  saves: number;
+  offers: number;
+  inspections: number;
+  topCities: VehicleAnalyticsBreakdown[];
+  topStates: VehicleAnalyticsBreakdown[];
+  topSources: VehicleAnalyticsBreakdown[];
+  updatedAt?: string;
+}
+
+export interface SellerTrustInfo {
+  sellerType: "Private Seller";
+  memberSince?: string;
+  vehiclesSoldCount: number;
+}
+
+export interface Quote {
+  id: string;
+  ownerId: string;
+  sellerUid: string;
+  sellerName: string;
+  sellerEmail: string;
+  vehicleId?: string;
+  vehicleYear: number;
+  vehicleMake: string;
+  vehicleModel: string;
+  quoteType: QuoteType;
+  source: QuoteSource;
+  notes: string;
+  status: QuoteStatus;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ContactMessage {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  subject: string;
+  message: string;
+  category: ContactMessageCategory;
+  status: ContactMessageStatus;
+  createdAt?: string;
+}
+
+export interface PricingRequest {
+  id: string;
+  userId: string;
+  vehicleId?: string;
+  currentPrice?: number;
+  timeline: PricingRequestTimeline;
+  message: string;
+  status: PricingRequestStatus;
+  leadRating?: PricingLeadRating;
+  nextAction?: PricingNextAction;
+  createdAt?: string;
+  response?: string;
+  respondedAt?: string;
+}
+
+export interface ViewingRequest {
+  id: string;
+  vehicleId: string;
+  buyerId: string;
+  sellerId: string;
+  preferredDate: string;
+  status: "pending" | "approved" | "declined";
+  fulfillmentNote?: string;
+  createdAt?: string;
+}
+
+export interface ChangeRequest {
+  id: string;
+  vehicleId: string;
+  sellerId: string;
+  field: "price" | "vehicleInfo";
+  requestedValue: string;
+  reason: string;
+  status: "pending" | "approved" | "declined";
+  createdAt?: string;
+}

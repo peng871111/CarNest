@@ -1,0 +1,21 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc().data.role == "admin";
+    }
+
+    match /vehicle-images/{ownerUid}/{allPaths=**} {
+      allow read: if true;
+      allow write: if signedIn() && (request.auth.uid == ownerUid || isAdmin());
+    }
+  }
+}

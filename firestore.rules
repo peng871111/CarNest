@@ -1,0 +1,446 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isAdmin() {
+      return signedIn() && userDoc().data.role == "admin";
+    }
+
+    function isSeller() {
+      return signedIn() && userDoc().data.role == "seller";
+    }
+
+    function isValidOfferStatus(status) {
+      return status == "new"
+        || status == "under_review"
+        || status == "accepted"
+        || status == "declined"
+        || status == "withdrawn";
+    }
+
+    function isValidQuoteStatus(status) {
+      return status == "NEW"
+        || status == "CONTACTED"
+        || status == "QUOTED"
+        || status == "CLOSED";
+    }
+
+    function isValidInspectionRequestStatus(status) {
+      return status == "NEW"
+        || status == "CONTACTED"
+        || status == "BOOKED"
+        || status == "CLOSED";
+    }
+
+    function isValidContactMessageStatus(status) {
+      return status == "NEW"
+        || status == "CONTACTED"
+        || status == "CLOSED";
+    }
+
+    function isValidPricingRequestStatus(status) {
+      return status == "NEW"
+        || status == "REPLIED"
+        || status == "CLOSED";
+    }
+
+    function isValidPricingLeadRating(value) {
+      return value == "HOT"
+        || value == "WARM"
+        || value == "COLD";
+    }
+
+    function isValidPricingNextAction(value) {
+      return value == "Recommend warehouse"
+        || value == "Follow up later"
+        || value == "Not suitable";
+    }
+
+    function isValidVehicleViewRole(role) {
+      return role == "guest"
+        || role == "buyer"
+        || role == "seller"
+        || role == "admin";
+    }
+
+    function isValidDeviceType(deviceType) {
+      return deviceType == "mobile"
+        || deviceType == "tablet"
+        || deviceType == "desktop";
+    }
+
+    function isValidVehicleStatus(status) {
+      return status == "pending"
+        || status == "approved"
+        || status == "rejected";
+    }
+
+    function isValidSellerVehicleStatus(status) {
+      return status == "ACTIVE"
+        || status == "PAUSED"
+        || status == "WITHDRAWN"
+        || status == "SOLD";
+    }
+
+    function submittedByMatchesUser() {
+      return !("submittedByUid" in request.resource.data)
+        || (signedIn() && request.resource.data.submittedByUid == request.auth.uid);
+    }
+
+    function vehicleOwnerUid(vehicleId) {
+      return get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid;
+    }
+
+    function offerFieldsUnchanged() {
+      return request.resource.data.userId == resource.data.userId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.vehicleTitle == resource.data.vehicleTitle
+        && request.resource.data.vehiclePrice == resource.data.vehiclePrice
+        && request.resource.data.buyerName == resource.data.buyerName
+        && request.resource.data.buyerEmail == resource.data.buyerEmail
+        && request.resource.data.buyerPhone == resource.data.buyerPhone
+        && request.resource.data.offerAmount == resource.data.offerAmount
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.sellerOwnerUid == resource.data.sellerOwnerUid
+        && request.resource.data.submittedByUid == resource.data.submittedByUid
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function quoteFieldsUnchanged() {
+      return request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.sellerUid == resource.data.sellerUid
+        && request.resource.data.sellerName == resource.data.sellerName
+        && request.resource.data.sellerEmail == resource.data.sellerEmail
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.vehicleYear == resource.data.vehicleYear
+        && request.resource.data.vehicleMake == resource.data.vehicleMake
+        && request.resource.data.vehicleModel == resource.data.vehicleModel
+        && request.resource.data.quoteType == resource.data.quoteType
+        && request.resource.data.source == resource.data.source
+        && request.resource.data.notes == resource.data.notes
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function inspectionRequestFieldsUnchanged() {
+      return request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.vehicleTitle == resource.data.vehicleTitle
+        && request.resource.data.buyerName == resource.data.buyerName
+        && request.resource.data.buyerEmail == resource.data.buyerEmail
+        && request.resource.data.buyerPhone == resource.data.buyerPhone
+        && request.resource.data.preferredTime == resource.data.preferredTime
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.listingType == resource.data.listingType
+        && request.resource.data.sellerOwnerUid == resource.data.sellerOwnerUid
+        && request.resource.data.submittedByUid == resource.data.submittedByUid
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function pricingRequestBaseFieldsUnchanged() {
+      return request.resource.data.userId == resource.data.userId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.currentPrice == resource.data.currentPrice
+        && request.resource.data.timeline == resource.data.timeline
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if signedIn() && (request.auth.uid == userId || isAdmin());
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || (
+          resource.data.status == "approved"
+          && (
+            resource.data.sellerStatus == "ACTIVE"
+            || resource.data.sellerStatus == "SOLD"
+          )
+        );
+      allow create: if isAdmin()
+        || (
+          isSeller()
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerRole == "seller"
+          && request.resource.data.status == "pending"
+          && request.resource.data.sellerStatus == "ACTIVE"
+        );
+      allow update: if isAdmin()
+        || (
+          isSeller()
+          && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.ownerRole == resource.data.ownerRole
+          && isValidVehicleStatus(request.resource.data.status)
+          && isValidSellerVehicleStatus(request.resource.data.sellerStatus)
+          && (
+            request.resource.data.status == resource.data.status
+            || (resource.data.status == "approved" && request.resource.data.status == "pending")
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /enquiries/{id} {
+      allow read, write: if false;
+    }
+
+    match /offers/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "userId",
+          "vehicleId",
+          "vehicleTitle",
+          "vehiclePrice",
+          "buyerName",
+          "buyerEmail",
+          "buyerPhone",
+          "offerAmount",
+          "message",
+          "sellerOwnerUid",
+          "submittedByUid",
+          "status",
+          "createdAt"
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.vehicleId is string
+        && request.resource.data.vehicleTitle is string
+        && request.resource.data.vehiclePrice is number
+        && request.resource.data.buyerName is string
+        && request.resource.data.buyerEmail is string
+        && request.resource.data.buyerPhone is string
+        && request.resource.data.offerAmount is number
+        && request.resource.data.offerAmount > 0
+        && request.resource.data.message is string
+        && request.resource.data.sellerOwnerUid is string
+        && isValidOfferStatus(request.resource.data.status)
+        && request.resource.data.status == "new"
+        && request.resource.data.submittedByUid == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      allow read: if isAdmin()
+        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
+      allow update: if (
+          isAdmin()
+          || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+        )
+        && isValidOfferStatus(request.resource.data.status)
+        && offerFieldsUnchanged();
+      allow delete: if isAdmin();
+    }
+
+    match /inspectionRequests/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "vehicleTitle",
+          "buyerName",
+          "buyerEmail",
+          "buyerPhone",
+          "preferredTime",
+          "message",
+          "status",
+          "createdAt",
+          "listingType",
+          "sellerOwnerUid",
+          "submittedByUid"
+        ])
+        && request.resource.data.vehicleId is string
+        && request.resource.data.vehicleTitle is string
+        && request.resource.data.buyerName is string
+        && request.resource.data.buyerEmail is string
+        && request.resource.data.buyerPhone is string
+        && request.resource.data.preferredTime is string
+        && request.resource.data.message is string
+        && request.resource.data.listingType is string
+        && request.resource.data.sellerOwnerUid is string
+        && isValidInspectionRequestStatus(request.resource.data.status)
+        && request.resource.data.status == "NEW"
+        && request.resource.data.submittedByUid == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      allow read: if isAdmin()
+        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+        || (signedIn() && resource.data.submittedByUid == request.auth.uid);
+      allow update: if (
+          isAdmin()
+          || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+        )
+        && isValidInspectionRequestStatus(request.resource.data.status)
+        && inspectionRequestFieldsUnchanged();
+      allow delete: if isAdmin();
+    }
+
+    match /quotes/{id} {
+      allow create: if isSeller()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.sellerUid == request.auth.uid
+        && request.resource.data.sellerName is string
+        && request.resource.data.sellerEmail is string
+        && request.resource.data.vehicleYear is number
+        && request.resource.data.vehicleMake is string
+        && request.resource.data.vehicleModel is string
+        && request.resource.data.quoteType is string
+        && request.resource.data.source is string
+        && request.resource.data.notes is string
+        && isValidQuoteStatus(request.resource.data.status)
+        && request.resource.data.status == "NEW";
+      allow read: if isAdmin()
+        || (isSeller() && resource.data.ownerId == request.auth.uid);
+      allow update: if isAdmin()
+        && isValidQuoteStatus(request.resource.data.status)
+        && quoteFieldsUnchanged();
+      allow delete: if isAdmin();
+    }
+
+    match /contact_messages/{id} {
+      allow create: if request.resource.data.keys().hasOnly([
+          "name",
+          "email",
+          "phone",
+          "subject",
+          "message",
+          "category",
+          "status",
+          "createdAt"
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.phone is string
+        && request.resource.data.subject is string
+        && request.resource.data.message is string
+        && request.resource.data.category is string
+        && isValidContactMessageStatus(request.resource.data.status)
+        && request.resource.data.status == "NEW"
+        && request.resource.data.createdAt is timestamp;
+      allow read: if isAdmin();
+      allow update: if isAdmin()
+        && isValidContactMessageStatus(request.resource.data.status)
+        && request.resource.data.name == resource.data.name
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.phone == resource.data.phone
+        && request.resource.data.subject == resource.data.subject
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.category == resource.data.category
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin();
+    }
+
+    match /pricingRequests/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "userId",
+          "vehicleId",
+          "currentPrice",
+          "timeline",
+          "message",
+          "status",
+          "leadRating",
+          "nextAction",
+          "createdAt",
+          "response",
+          "respondedAt"
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.timeline is string
+        && request.resource.data.message is string
+        && isValidPricingRequestStatus(request.resource.data.status)
+        && request.resource.data.status == "NEW"
+        && request.resource.data.response is string
+        && (
+          !("vehicleId" in request.resource.data)
+          || request.resource.data.vehicleId is string
+        )
+        && (
+          !("currentPrice" in request.resource.data)
+          || request.resource.data.currentPrice is number
+        )
+        && request.resource.data.createdAt is timestamp;
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin()
+        && request.resource.data.keys().hasOnly([
+          "userId",
+          "vehicleId",
+          "currentPrice",
+          "timeline",
+          "message",
+          "status",
+          "leadRating",
+          "nextAction",
+          "createdAt",
+          "response",
+          "respondedAt"
+        ])
+        && pricingRequestBaseFieldsUnchanged()
+        && isValidPricingRequestStatus(request.resource.data.status)
+        && request.resource.data.response is string
+        && (
+          !("leadRating" in request.resource.data)
+          || isValidPricingLeadRating(request.resource.data.leadRating)
+        )
+        && (
+          !("nextAction" in request.resource.data)
+          || isValidPricingNextAction(request.resource.data.nextAction)
+        );
+      allow delete: if isAdmin();
+    }
+
+    match /savedVehicles/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "userId",
+          "vehicleId",
+          "createdAt"
+        ])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.vehicleId is string
+        && request.resource.data.createdAt is timestamp;
+      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /vehicleViewEvents/{id} {
+      allow create: if request.resource.data.vehicleId is string
+        && request.resource.data.sessionId is string
+        && isValidVehicleViewRole(request.resource.data.role)
+        && request.resource.data.source is string
+        && request.resource.data.referrer is string
+        && isValidDeviceType(request.resource.data.deviceType)
+        && request.resource.data.listingType is string
+        && request.resource.data.sellerOwnerUid is string
+        && (!("userId" in request.resource.data) || (signedIn() && request.resource.data.userId == request.auth.uid))
+        && (
+          (!signedIn() && request.resource.data.role == "guest" && !("userId" in request.resource.data))
+          || (signedIn() && request.resource.data.role == userDoc().data.role)
+        )
+        && request.resource.data.viewedAt is timestamp;
+      allow read: if isAdmin()
+        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
+      allow update, delete: if false;
+    }
+
+    match /vehicleAnalytics/{vehicleId} {
+      allow read: if isAdmin()
+        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
+      allow create, update: if isAdmin()
+        || (isSeller() && request.resource.data.sellerOwnerUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /viewing_requests/{id} {
+      allow read, write: if signedIn();
+    }
+
+    match /change_requests/{id} {
+      allow read, write: if signedIn();
+    }
+  }
+}
