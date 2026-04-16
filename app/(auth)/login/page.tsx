@@ -23,6 +23,11 @@ export default function LoginPage() {
         </Suspense>
         <div className="space-y-3 text-sm text-ink/60">
           <p>
+            <Link href="/auth/forgot-password" className="text-ink transition hover:text-bronze">
+              Forgot password?
+            </Link>
+          </p>
+          <p>
             New here?{" "}
             <Link href="/register" className="text-ink">
               Create an account

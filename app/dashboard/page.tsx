@@ -13,19 +13,22 @@ export default function DashboardPage() {
     if (appUser.role === "admin" || appUser.role === "super_admin") {
       return [
         { href: "/admin/vehicles", label: "Admin Vehicles" },
-        { href: "/admin/offers", label: "Admin Offers" }
+        { href: "/admin/offers", label: "Admin Offers" },
+        { href: "/dashboard/settings", label: "Account Settings" }
       ];
     }
     if (appUser.role === "seller") {
       return [
         { href: "/seller/vehicles", label: "My Vehicles" },
         { href: "/seller/offers", label: "My Offers" },
-        { href: "/pricing-advice", label: "Pricing Advice" }
+        { href: "/pricing-advice", label: "Pricing Advice" },
+        { href: "/dashboard/settings", label: "Account Settings" }
       ];
     }
     return [
       { href: "/inventory", label: "Browse Inventory" },
-      { href: "/dashboard/saved", label: "Saved Vehicles" }
+      { href: "/dashboard/saved", label: "Saved Vehicles" },
+      { href: "/dashboard/settings", label: "Account Settings" }
     ];
   }, [appUser]);
 

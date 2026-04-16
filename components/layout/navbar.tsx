@@ -16,16 +16,19 @@ export default function Navbar() {
     ? appUser.role === "admin" || appUser.role === "super_admin"
       ? [
           { href: "/admin/vehicles", label: "Dashboard" },
-          { href: "/admin/inspections", label: "Inspections" }
+          { href: "/admin/inspections", label: "Inspections" },
+          { href: "/dashboard/settings", label: "Account Settings" }
         ]
       : appUser.role === "seller"
         ? [
             { href: "/seller/vehicles", label: "Dashboard" },
-            { href: "/seller/offers", label: "Offers" }
+            { href: "/seller/offers", label: "Offers" },
+            { href: "/dashboard/settings", label: "Account Settings" }
           ]
         : [
             { href: "/dashboard", label: "Dashboard" },
-            { href: "/dashboard/saved", label: "Saved Vehicles" }
+            { href: "/dashboard/saved", label: "Saved Vehicles" },
+            { href: "/dashboard/settings", label: "Account Settings" }
           ]
     : [];
 

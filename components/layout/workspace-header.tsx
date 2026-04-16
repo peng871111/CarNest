@@ -55,6 +55,11 @@ export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | 
             </span>
           )}
           {appUser ? (
+            <Link href="/dashboard/settings" className="text-sm font-medium text-ink/65 transition hover:text-bronze">
+              Account Settings
+            </Link>
+          ) : null}
+          {appUser ? (
             <button type="button" onClick={() => void handleLogout()} className="text-sm font-medium text-ink/65 transition hover:text-bronze">
               Sign out
             </button>

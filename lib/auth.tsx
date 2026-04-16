@@ -2,10 +2,14 @@
 
 import {
   AuthError,
+  EmailAuthProvider,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
+  reauthenticateWithCredential,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
+  updatePassword,
   updateProfile,
   User
 } from "firebase/auth";
@@ -22,6 +26,8 @@ interface AuthContextValue {
   authError: string;
   login: (email: string, password: string) => Promise<AppUser>;
   register: (input: { name: string; email: string; password: string; role: "buyer" | "seller" }) => Promise<AppUser>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -41,6 +47,13 @@ function mapAuthError(error: unknown) {
   const code = error && typeof error === "object" && "code" in error ? String((error as AuthError).code) : "";
 
   switch (code) {
+    case "auth/invalid-api-key":
+      return "Firebase Authentication is misconfigured. Please check NEXT_PUBLIC_FIREBASE_API_KEY for this deployment.";
+    case "auth/app-not-authorized":
+      return "This Firebase web app is not authorized for the current domain. Please review your Firebase web app configuration.";
+    case "auth/configuration-not-found":
+    case "auth/operation-not-allowed":
+      return "Firebase email/password sign-in is not enabled for this project yet.";
     case "auth/invalid-email":
       return "Please enter a valid email address.";
     case "auth/missing-password":
@@ -48,10 +61,17 @@ function mapAuthError(error: unknown) {
       return "Please use a stronger password.";
     case "auth/email-already-in-use":
       return "An account with this email already exists. Please sign in instead.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Please wait a moment and try again.";
     case "auth/invalid-credential":
     case "auth/user-not-found":
     case "auth/wrong-password":
       return "We couldn’t sign you in with those details. Please try again.";
+    case "auth/missing-email":
+      return "Please enter your email address.";
+    case "auth/user-token-expired":
+    case "auth/requires-recent-login":
+      return "Please sign in again before changing your password.";
     case "auth/network-request-failed":
       return LIVE_DATA_MESSAGE;
     default:
@@ -251,6 +271,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           if (process.env.NODE_ENV === "development") {
             console.error("Registration failed", error);
+          }
+          throw new Error(mapAuthError(error));
+        }
+      },
+      requestPasswordReset: async (email) => {
+        if (!isFirebaseConfigured) {
+          throw new Error(AUTH_UNAVAILABLE_MESSAGE);
+        }
+
+        try {
+          await sendPasswordResetEmail(auth, email);
+        } catch (error) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("Password reset request failed", error);
+          }
+          throw new Error(mapAuthError(error));
+        }
+      },
+      changePassword: async ({ currentPassword, newPassword }) => {
+        if (!isFirebaseConfigured) {
+          throw new Error(AUTH_UNAVAILABLE_MESSAGE);
+        }
+
+        if (!firebaseUser?.email) {
+          throw new Error("We couldn’t verify your account email. Please sign in again.");
+        }
+
+        try {
+          const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
+          await reauthenticateWithCredential(firebaseUser, credential);
+          await updatePassword(firebaseUser, newPassword);
+        } catch (error) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("Password change failed", error);
           }
           throw new Error(mapAuthError(error));
         }
