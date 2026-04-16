@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ActionCodeSettings,
   AuthError,
   EmailAuthProvider,
   createUserWithEmailAndPassword,
@@ -18,6 +19,7 @@ import { createContext, ReactNode, useContext, useEffect, useMemo, useState } fr
 import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from "@/lib/firebase";
 import { AppUser } from "@/types";
 import { resolveManagedUserAccess } from "@/lib/permissions";
+import { getSiteUrl } from "@/lib/seo";
 
 interface AuthContextValue {
   firebaseUser: User | null;
@@ -34,6 +36,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_UNAVAILABLE_MESSAGE = "Account signup is temporarily unavailable because authentication is not configured for this deployment.";
 const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
+const PRODUCTION_SITE_URL = "https://carnest-alpha.vercel.app";
 
 function setSessionCookies(user: AppUser | null) {
   if (typeof document === "undefined") return;
@@ -43,7 +46,7 @@ function setSessionCookies(user: AppUser | null) {
   document.cookie = `carnest_permissions=${user?.adminPermissions ? encodeURIComponent(JSON.stringify(user.adminPermissions)) : ""}; path=/; ${maxAge}`;
 }
 
-function mapAuthError(error: unknown) {
+export function mapAuthError(error: unknown) {
   const code = error && typeof error === "object" && "code" in error ? String((error as AuthError).code) : "";
 
   switch (code) {
@@ -72,11 +75,31 @@ function mapAuthError(error: unknown) {
     case "auth/user-token-expired":
     case "auth/requires-recent-login":
       return "Please sign in again before changing your password.";
+    case "auth/expired-action-code":
+    case "auth/invalid-action-code":
+      return "This password reset link is no longer valid. Please request a new reset email.";
+    case "auth/missing-continue-uri":
+    case "auth/invalid-continue-uri":
+      return "This password reset link is incomplete. Please request a new reset email.";
     case "auth/network-request-failed":
       return LIVE_DATA_MESSAGE;
     default:
       return "Something went wrong. Please try again.";
   }
+}
+
+function getAuthOrigin() {
+  if (typeof window !== "undefined" && window.location.origin.includes("localhost")) {
+    return window.location.origin;
+  }
+
+  return process.env.NEXT_PUBLIC_SITE_URL?.trim() || PRODUCTION_SITE_URL || getSiteUrl();
+}
+
+function getPasswordResetActionCodeSettings(): ActionCodeSettings {
+  return {
+    url: new URL("/login?reset=success", getAuthOrigin()).toString()
+  };
 }
 
 async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
@@ -281,7 +304,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          await sendPasswordResetEmail(auth, email);
+          await sendPasswordResetEmail(auth, email, getPasswordResetActionCodeSettings());
         } catch (error) {
           if (process.env.NODE_ENV === "development") {
             console.error("Password reset request failed", error);

@@ -2,7 +2,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { AuthForm } from "@/components/forms/auth-form";
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams?: Promise<{
+    reset?: string;
+  }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = searchParams ? await searchParams : undefined;
+
   return (
     <main className="mx-auto flex min-h-screen max-w-md items-center px-6 py-16">
       <div className="w-full space-y-6">
@@ -18,6 +26,11 @@ export default function LoginPage() {
             Sign in to save vehicles, submit offers, and book inspections. Create an account to manage your activity and get updates.
           </p>
         </div>
+        {params?.reset === "success" ? (
+          <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm text-emerald-800">
+            Password reset complete. Sign in with your new password.
+          </div>
+        ) : null}
         <Suspense fallback={<div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">Loading sign in form...</div>}>
           <AuthForm mode="login" />
         </Suspense>
