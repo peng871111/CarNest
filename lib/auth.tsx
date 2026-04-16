@@ -11,7 +11,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
-import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
+import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from "@/lib/firebase";
 import { AppUser } from "@/types";
 import { resolveManagedUserAccess } from "@/lib/permissions";
 
@@ -26,7 +26,7 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const AUTH_UNAVAILABLE_MESSAGE = "Secure account access is temporarily unavailable. Please try again later.";
+const AUTH_UNAVAILABLE_MESSAGE = "Account signup is temporarily unavailable because authentication is not configured for this deployment.";
 const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
 
 function setSessionCookies(user: AppUser | null) {
@@ -210,6 +210,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       register: async ({ name, email, password, role }) => {
         if (!isFirebaseConfigured) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("Firebase Authentication is not configured for this deployment.", {
+              missingFirebaseConfigKeys
+            });
+          }
           throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         }
 

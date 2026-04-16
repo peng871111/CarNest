@@ -2,9 +2,11 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { TurnstileField } from "@/components/forms/turnstile-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
+import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
 import { ROLE_PLACEHOLDERS } from "@/lib/roles";
 import { UserRole } from "@/types";
 
@@ -16,6 +18,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const { login, register } = useAuth();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,6 +51,16 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
         if (password.length < 6) {
           throw new Error("Please use a password with at least 6 characters.");
+        }
+
+        const turnstilePresenceError = validateTurnstileToken(turnstileToken);
+        if (turnstilePresenceError) {
+          throw new Error(turnstilePresenceError);
+        }
+
+        const turnstileVerificationError = await verifyTurnstileToken(turnstileToken);
+        if (turnstileVerificationError) {
+          throw new Error(turnstileVerificationError);
         }
       }
 
@@ -82,6 +95,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           <option value="seller">Seller</option>
         </select>
       )}
+      {mode === "register" && TURNSTILE_ENABLED ? (
+        <TurnstileField
+          token={turnstileToken}
+          onTokenChange={setTurnstileToken}
+          helperText="Complete the security check to finish creating your account."
+        />
+      ) : null}
       <div className="rounded-[24px] bg-shell p-4">
         <p className="text-xs uppercase tracking-[0.28em] text-bronze">Role model placeholders</p>
         <div className="mt-3 grid gap-3">

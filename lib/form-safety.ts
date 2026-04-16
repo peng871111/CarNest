@@ -1,5 +1,6 @@
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
+export const TURNSTILE_ENABLED = Boolean(TURNSTILE_SITE_KEY);
 const DEFAULT_RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 const DEFAULT_DUPLICATE_MESSAGE = "It looks like this request was already submitted.";
 
@@ -136,13 +137,13 @@ export function rememberSubmissionEvent(storageKey: string, fingerprint?: string
 }
 
 export function validateTurnstileToken(token: string) {
-  if (!TURNSTILE_SITE_KEY) return "";
+  if (!TURNSTILE_ENABLED) return "";
   if (token.trim()) return "";
   return "Please complete the security check before submitting.";
 }
 
 export async function verifyTurnstileToken(token: string) {
-  if (!TURNSTILE_SITE_KEY) return "";
+  if (!TURNSTILE_ENABLED) return "";
   if (!token.trim()) return "Please complete the security check before submitting.";
 
   try {

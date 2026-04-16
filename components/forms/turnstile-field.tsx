@@ -24,10 +24,12 @@ declare global {
 
 export function TurnstileField({
   token,
-  onTokenChange
+  onTokenChange,
+  helperText = "Complete the security check before submitting."
 }: {
   token: string;
   onTokenChange: (token: string) => void;
+  helperText?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
@@ -62,7 +64,7 @@ export function TurnstileField({
     <div className="space-y-2">
       <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" strategy="afterInteractive" onLoad={() => setScriptLoaded(true)} />
       <div ref={containerRef} />
-      {!token ? <p className="text-xs text-ink/50">Complete the security check before submitting.</p> : null}
+      {!token ? <p className="text-xs text-ink/50">{helperText}</p> : null}
     </div>
   );
 }
