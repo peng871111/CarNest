@@ -204,6 +204,8 @@ export function SellFlow() {
         drivetrain: form.drivetrain,
         bodyType: form.bodyType,
         colour: form.colour,
+        serviceHistory: "",
+        keyCount: "",
         sellerLocationSuburb: form.suburb,
         sellerLocationState: form.state,
         description: form.description,
