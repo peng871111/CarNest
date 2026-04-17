@@ -373,8 +373,14 @@ function serializeVehicleAnalyticsDoc(id: string, data: Record<string, unknown>)
     views7d: Number(data.views7d ?? 0),
     views30d: Number(data.views30d ?? 0),
     saves: Number(data.saves ?? 0),
+    saves7d: Number(data.saves7d ?? 0),
+    saves30d: Number(data.saves30d ?? 0),
     offers: Number(data.offers ?? 0),
+    offers7d: Number(data.offers7d ?? 0),
+    offers30d: Number(data.offers30d ?? 0),
     inspections: Number(data.inspections ?? 0),
+    inspections7d: Number(data.inspections7d ?? 0),
+    inspections30d: Number(data.inspections30d ?? 0),
     topCities: normalizeBreakdown(data.topCities),
     topStates: normalizeBreakdown(data.topStates),
     topSources: normalizeBreakdown(data.topSources),
@@ -411,12 +417,25 @@ function buildEmptyVehicleAnalytics(vehicleId: string, sellerOwnerUid = ""): Veh
     views7d: 0,
     views30d: 0,
     saves: 0,
+    saves7d: 0,
+    saves30d: 0,
     offers: 0,
+    offers7d: 0,
+    offers30d: 0,
     inspections: 0,
+    inspections7d: 0,
+    inspections30d: 0,
     topCities: [],
     topStates: [],
     topSources: []
   };
+}
+
+function countItemsCreatedSince(items: Array<{ createdAt?: string }>, since: number) {
+  return items.filter((item) => {
+    const createdAt = item.createdAt ? new Date(item.createdAt).getTime() : 0;
+    return createdAt >= since;
+  }).length;
 }
 
 export async function listVehicles() {
@@ -840,9 +859,13 @@ async function buildVehicleAnalyticsSummary(vehicleId: string, sellerOwnerUid?: 
   ]);
 
   const viewEvents = viewEventSnapshot.docs.map((item) => serializeVehicleViewEventDoc(item.id, item.data()));
+  const savedVehicles = (savedVehicleSnapshot?.docs ?? []).map((item) => serializeDoc<SavedVehicle>(item.id, item.data()));
+  const offers = offerSnapshot.docs.map((item) => serializeDoc<Offer>(item.id, item.data()));
+  const inspections = inspectionSnapshot.docs.map((item) => serializeDoc<InspectionRequest>(item.id, item.data()));
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+  const storedAnalyticsData = storedAnalyticsSnapshot?.exists() ? storedAnalyticsSnapshot.data() : null;
 
   const uniqueVisitors = new Set(
     viewEvents.map((event) => event.userId?.trim() || event.sessionId.trim()).filter(Boolean)
@@ -864,9 +887,25 @@ async function buildVehicleAnalyticsSummary(vehicleId: string, sellerOwnerUid?: 
     }).length,
     saves:
       savedVehicleSnapshot?.size ??
-      (storedAnalyticsSnapshot?.exists() ? Number(storedAnalyticsSnapshot.data()?.saves ?? 0) : 0),
+      (storedAnalyticsData ? Number(storedAnalyticsData.saves ?? 0) : 0),
+    saves7d:
+      savedVehicleSnapshot
+        ? countItemsCreatedSince(savedVehicles, sevenDaysAgo)
+        : storedAnalyticsData
+          ? Number(storedAnalyticsData.saves7d ?? 0)
+          : 0,
+    saves30d:
+      savedVehicleSnapshot
+        ? countItemsCreatedSince(savedVehicles, thirtyDaysAgo)
+        : storedAnalyticsData
+          ? Number(storedAnalyticsData.saves30d ?? 0)
+          : 0,
     offers: offerSnapshot.size,
+    offers7d: countItemsCreatedSince(offers, sevenDaysAgo),
+    offers30d: countItemsCreatedSince(offers, thirtyDaysAgo),
     inspections: inspectionSnapshot.size,
+    inspections7d: countItemsCreatedSince(inspections, sevenDaysAgo),
+    inspections30d: countItemsCreatedSince(inspections, thirtyDaysAgo),
     topCities: countTopValues(viewEvents.map((event) => event.city)),
     topStates: countTopValues(viewEvents.map((event) => event.state)),
     topSources: countTopValues(viewEvents.map((event) => event.source)),
@@ -898,8 +937,14 @@ export async function getVehicleAnalytics(vehicleId: string, sellerOwnerUid?: st
           views7d: analytics.views7d,
           views30d: analytics.views30d,
           saves: analytics.saves,
+          saves7d: analytics.saves7d,
+          saves30d: analytics.saves30d,
           offers: analytics.offers,
+          offers7d: analytics.offers7d,
+          offers30d: analytics.offers30d,
           inspections: analytics.inspections,
+          inspections7d: analytics.inspections7d,
+          inspections30d: analytics.inspections30d,
           topCities: analytics.topCities,
           topStates: analytics.topStates,
           topSources: analytics.topSources,

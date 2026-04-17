@@ -9,6 +9,7 @@ import { getOwnedVehiclesData } from "@/lib/data";
 import { getListingLabel } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
 import { Vehicle } from "@/types";
+import { ListingTrendsPanel } from "@/components/analytics/listing-trends-panel";
 import { SellerListingStatusBadge } from "@/components/vehicles/seller-listing-status-badge";
 import { SellerVehicleStatusEditor } from "@/components/vehicles/seller-vehicle-status-editor";
 
@@ -73,6 +74,7 @@ function SellerVehiclesPageContent() {
           We couldn't load your vehicles right now. Please try again shortly.
         </div>
       ) : null}
+      {appUser ? <ListingTrendsPanel ownerUid={appUser.id} vehicles={vehicles} /> : null}
       <section className="rounded-[32px] border border-black/5 bg-white shadow-panel">
         <div className="grid grid-cols-[1.7fr,1fr,1fr,1fr,220px] gap-4 border-b border-black/5 bg-shell px-6 py-4 text-xs uppercase tracking-[0.22em] text-ink/55">
           <span>Vehicle</span>

@@ -194,8 +194,14 @@ export interface VehicleAnalytics {
   views7d: number;
   views30d: number;
   saves: number;
+  saves7d: number;
+  saves30d: number;
   offers: number;
+  offers7d: number;
+  offers30d: number;
   inspections: number;
+  inspections7d: number;
+  inspections30d: number;
   topCities: VehicleAnalyticsBreakdown[];
   topStates: VehicleAnalyticsBreakdown[];
   topSources: VehicleAnalyticsBreakdown[];
