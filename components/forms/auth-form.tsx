@@ -10,6 +10,27 @@ import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from 
 import { UserRole } from "@/types";
 
 const DEFAULT_PUBLIC_SIGNUP_ROLE = "buyer" as const;
+const REGISTER_PASSWORD_HELPER_TEXT = "Password must be at least 8 characters and include uppercase, lowercase, and a number.";
+
+function getRegisterPasswordError(password: string) {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters.";
+  }
+
+  if (!/[A-Z]/.test(password)) {
+    return "Password must include at least 1 uppercase letter.";
+  }
+
+  if (!/[a-z]/.test(password)) {
+    return "Password must include at least 1 lowercase letter.";
+  }
+
+  if (!/[0-9]/.test(password)) {
+    return "Password must include at least 1 number.";
+  }
+
+  return "";
+}
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -60,8 +81,9 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           throw new Error("Please enter your full name.");
         }
 
-        if (password.length < 6) {
-          throw new Error("Please use a password with at least 6 characters.");
+        const passwordError = getRegisterPasswordError(password);
+        if (passwordError) {
+          throw new Error(passwordError);
         }
 
         const turnstilePresenceError = validateTurnstileToken(turnstileToken);
@@ -100,12 +122,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     <form onSubmit={handleSubmit} className="space-y-4 rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
       {mode === "register" && <Input name="name" placeholder="Full name" required />}
       <Input type="email" name="email" placeholder="Email address" required />
-      <Input type="password" name="password" placeholder="Password" minLength={6} required />
-      {mode === "register" ? (
-        <div className="rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink/65">
-          Public signup creates one standard CarNest account. Admin access stays managed internally for approved team members only.
-        </div>
-      ) : null}
+      <Input
+        type="password"
+        name="password"
+        placeholder="Password"
+        minLength={mode === "register" ? 8 : 6}
+        required
+      />
+      {mode === "register" ? <p className="text-sm leading-6 text-ink/60">{REGISTER_PASSWORD_HELPER_TEXT}</p> : null}
       {mode === "register" && TURNSTILE_ENABLED ? (
         <TurnstileField
           token={turnstileToken}

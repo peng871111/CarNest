@@ -15,10 +15,7 @@ export default function RegisterPage() {
           <p className="text-sm uppercase tracking-[0.35em] text-bronze">Register</p>
           <h1 className="mt-3 font-display text-5xl text-ink">Create your CarNest account</h1>
           <p className="mt-4 text-sm leading-6 text-ink/65">
-            Create one CarNest account to save vehicles, submit offers, request inspections, and manage your activity across the platform.
-          </p>
-          <p className="mt-3 text-sm leading-6 text-ink/55">
-            Public signup is for one standard CarNest account. Admin access is assigned internally for approved team emails only.
+            Create your CarNest account to save vehicles, submit offers, request inspections, and manage your activity.
           </p>
         </div>
         <Suspense fallback={<div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">Loading registration form...</div>}>
