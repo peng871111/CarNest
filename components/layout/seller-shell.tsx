@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { SELLER_LINKS } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
+import { getSellerOffersData } from "@/lib/data";
 import { canAccessRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
 import { UserRole } from "@/types";
+
+function formatBadgeCount(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
 
 export function SellerShell({
   title,
@@ -26,12 +31,35 @@ export function SellerShell({
   const { appUser, loading } = useAuth();
   const workspaceHomeHref = appUser?.role === "admin" || appUser?.role === "super_admin" ? "/admin/vehicles" : "/seller/vehicles";
   const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role);
+  const [offersBadgeCount, setOffersBadgeCount] = useState(0);
 
   useEffect(() => {
     if (!loading && !hasWorkspaceAccess) {
       router.replace(appUser ? workspaceHomeHref : `/login?redirect=${encodeURIComponent(pathname)}`);
     }
   }, [appUser, hasWorkspaceAccess, loading, pathname, router, workspaceHomeHref]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOffersBadge() {
+      if (loading || !hasWorkspaceAccess || !appUser || appUser.role === "admin" || appUser.role === "super_admin") {
+        setOffersBadgeCount(0);
+        return;
+      }
+
+      const result = await getSellerOffersData(appUser.id);
+      if (cancelled) return;
+
+      setOffersBadgeCount(result.items.filter((offer) => offer.status === "new").length);
+    }
+
+    void loadOffersBadge();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser, hasWorkspaceAccess, loading]);
 
   if (loading) {
     return <main className="mx-auto max-w-7xl px-6 py-16 text-sm text-ink/60">Loading account area...</main>;
@@ -51,11 +79,16 @@ export function SellerShell({
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "block rounded-2xl px-4 py-3 text-sm text-ink/65 transition hover:bg-shell hover:text-ink",
+                  "flex items-center justify-between rounded-2xl px-4 py-3 text-sm text-ink/65 transition hover:bg-shell hover:text-ink",
                   pathname === link.href && "bg-shell text-ink"
                 )}
               >
-                {link.label}
+                <span>{link.label}</span>
+                {link.href === "/seller/offers" && offersBadgeCount > 0 ? (
+                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-[#B42318] px-2 py-0.5 text-[11px] font-semibold text-white">
+                    {formatBadgeCount(offersBadgeCount)}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>
