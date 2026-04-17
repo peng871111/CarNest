@@ -57,7 +57,7 @@ export default function DashboardPage() {
               <p className="text-xs uppercase tracking-[0.28em] text-bronze">Dashboard</p>
               <h1 className="mt-4 font-display text-4xl text-ink">Sign in to continue</h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
-                Your dashboard destination depends on your CarNest role. Log in to open your management area.
+                Sign in to access your CarNest dashboard.
               </p>
               <div className="mt-8">
                 <Link href="/login" className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">
@@ -70,7 +70,7 @@ export default function DashboardPage() {
               <p className="text-xs uppercase tracking-[0.28em] text-bronze">Dashboard</p>
               <h1 className="mt-4 font-display text-4xl text-ink">Welcome back, {appUser.displayName}</h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
-                You are signed in as a {appUser.role}. Use the links below to jump into the right CarNest workspace.
+                Manage your CarNest activity from one place.
               </p>
               <div className="mt-8 flex flex-wrap gap-4">
                 {destinations.map((destination) => (
