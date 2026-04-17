@@ -15,7 +15,7 @@ export default function SavedVehiclesPage() {
 
   useEffect(() => {
     async function loadSavedVehicles() {
-      if (!appUser || appUser.role !== "buyer") {
+      if (!appUser || appUser.role === "admin" || appUser.role === "super_admin") {
         setVehicles([]);
         setPageLoading(false);
         return;
@@ -55,7 +55,7 @@ export default function SavedVehiclesPage() {
               <p className="text-xs uppercase tracking-[0.28em] text-bronze">Saved vehicles</p>
               <h1 className="mt-4 font-display text-4xl text-ink">Sign in to view your saved vehicles</h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
-                Your buyer dashboard keeps a shortlist of vehicles you want to revisit.
+                Keep a shortlist of vehicles you want to revisit from your CarNest account.
               </p>
               <div className="mt-8">
                 <Link href="/login" className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">
@@ -63,12 +63,12 @@ export default function SavedVehiclesPage() {
                 </Link>
               </div>
             </>
-          ) : appUser.role !== "buyer" ? (
+          ) : appUser.role === "admin" || appUser.role === "super_admin" ? (
             <>
               <p className="text-xs uppercase tracking-[0.28em] text-bronze">Saved vehicles</p>
-              <h1 className="mt-4 font-display text-4xl text-ink">Saved vehicles are for buyer accounts</h1>
+              <h1 className="mt-4 font-display text-4xl text-ink">Saved vehicles are not available in the admin area</h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
-                Switch to a buyer account to save listings and revisit them from your dashboard.
+                Standard CarNest accounts can save listings and revisit them here.
               </p>
             </>
           ) : vehicles.length ? (
@@ -76,7 +76,7 @@ export default function SavedVehiclesPage() {
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.28em] text-bronze">Saved vehicles</p>
-                  <h1 className="mt-4 font-display text-4xl text-ink">Your buyer shortlist</h1>
+                  <h1 className="mt-4 font-display text-4xl text-ink">Your saved shortlist</h1>
                   <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
                     Revisit the vehicles you have saved and jump back into offers or inspection planning when you are ready.
                   </p>
@@ -96,7 +96,7 @@ export default function SavedVehiclesPage() {
               <p className="text-xs uppercase tracking-[0.28em] text-bronze">Saved vehicles</p>
               <h1 className="mt-4 font-display text-4xl text-ink">No saved vehicles yet</h1>
               <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
-                Save vehicles from their detail pages to build a shortlist in your buyer dashboard.
+                Save vehicles from their detail pages to build a shortlist in your account.
               </p>
               <div className="mt-8">
                 <Link href="/inventory" className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">

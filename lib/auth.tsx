@@ -44,6 +44,7 @@ const PROFILE_CREATE_FAILED_MESSAGE = "Failed to create user profile. Please try
 const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it for you now.";
 const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
 const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
+const LOGIN_PROTECTION_SESSION_KEY = "carnest_login_protection_session";
 const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" }>();
 const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageVehicles: false,
@@ -95,7 +96,10 @@ function readLocalLoginProtectionStore() {
   if (typeof window === "undefined") return {} as Record<string, LocalLoginProtectionState>;
 
   try {
-    const rawValue = window.localStorage.getItem(LOGIN_PROTECTION_STORAGE_KEY);
+    const rawValue =
+      window.localStorage.getItem(LOGIN_PROTECTION_STORAGE_KEY)
+      || window.sessionStorage.getItem(LOGIN_PROTECTION_STORAGE_KEY)
+      || window.sessionStorage.getItem(LOGIN_PROTECTION_SESSION_KEY);
     if (!rawValue) return {};
 
     const parsedValue = JSON.parse(rawValue) as Record<string, Partial<LocalLoginProtectionState>>;
@@ -117,6 +121,8 @@ function readLocalLoginProtectionStore() {
 function writeLocalLoginProtectionStore(store: Record<string, LocalLoginProtectionState>) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LOGIN_PROTECTION_STORAGE_KEY, JSON.stringify(store));
+  window.sessionStorage.setItem(LOGIN_PROTECTION_STORAGE_KEY, JSON.stringify(store));
+  window.sessionStorage.setItem(LOGIN_PROTECTION_SESSION_KEY, JSON.stringify(store));
 }
 
 function getLocalLoginProtectionState(email: string): LocalLoginProtectionState {
@@ -173,17 +179,54 @@ export function markLocalPasswordResetComplete(email: string) {
   const normalizedEmail = normalizeAuthEmail(email);
   if (!normalizedEmail) return;
 
-  setLocalLoginProtectionState(normalizedEmail, {
-    failedLoginAttempts: 0,
-    mustResetPassword: false,
-    resetCompleted: true
-  });
+  clearLocalLoginProtection(normalizedEmail);
+}
+
+export function clearAllLoginProtectionBrowserState() {
+  if (typeof window === "undefined") return;
+
+  window.localStorage.removeItem(LOGIN_PROTECTION_STORAGE_KEY);
+  window.sessionStorage.removeItem(LOGIN_PROTECTION_STORAGE_KEY);
+  window.sessionStorage.removeItem(LOGIN_PROTECTION_SESSION_KEY);
 }
 
 function clearLocalLoginProtection(email: string) {
   const normalizedEmail = normalizeAuthEmail(email);
   if (!normalizedEmail) return;
   setLocalLoginProtectionState(normalizedEmail, DEFAULT_LOCAL_LOGIN_PROTECTION_STATE);
+}
+
+export async function clearResetRequiredStateForEmail(email: string, password?: string) {
+  const normalizedEmail = normalizeAuthEmail(email);
+  if (!normalizedEmail || !isFirebaseConfigured) {
+    clearAllLoginProtectionBrowserState();
+    return;
+  }
+
+  let signedInForCleanup = false;
+
+  try {
+    let currentUser = auth.currentUser;
+
+    if ((!currentUser || normalizeAuthEmail(currentUser.email ?? "") !== normalizedEmail) && password) {
+      const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+      currentUser = credential.user;
+      signedInForCleanup = true;
+    }
+
+    if (currentUser && normalizeAuthEmail(currentUser.email ?? "") === normalizedEmail) {
+      await writeUserSecurityState(currentUser.uid, DEFAULT_USER_SECURITY_STATE);
+    }
+  } finally {
+    clearLocalLoginProtection(normalizedEmail);
+    clearAllLoginProtectionBrowserState();
+
+    if (signedInForCleanup) {
+      try {
+        await signOut(auth);
+      } catch {}
+    }
+  }
 }
 
 function getUserSecurityState(data?: Record<string, unknown>): UserSecurityState {

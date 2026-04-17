@@ -1,17 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { KeyboardEvent, Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { SellerShell } from "@/components/layout/seller-shell";
 import { useAuth } from "@/lib/auth";
-import { getOwnedVehiclesData } from "@/lib/data";
+import { getOwnedVehiclesData, updateVehicle } from "@/lib/data";
 import { getListingLabel } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
-import { Vehicle } from "@/types";
+import { Vehicle, VehicleFormInput } from "@/types";
 import { ListingTrendsPanel } from "@/components/analytics/listing-trends-panel";
 import { SellerListingStatusBadge } from "@/components/vehicles/seller-listing-status-badge";
 import { SellerVehicleStatusEditor } from "@/components/vehicles/seller-vehicle-status-editor";
+import { Input } from "@/components/ui/input";
+
+function buildVehicleFormInput(vehicle: Vehicle, price: number): VehicleFormInput {
+  return {
+    listingType: vehicle.listingType,
+    make: vehicle.make,
+    model: vehicle.model,
+    year: vehicle.year,
+    price,
+    mileage: vehicle.mileage,
+    transmission: vehicle.transmission,
+    fuelType: vehicle.fuelType,
+    drivetrain: vehicle.drivetrain,
+    bodyType: vehicle.bodyType,
+    colour: vehicle.colour,
+    serviceHistory: vehicle.serviceHistory ?? "",
+    keyCount: vehicle.keyCount ?? "",
+    sellerLocationSuburb: vehicle.sellerLocationSuburb ?? "",
+    sellerLocationState: vehicle.sellerLocationState ?? "",
+    description: vehicle.description,
+    coverImage: vehicle.coverImage ?? vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
+    coverImageUrl: vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
+    imageUrls: vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images,
+    images: vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images,
+    submissionPreference: vehicle.submissionPreference,
+    serviceQuoteNotes: vehicle.serviceQuoteNotes ?? ""
+  };
+}
 
 function SellerVehiclesPageContent() {
   const { appUser } = useAuth();
@@ -19,6 +47,10 @@ function SellerVehiclesPageContent() {
   const searchParamsKey = searchParams.toString();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [error, setError] = useState("");
+  const [workspaceNotice, setWorkspaceNotice] = useState("");
+  const [editingPriceVehicleId, setEditingPriceVehicleId] = useState<string | null>(null);
+  const [priceDraft, setPriceDraft] = useState("");
+  const [savingPriceVehicleId, setSavingPriceVehicleId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +75,59 @@ function SellerVehiclesPageContent() {
         ? `Listing updated to ${searchParams.get("sellerStatus")}`
         : "Vehicle updated successfully"
       : "";
+
+  function beginPriceEdit(vehicle: Vehicle) {
+    if (!appUser || appUser.role !== "seller") return;
+    setWorkspaceNotice("");
+    setEditingPriceVehicleId(vehicle.id);
+    setPriceDraft(String(vehicle.price));
+  }
+
+  function cancelPriceEdit(vehicle: Vehicle) {
+    setEditingPriceVehicleId(null);
+    setPriceDraft(String(vehicle.price));
+  }
+
+  async function savePrice(vehicle: Vehicle) {
+    if (!appUser || appUser.role !== "seller") return;
+
+    const normalizedPrice = Number(priceDraft.trim());
+    if (!Number.isFinite(normalizedPrice) || normalizedPrice < 0) {
+      setWorkspaceNotice("Please enter a valid listing price.");
+      return;
+    }
+
+    if (normalizedPrice === vehicle.price) {
+      setEditingPriceVehicleId(null);
+      return;
+    }
+
+    setSavingPriceVehicleId(vehicle.id);
+    setWorkspaceNotice("");
+
+    try {
+      const result = await updateVehicle(vehicle.id, buildVehicleFormInput(vehicle, normalizedPrice), appUser, vehicle);
+      setVehicles((current) => current.map((item) => (item.id === vehicle.id ? result.vehicle : item)));
+      setEditingPriceVehicleId(null);
+      setWorkspaceNotice("Listing price updated.");
+    } catch (priceError) {
+      setWorkspaceNotice(priceError instanceof Error ? priceError.message : "We couldn't update the listing price.");
+    } finally {
+      setSavingPriceVehicleId(null);
+    }
+  }
+
+  async function handlePriceKeyDown(event: KeyboardEvent<HTMLInputElement>, vehicle: Vehicle) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      await savePrice(vehicle);
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancelPriceEdit(vehicle);
+    }
+  }
 
   return (
     <SellerShell
@@ -72,13 +157,14 @@ function SellerVehiclesPageContent() {
           Add vehicle
         </Link>
       </div>
-      {writeStatus ? <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">{writeStatus}</div> : null}
+      {writeStatus || workspaceNotice ? (
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">{workspaceNotice || writeStatus}</div>
+      ) : null}
       {error ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">
           We couldn't load your vehicles right now. Please try again shortly.
         </div>
       ) : null}
-      {appUser ? <ListingTrendsPanel ownerUid={appUser.id} vehicles={vehicles} /> : null}
       <section className="rounded-[32px] border border-black/5 bg-white shadow-panel">
         <div className="grid grid-cols-[1.7fr,1fr,1fr,1fr,220px] gap-4 border-b border-black/5 bg-shell px-6 py-4 text-xs uppercase tracking-[0.22em] text-ink/55">
           <span>Vehicle</span>
@@ -101,7 +187,31 @@ function SellerVehiclesPageContent() {
                 <div>
                   <SellerListingStatusBadge vehicle={vehicle} />
                 </div>
-                <div className="text-ink/70">{formatCurrency(vehicle.price)}</div>
+                <div className="text-ink/70">
+                  {editingPriceVehicleId === vehicle.id ? (
+                    <Input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={priceDraft}
+                      onChange={(event) => setPriceDraft(event.target.value)}
+                      onKeyDown={(event) => void handlePriceKeyDown(event, vehicle)}
+                      onBlur={() => cancelPriceEdit(vehicle)}
+                      autoFocus
+                      disabled={savingPriceVehicleId === vehicle.id}
+                      className="h-11 rounded-[18px] px-3 py-2"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => beginPriceEdit(vehicle)}
+                      disabled={appUser?.role !== "seller" || savingPriceVehicleId === vehicle.id}
+                      className="rounded-[18px] px-2 py-1 text-left text-sm font-medium text-ink transition hover:bg-shell disabled:cursor-default disabled:px-0 disabled:hover:bg-transparent"
+                    >
+                      {formatCurrency(vehicle.price)}
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-col items-start gap-3">
                   <Link href={`/seller/vehicles/${vehicle.id}/edit`} className="text-sm font-medium text-ink underline">
                     Edit
@@ -117,6 +227,7 @@ function SellerVehiclesPageContent() {
           )}
         </div>
       </section>
+      {appUser ? <ListingTrendsPanel ownerUid={appUser.id} vehicles={vehicles} /> : null}
     </SellerShell>
   );
 }

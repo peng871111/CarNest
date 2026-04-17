@@ -5,7 +5,7 @@ import { confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { mapAuthError, markLocalPasswordResetComplete } from "@/lib/auth";
+import { clearResetRequiredStateForEmail, mapAuthError } from "@/lib/auth";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
 
 type PasswordResetCompletionFormProps = {
@@ -110,7 +110,7 @@ export function PasswordResetCompletionForm({
 
       await confirmPasswordReset(auth, oobCode, newPassword);
       if (email) {
-        markLocalPasswordResetComplete(email);
+        await clearResetRequiredStateForEmail(email, newPassword);
       }
       setSuccess("Your password has been reset successfully. You can now sign in with your new password.");
       setNewPassword("");

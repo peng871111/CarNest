@@ -1,11 +1,11 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { TurnstileField } from "@/components/forms/turnstile-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/lib/auth";
+import { clearAllLoginProtectionBrowserState, useAuth } from "@/lib/auth";
 import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
 import { UserRole } from "@/types";
 
@@ -40,6 +40,12 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+
+  useEffect(() => {
+    if (searchParams.get("reset") === "success") {
+      clearAllLoginProtectionBrowserState();
+    }
+  }, [searchParams]);
 
   function navigateToDestination(destination: string) {
     if (typeof window !== "undefined") {

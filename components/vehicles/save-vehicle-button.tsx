@@ -18,10 +18,11 @@ export function SaveVehicleButton({ vehicleId }: { vehicleId: string }) {
   const [message, setMessage] = useState("");
   const [showAuthModal, setShowAuthModal] = useState(false);
   const autoSaveTriggered = useRef(false);
+  const canUseSavedVehicles = Boolean(appUser && appUser.role !== "admin" && appUser.role !== "super_admin");
 
   useEffect(() => {
     async function checkSavedState() {
-      if (!appUser || appUser.role !== "buyer") {
+      if (!canUseSavedVehicles || !appUser) {
         setSaved(false);
         return;
       }
@@ -33,13 +34,13 @@ export function SaveVehicleButton({ vehicleId }: { vehicleId: string }) {
     }
 
     void checkSavedState();
-  }, [appUser, vehicleId]);
+  }, [appUser, canUseSavedVehicles, vehicleId]);
 
   useEffect(() => {
     async function resumeSaveIntent() {
       if (autoSaveTriggered.current) return;
       if (searchParams.get("action") !== "save") return;
-      if (!appUser || appUser.role !== "buyer" || saved || checking || saving) return;
+      if (!appUser || !canUseSavedVehicles || saved || checking || saving) return;
 
       autoSaveTriggered.current = true;
       try {
@@ -50,10 +51,10 @@ export function SaveVehicleButton({ vehicleId }: { vehicleId: string }) {
     }
 
     void resumeSaveIntent();
-  }, [appUser, checking, router, saved, saving, searchParams, vehicleId]);
+  }, [appUser, canUseSavedVehicles, checking, router, saved, saving, searchParams, vehicleId]);
 
   async function handleSave(fromResume = false) {
-    if (!appUser || appUser.role !== "buyer") return;
+    if (!appUser || !canUseSavedVehicles) return;
 
     setSaving(true);
     if (!fromResume) {
@@ -103,11 +104,11 @@ export function SaveVehicleButton({ vehicleId }: { vehicleId: string }) {
     );
   }
 
-  if (appUser.role !== "buyer") {
+  if (!canUseSavedVehicles) {
     return (
       <div className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
         <p className="text-xs uppercase tracking-[0.22em] text-bronze">Save vehicle</p>
-        <p className="mt-3 text-sm leading-6 text-ink/70">Saved vehicles are available from buyer dashboards only.</p>
+        <p className="mt-3 text-sm leading-6 text-ink/70">Saved vehicles are available from standard CarNest accounts.</p>
       </div>
     );
   }
@@ -115,7 +116,7 @@ export function SaveVehicleButton({ vehicleId }: { vehicleId: string }) {
   return (
     <div className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
       <p className="text-xs uppercase tracking-[0.22em] text-bronze">Save vehicle</p>
-      <p className="mt-3 text-sm leading-6 text-ink/70">Keep this listing in your buyer dashboard so it is easy to revisit later.</p>
+      <p className="mt-3 text-sm leading-6 text-ink/70">Keep this listing in your account so it is easy to revisit later.</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button type="button" disabled={checking || saving || saved} onClick={() => void handleSave()}>
           {checking ? "Checking..." : saving ? "Saving..." : saved ? "Saved" : "Save Vehicle"}
