@@ -11,6 +11,7 @@ import { ROLE_PLACEHOLDERS } from "@/lib/roles";
 import { UserRole } from "@/types";
 
 type PublicRegistrationRole = "buyer" | "seller";
+const DEFAULT_PUBLIC_SIGNUP_ROLE: PublicRegistrationRole = "buyer";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
@@ -44,7 +45,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
     function resolveDestination(role: UserRole) {
       if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-      return role === "admin" || role === "super_admin" ? "/admin/vehicles" : role === "seller" ? "/seller/vehicles" : "/dashboard";
+      return "/";
     }
 
     try {
@@ -81,12 +82,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         setSuccess("Signed in successfully. Redirecting...");
         navigateToDestination(resolveDestination(user.role));
       } else {
-        const role = String(form.get("role")) as PublicRegistrationRole;
         const user = await register({
           name,
           email,
           password,
-          role
+          role: DEFAULT_PUBLIC_SIGNUP_ROLE
         });
         setSuccess("Account created successfully. Redirecting...");
         navigateToDestination(resolveDestination(user.role));
@@ -103,12 +103,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       {mode === "register" && <Input name="name" placeholder="Full name" required />}
       <Input type="email" name="email" placeholder="Email address" required />
       <Input type="password" name="password" placeholder="Password" minLength={6} required />
-      {mode === "register" && (
-        <select name="role" className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm">
-          <option value="buyer">Buyer</option>
-          <option value="seller">Seller</option>
-        </select>
-      )}
+      {mode === "register" ? (
+        <div className="rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink/65">
+          New public accounts start as standard CarNest users. Any advanced access is managed separately after account setup.
+        </div>
+      ) : null}
       {mode === "register" && TURNSTILE_ENABLED ? (
         <TurnstileField
           token={turnstileToken}

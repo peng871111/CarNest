@@ -4,6 +4,7 @@ import {
   ActionCodeSettings,
   AuthError,
   EmailAuthProvider,
+  UserCredential,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   reauthenticateWithCredential,
@@ -14,11 +15,11 @@ import {
   updateProfile,
   User
 } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { Timestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from "@/lib/firebase";
 import { AppUser } from "@/types";
-import { resolveManagedUserAccess } from "@/lib/permissions";
+import { createAdminPermissions, resolveManagedUserAccess } from "@/lib/permissions";
 import { getSiteUrl } from "@/lib/seo";
 
 interface AuthContextValue {
@@ -37,6 +38,21 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_UNAVAILABLE_MESSAGE = "Account signup is temporarily unavailable because authentication is not configured for this deployment.";
 const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
 const PRODUCTION_SITE_URL = "https://carnest-alpha.vercel.app";
+const PROFILE_SETUP_MESSAGE = "Your account was created, but we couldn’t finish setting up your profile. Please sign in to continue.";
+const PROFILE_LOAD_MESSAGE = "We signed you in, but couldn’t load your account profile. Please try again.";
+const PROFILE_CREATE_FAILED_MESSAGE = "Failed to create user profile. Please try signing in again.";
+const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it for you now.";
+const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" }>();
+const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
+  manageVehicles: false,
+  manageOffers: false,
+  manageEnquiries: false,
+  manageInspections: false,
+  managePricing: false,
+  manageQuotes: false,
+  manageUsers: false,
+  manageAdmins: false
+});
 
 function setSessionCookies(user: AppUser | null) {
   if (typeof document === "undefined") return;
@@ -46,15 +62,24 @@ function setSessionCookies(user: AppUser | null) {
   document.cookie = `carnest_permissions=${user?.adminPermissions ? encodeURIComponent(JSON.stringify(user.adminPermissions)) : ""}; path=/; ${maxAge}`;
 }
 
+function getErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+}
+
 export function mapAuthError(error: unknown) {
-  const code = error && typeof error === "object" && "code" in error ? String((error as AuthError).code) : "";
+  const code = getErrorCode(error);
 
   if (!code && error instanceof Error) {
-    if (error.message === AUTH_UNAVAILABLE_MESSAGE || error.message === LIVE_DATA_MESSAGE) {
+    if (
+      error.message === AUTH_UNAVAILABLE_MESSAGE ||
+      error.message === LIVE_DATA_MESSAGE ||
+      error.message === PROFILE_SETUP_MESSAGE ||
+      error.message === PROFILE_LOAD_MESSAGE
+    ) {
       return error.message;
     }
 
-    return "We couldn’t finish signing you in. Please try again.";
+    return error.message || "We couldn’t finish signing you in. Please try again.";
   }
 
   switch (code) {
@@ -93,9 +118,13 @@ export function mapAuthError(error: unknown) {
     case "auth/invalid-continue-uri":
       return "This password reset link is incomplete. Please request a new reset email.";
     case "auth/network-request-failed":
+    case "unauthenticated":
+    case "unavailable":
       return LIVE_DATA_MESSAGE;
+    case "permission-denied":
+      return "We couldn’t load your account profile right now. Please try again.";
     default:
-      return "Something went wrong. Please try again.";
+      return "We couldn’t complete authentication. Please try again.";
   }
 }
 
@@ -113,85 +142,134 @@ function getPasswordResetActionCodeSettings(): ActionCodeSettings {
   };
 }
 
-async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
-  const ref = doc(db, "users", firebaseUser.uid);
-  const snapshot = await getDoc(ref);
+function getProfilePermissions(user: Pick<AppUser, "role" | "adminPermissions">) {
+  return user.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS;
+}
 
-  if (snapshot.exists()) {
-    const data = snapshot.data() as Record<string, unknown>;
-    const managedAccess = resolveManagedUserAccess({
-      email: String(data.email ?? firebaseUser.email ?? ""),
-      storedRole: typeof data.role === "string" ? data.role : "buyer",
-      storedPermissions:
-        data.adminPermissions && typeof data.adminPermissions === "object"
-          ? (data.adminPermissions as Record<string, boolean>)
-          : undefined
-    });
-    const user: AppUser = {
-      id: firebaseUser.uid,
-      email: String(data.email ?? firebaseUser.email ?? ""),
-      displayName: String(data.displayName ?? data.name ?? firebaseUser.displayName ?? "CarNest User"),
-      name: String(data.name ?? data.displayName ?? firebaseUser.displayName ?? "CarNest User"),
-      phone: typeof data.phone === "string" ? data.phone : "",
-      role: managedAccess.role,
-      adminPermissions: managedAccess.adminPermissions,
-      createdAt: typeof data.createdAt === "string" ? data.createdAt : undefined
-    };
+function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" }, existingData?: Record<string, unknown>) {
+  const email = String(existingData?.email ?? firebaseUser.email ?? "");
+  const managedAccess = resolveManagedUserAccess({
+    email,
+    storedRole: typeof existingData?.role === "string" ? existingData.role : pendingSeed?.role ?? "buyer",
+    storedPermissions:
+      existingData?.adminPermissions && typeof existingData.adminPermissions === "object"
+        ? (existingData.adminPermissions as Record<string, boolean>)
+        : undefined
+  });
 
-    if (
-      !data.uid ||
-      !data.name ||
-      !("phone" in data) ||
-      data.role !== user.role ||
-      JSON.stringify(data.adminPermissions ?? null) !== JSON.stringify(user.adminPermissions ?? null)
-    ) {
-      const profileUpdate: Record<string, unknown> = {
-        uid: firebaseUser.uid,
-        name: user.name,
-        displayName: user.displayName,
-        email: user.email,
-        phone: user.phone ?? "",
-        role: user.role
-      };
-
-      if (user.adminPermissions || "adminPermissions" in data) {
-        profileUpdate.adminPermissions = user.adminPermissions ?? {};
-      }
-
-      await setDoc(
-        ref,
-        profileUpdate,
-        { merge: true }
-      );
-    }
-
-    setSessionCookies(user);
-    return user;
-  }
-
-  const user: AppUser = {
+  return {
     id: firebaseUser.uid,
-    email: firebaseUser.email || "",
-    displayName: firebaseUser.displayName || "CarNest User",
-    name: firebaseUser.displayName || "CarNest User",
-    phone: "",
-    ...resolveManagedUserAccess({
-      email: firebaseUser.email || "",
-      storedRole: "buyer"
-    })
+    email,
+    displayName: String(existingData?.displayName ?? existingData?.name ?? pendingSeed?.name ?? firebaseUser.displayName ?? "CarNest User"),
+    name: String(existingData?.name ?? existingData?.displayName ?? pendingSeed?.name ?? firebaseUser.displayName ?? "CarNest User"),
+    phone: typeof existingData?.phone === "string" ? existingData.phone : "",
+    role: managedAccess.role,
+    adminPermissions: managedAccess.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS,
+    createdAt: typeof existingData?.createdAt === "string" ? existingData.createdAt : undefined
+  } satisfies AppUser;
+}
+
+async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" }) {
+  const ref = doc(db, "users", firebaseUser.uid);
+  const user = buildManagedUserProfile(firebaseUser, pendingSeed);
+  const payload: Record<string, unknown> = {
+    uid: firebaseUser.uid,
+    email: user.email,
+    name: user.name,
+    displayName: user.displayName,
+    phone: user.phone ?? "",
+    role: user.role,
+    createdAt: Timestamp.now()
   };
 
-  await setDoc(
-    ref,
-    {
-      uid: firebaseUser.uid,
-      ...user,
-      ...(user.adminPermissions ? { adminPermissions: user.adminPermissions } : {}),
-      createdAt: serverTimestamp()
-    }
-  );
-  setSessionCookies(user);
+  if (user.role === "admin" || user.role === "super_admin") {
+    payload.adminPermissions = getProfilePermissions(user);
+  }
+
+  await setDoc(ref, payload, { merge: true });
   return user;
+}
+
+function mapProfileError(error: unknown, context: "signup" | "login") {
+  const code = getErrorCode(error);
+
+  if (code === "permission-denied" || code === "unauthenticated") {
+    return context === "signup"
+      ? PROFILE_CREATE_FAILED_MESSAGE
+      : "User profile not found. We couldn’t restore it automatically. Please try again.";
+  }
+
+  if (code === "unavailable" || code === "auth/network-request-failed") {
+    return LIVE_DATA_MESSAGE;
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return context === "signup" ? PROFILE_CREATE_FAILED_MESSAGE : PROFILE_LOAD_MESSAGE;
+}
+
+async function withProfileRetry<T>(firebaseUser: User, operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    const code = getErrorCode(error);
+
+    if (code === "permission-denied" || code === "unauthenticated") {
+      await firebaseUser.getIdToken(true);
+      return await operation();
+    }
+
+    throw error;
+  }
+}
+
+async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
+  return await withProfileRetry(firebaseUser, async () => {
+    const ref = doc(db, "users", firebaseUser.uid);
+    const snapshot = await getDoc(ref);
+    const pendingSeed = pendingProfileSeeds.get(firebaseUser.uid);
+
+    if (snapshot.exists()) {
+      const data = snapshot.data() as Record<string, unknown>;
+      const user = buildManagedUserProfile(firebaseUser, pendingSeed, data);
+
+      if (
+        !data.uid ||
+        !data.name ||
+        !("phone" in data) ||
+        data.role !== user.role ||
+        JSON.stringify(data.adminPermissions ?? null) !== JSON.stringify(user.adminPermissions ?? null)
+      ) {
+        const profileUpdate: Record<string, unknown> = {
+          uid: firebaseUser.uid,
+          name: user.name,
+          displayName: user.displayName,
+          email: user.email,
+          phone: user.phone ?? "",
+          role: user.role
+        };
+
+        profileUpdate.adminPermissions = getProfilePermissions(user);
+
+        await setDoc(
+          ref,
+          profileUpdate,
+          { merge: true }
+        );
+      }
+
+      setSessionCookies(user);
+      pendingProfileSeeds.delete(firebaseUser.uid);
+      return user;
+    }
+
+    const user = await createUserProfileDocument(firebaseUser, pendingSeed);
+    setSessionCookies(user);
+    pendingProfileSeeds.delete(firebaseUser.uid);
+    return user;
+  });
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -251,7 +329,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         try {
           const credential = await signInWithEmailAndPassword(auth, email, password);
-          const profile = await ensureUserProfile(credential.user);
+          await credential.user.getIdToken(true);
+          let profile: AppUser;
+
+          try {
+            profile = await ensureUserProfile(credential.user);
+          } catch (profileError) {
+            if (process.env.NODE_ENV === "development") {
+              console.error("Login profile load failed", profileError);
+            }
+            try {
+              await signOut(auth);
+            } catch {}
+            setSessionCookies(null);
+            throw new Error(mapProfileError(profileError, "login"));
+          }
+
           setAppUser(profile);
           setAuthError("");
           return profile;
@@ -273,36 +366,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          const credential = await createUserWithEmailAndPassword(auth, email, password);
+          const credential: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
+          pendingProfileSeeds.set(credential.user.uid, { name, role });
           await updateProfile(credential.user, { displayName: name });
-          const managedAccess = resolveManagedUserAccess({
-            email,
-            storedRole: role
-          });
+          await credential.user.getIdToken(true);
 
-          const user: AppUser = {
-            id: credential.user.uid,
-            email,
-            displayName: name,
-            name,
-            phone: "",
-            role: managedAccess.role,
-            adminPermissions: managedAccess.adminPermissions
-          };
+          try {
+            await withProfileRetry(credential.user, () => createUserProfileDocument(credential.user, { name, role }));
+          } catch (profileCreateError) {
+            if (process.env.NODE_ENV === "development") {
+              console.error("User profile creation failed during signup", profileCreateError);
+            }
+            try {
+              await signOut(auth);
+            } catch {}
+            setSessionCookies(null);
+            throw new Error(mapProfileError(profileCreateError, "signup"));
+          }
 
-          await setDoc(doc(db, "users", credential.user.uid), {
-            uid: credential.user.uid,
-            name,
-            ...user,
-            ...(user.adminPermissions ? { adminPermissions: user.adminPermissions } : {}),
-            createdAt: serverTimestamp()
-          });
+          let user: AppUser;
+
+          try {
+            user = await ensureUserProfile(credential.user);
+          } catch (profileError) {
+            if (process.env.NODE_ENV === "development") {
+              console.error("Registration profile setup failed", profileError);
+            }
+            try {
+              await signOut(auth);
+            } catch {}
+            setSessionCookies(null);
+            throw new Error(mapProfileError(profileError, "signup"));
+          }
 
           setAppUser(user);
           setSessionCookies(user);
           setAuthError("");
           return user;
         } catch (error) {
+          if (error instanceof Error && error.message !== PROFILE_SETUP_MESSAGE) {
+            const currentUserId = auth.currentUser?.uid;
+            if (currentUserId) {
+              pendingProfileSeeds.delete(currentUserId);
+            }
+          }
           if (process.env.NODE_ENV === "development") {
             console.error("Registration failed", error);
           }
