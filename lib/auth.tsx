@@ -49,6 +49,14 @@ function setSessionCookies(user: AppUser | null) {
 export function mapAuthError(error: unknown) {
   const code = error && typeof error === "object" && "code" in error ? String((error as AuthError).code) : "";
 
+  if (!code && error instanceof Error) {
+    if (error.message === AUTH_UNAVAILABLE_MESSAGE || error.message === LIVE_DATA_MESSAGE) {
+      return error.message;
+    }
+
+    return "We couldn’t finish signing you in. Please try again.";
+  }
+
   switch (code) {
     case "auth/invalid-api-key":
       return "Firebase Authentication is misconfigured. Please check NEXT_PUBLIC_FIREBASE_API_KEY for this deployment.";
@@ -66,10 +74,13 @@ export function mapAuthError(error: unknown) {
       return "An account with this email already exists. Please sign in instead.";
     case "auth/too-many-requests":
       return "Too many attempts. Please wait a moment and try again.";
+    case "auth/invalid-login-credentials":
     case "auth/invalid-credential":
     case "auth/user-not-found":
     case "auth/wrong-password":
       return "We couldn’t sign you in with those details. Please try again.";
+    case "auth/user-disabled":
+      return "This account has been disabled. Please contact CarNest support if you need help.";
     case "auth/missing-email":
       return "Please enter your email address.";
     case "auth/user-token-expired":

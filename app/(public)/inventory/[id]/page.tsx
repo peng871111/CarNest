@@ -3,8 +3,8 @@ import { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getSellerTrustInfo, getVehicleById, listPublishedVehicles } from "@/lib/data";
-import { formatCurrency, formatMonthYear } from "@/lib/utils";
-import { getPublicVehicleLocation, getVehicleGallery } from "@/lib/permissions";
+import { formatCurrency, formatMonthYear, getVehicleDisplayReference } from "@/lib/utils";
+import { getListingLabel, getPublicVehicleLocation, getVehicleGallery } from "@/lib/permissions";
 import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "@/lib/seo";
 import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
@@ -141,18 +141,54 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <VehicleGallery images={getVehicleGallery(vehicle)} altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
           <div className="grid gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-panel md:grid-cols-2">
             {[
-              ["Transmission", vehicle.transmission],
-              ["Fuel type", vehicle.fuelType],
-              ["Drivetrain", vehicle.drivetrain],
+              ["Brand", vehicle.make],
+              ["Model", vehicle.model],
+              ["Color", vehicle.colour],
               ["Body type", vehicle.bodyType],
               ["Mileage", `${vehicle.mileage.toLocaleString()} km`],
-              ["Location", getPublicVehicleLocation(vehicle)]
+              ["Vehicle ID", getVehicleDisplayReference(vehicle)]
             ].map(([label, value]) => (
               <div key={label}>
                 <p className="text-xs uppercase tracking-[0.25em] text-ink/45">{label}</p>
                 <p className="mt-2 text-base text-ink">{value}</p>
               </div>
             ))}
+          </div>
+          <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+            <div className="grid gap-6 lg:grid-cols-[1fr,1fr]">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-bronze">Listing details</p>
+                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  {[
+                    ["Listing type", getListingLabel(vehicle.listingType)],
+                    ["Location", getPublicVehicleLocation(vehicle)],
+                    ["Transmission", vehicle.transmission],
+                    ["Fuel type", vehicle.fuelType]
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-xs uppercase tracking-[0.22em] text-ink/45">{label}</p>
+                      <p className="mt-2 text-sm text-ink">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller and management status</p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72">
+                    {vehicle.listingType === "warehouse" ? "Warehouse managed" : "Private seller-managed"}
+                  </span>
+                  {trustSignals.map((signal) => (
+                    <span
+                      key={signal}
+                      className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72"
+                    >
+                      {signal}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <h2 className="text-xl font-semibold text-ink">Description</h2>
@@ -213,16 +249,6 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             </div>
             <div className="mt-6">
               <ListingSummary vehicle={vehicle} />
-            </div>
-            <div className="mt-6 flex flex-wrap gap-2">
-              {trustSignals.map((signal) => (
-                <span
-                  key={signal}
-                  className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72"
-                >
-                  {signal}
-                </span>
-              ))}
             </div>
           </div>
           <SaveVehicleButton vehicleId={vehicle.id} />

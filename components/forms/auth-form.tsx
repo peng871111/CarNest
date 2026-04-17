@@ -17,13 +17,25 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const searchParams = useSearchParams();
   const { login, register } = useAuth();
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+
+  function navigateToDestination(destination: string) {
+    if (typeof window !== "undefined") {
+      window.location.assign(destination);
+      return;
+    }
+
+    router.replace(destination);
+    router.refresh();
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError("");
+    setSuccess("");
     const form = new FormData(event.currentTarget);
     const redirect = searchParams.get("redirect");
     const email = String(form.get("email") ?? "").trim().toLowerCase();
@@ -66,7 +78,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
       if (mode === "login") {
         const user = await login(email, password);
-        router.push(resolveDestination(user.role));
+        setSuccess("Signed in successfully. Redirecting...");
+        navigateToDestination(resolveDestination(user.role));
       } else {
         const role = String(form.get("role")) as PublicRegistrationRole;
         const user = await register({
@@ -75,7 +88,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           password,
           role
         });
-        router.push(resolveDestination(user.role));
+        setSuccess("Account created successfully. Redirecting...");
+        navigateToDestination(resolveDestination(user.role));
       }
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
@@ -113,6 +127,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           ))}
         </div>
       </div>
+      {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}
