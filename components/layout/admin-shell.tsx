@@ -2,13 +2,25 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { ADMIN_LINKS } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
 import { canAccessRole, hasAdminPermission } from "@/lib/permissions";
+import {
+  getContactMessagesData,
+  getInspectionRequestsData,
+  getOffersData,
+  getPricingRequestsData,
+  getQuotesData,
+  getVehiclesData
+} from "@/lib/data";
 import { AdminPermissionKey } from "@/types";
 import { cn } from "@/lib/utils";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
+
+function formatBadgeCount(count: number) {
+  return count > 99 ? "99+" : String(count);
+}
 
 export function AdminShell({
   title,
@@ -27,12 +39,48 @@ export function AdminShell({
   const hasWorkspaceAccess = canAccessRole("admin", appUser?.role);
   const hasPagePermission = requiredPermission ? hasAdminPermission(appUser, requiredPermission) : true;
   const visibleLinks = ADMIN_LINKS.filter((link) => !link.permission || hasAdminPermission(appUser, link.permission));
+  const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!loading && !hasWorkspaceAccess) {
       router.replace(appUser ? "/dashboard" : `/login?redirect=${encodeURIComponent(pathname)}`);
     }
   }, [appUser, hasWorkspaceAccess, loading, pathname, router]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBadgeCounts() {
+      if (loading || !hasWorkspaceAccess) return;
+
+      const [vehiclesResult, enquiriesResult, offersResult, inspectionsResult, quotesResult, pricingResult] = await Promise.all([
+        getVehiclesData(),
+        getContactMessagesData(),
+        getOffersData(),
+        getInspectionRequestsData(),
+        getQuotesData(),
+        getPricingRequestsData()
+      ]);
+
+      if (cancelled) return;
+
+      setBadgeCounts({
+        "/admin/vehicles": vehiclesResult.items.filter((vehicle) => vehicle.status === "pending").length,
+        "/admin/enquiries": enquiriesResult.items.filter((item) => item.status === "NEW").length,
+        "/admin/offers": offersResult.items.filter((item) => item.status === "new").length,
+        "/admin/inspections": inspectionsResult.items.filter((item) => item.status === "NEW").length,
+        "/admin/quotes": quotesResult.items.filter((item) => item.status === "NEW").length,
+        "/admin/pricing": pricingResult.items.filter((item) => item.status === "NEW").length,
+        "/admin/users": 0
+      });
+    }
+
+    void loadBadgeCounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasWorkspaceAccess, loading]);
 
   if (loading) {
     return <main className="mx-auto max-w-7xl px-6 py-16 text-sm text-ink/60">Loading admin area...</main>;
@@ -52,11 +100,16 @@ export function AdminShell({
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "block rounded-2xl px-4 py-3 text-sm text-ink/65 transition hover:bg-shell hover:text-ink",
+                  "flex items-center justify-between rounded-2xl px-4 py-3 text-sm text-ink/65 transition hover:bg-shell hover:text-ink",
                   pathname === link.href && "bg-shell text-ink"
                 )}
               >
-                {link.label}
+                <span>{link.label}</span>
+                {badgeCounts[link.href] > 0 ? (
+                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-[#B42318] px-2 py-0.5 text-[11px] font-semibold text-white">
+                    {formatBadgeCount(badgeCounts[link.href])}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>

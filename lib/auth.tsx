@@ -535,16 +535,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const normalizedEmail = normalizeAuthEmail(email);
         const localProtectionState = getLocalLoginProtectionState(normalizedEmail);
 
-        if (localProtectionState.mustResetPassword && !localProtectionState.resetCompleted) {
-          throw new Error(PASSWORD_RESET_REQUIRED_MESSAGE);
-        }
-
         try {
           const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
           await credential.user.getIdToken(true);
           const remoteSecurityState = await readUserSecurityState(credential.user);
 
-          if (remoteSecurityState.mustResetPassword && !localProtectionState.resetCompleted) {
+          if (remoteSecurityState.mustResetPassword) {
             markLocalResetRequired(normalizedEmail);
             try {
               await signOut(auth);
