@@ -24,7 +24,7 @@ function SellerVehiclesPageContent() {
     let cancelled = false;
 
     async function loadVehicles() {
-      if (!appUser || appUser.role !== "seller") return;
+      if (!appUser || (appUser.role !== "seller" && appUser.role !== "buyer")) return;
       const result = await getOwnedVehiclesData(appUser.id);
       if (cancelled) return;
       setVehicles(result.items);
@@ -47,7 +47,8 @@ function SellerVehiclesPageContent() {
   return (
     <SellerShell
       title="My Vehicles"
-      description="Manage your submitted vehicles, update listing details, and control whether a listing is live, paused, withdrawn, or sold."
+      description="Manage your vehicles, revisit saved listings, and keep your CarNest activity in one place."
+      allowedRoles={["seller", "buyer"]}
     >
       <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -64,6 +65,9 @@ function SellerVehiclesPageContent() {
         </div>
       </section>
       <div className="flex flex-wrap items-center justify-end gap-4">
+        <Link href="/dashboard/saved" className="rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink">
+          Saved Vehicles
+        </Link>
         <Link href="/sell" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
           Add vehicle
         </Link>

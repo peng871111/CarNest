@@ -24,6 +24,7 @@ export const ADMIN_LINKS: Array<{ href: string; label: string; permission?: Admi
 
 export const SELLER_LINKS = [
   { href: "/seller/vehicles", label: "My Vehicles" },
+  { href: "/dashboard/saved", label: "Saved Vehicles" },
   { href: "/sell", label: "Add Vehicle" },
   { href: "/seller/offers", label: "Offers" }
 ];

@@ -21,12 +21,13 @@ export default function Navbar() {
         ]
       : appUser.role === "seller"
         ? [
-            { href: "/seller/vehicles", label: "Dashboard" },
+            { href: "/seller/vehicles", label: "My Vehicles" },
+            { href: "/dashboard/saved", label: "Saved Vehicles" },
             { href: "/seller/offers", label: "Offers" },
             { href: "/dashboard/settings", label: "Account Settings" }
           ]
         : [
-            { href: "/dashboard", label: "Dashboard" },
+            { href: "/seller/vehicles", label: "My Vehicles" },
             { href: "/dashboard/saved", label: "Saved Vehicles" },
             { href: "/dashboard/settings", label: "Account Settings" }
           ]

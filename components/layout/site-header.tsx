@@ -30,13 +30,11 @@ export function SiteHeader() {
                 <Link href="/admin/vehicles" className="text-sm font-medium text-ink">
                   Admin
                 </Link>
-              ) : null}
-              {appUser.role === "seller" ? (
+              ) : (
                 <Link href="/seller/vehicles" className="text-sm font-medium text-ink">
-                  Seller
+                  Account
                 </Link>
-              ) : null}
-              <span className="rounded-full bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink/65">{appUser.role}</span>
+              )}
               <button className="text-sm text-ink/60" onClick={() => logout()}>
                 Sign out
               </button>

@@ -1,12 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { appUser, loading, authError } = useAuth();
+
+  useEffect(() => {
+    if (!loading && appUser?.role === "buyer") {
+      router.replace("/seller/vehicles");
+    }
+  }, [appUser?.role, loading, router]);
 
   const destinations = useMemo(() => {
     if (!appUser) return [];
@@ -31,6 +39,10 @@ export default function DashboardPage() {
       { href: "/dashboard/settings", label: "Account Settings" }
     ];
   }, [appUser]);
+
+  if (!loading && appUser?.role === "buyer") {
+    return null;
+  }
 
   return (
     <div>

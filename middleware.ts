@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const protectedRoutes = [
   { prefix: "/dashboard" },
+  { prefix: "/seller/vehicles", roles: ["seller", "buyer"] },
   { prefix: "/seller", roles: ["seller"] },
   { prefix: "/admin", roles: ["admin", "super_admin"] }
 ];
@@ -19,7 +20,7 @@ const adminPermissionRoutes = [
 function getRoleHome(role?: string) {
   if (role === "admin" || role === "super_admin") return "/admin/vehicles";
   if (role === "seller") return "/seller/vehicles";
-  return "/dashboard";
+  return "/seller/vehicles";
 }
 
 function parsePermissions(value?: string) {

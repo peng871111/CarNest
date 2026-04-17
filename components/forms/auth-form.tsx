@@ -64,7 +64,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
     function resolveDestination(role: UserRole) {
       if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-      return "/";
+      if (role === "admin" || role === "super_admin") return "/admin/vehicles";
+      return "/seller/vehicles";
     }
 
     try {

@@ -4,25 +4,21 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
-export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | "SELLER" | "DASHBOARD" }) {
+export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | "ACCOUNT" | "DASHBOARD" }) {
   const router = useRouter();
   const { appUser, logout } = useAuth();
   const dashboardHref =
     appUser?.role === "admin" || appUser?.role === "super_admin"
       ? "/admin/vehicles"
-      : appUser?.role === "seller"
+      : appUser?.role === "seller" || appUser?.role === "buyer"
         ? "/seller/vehicles"
-        : appUser?.role === "buyer"
-          ? "/dashboard"
-          : null;
+        : null;
   const dashboardLabel =
     appUser?.role === "admin" || appUser?.role === "super_admin"
       ? "Admin Dashboard"
-      : appUser?.role === "seller"
-        ? "Seller Dashboard"
-        : appUser?.role === "buyer"
-          ? "Dashboard"
-          : workspaceLabel;
+      : appUser?.role === "seller" || appUser?.role === "buyer"
+        ? "Account"
+        : workspaceLabel;
 
   async function handleLogout() {
     await logout();
