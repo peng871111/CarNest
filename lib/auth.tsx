@@ -42,6 +42,8 @@ const PROFILE_SETUP_MESSAGE = "Your account was created, but we couldn’t finis
 const PROFILE_LOAD_MESSAGE = "We signed you in, but couldn’t load your account profile. Please try again.";
 const PROFILE_CREATE_FAILED_MESSAGE = "Failed to create user profile. Please try signing in again.";
 const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it for you now.";
+const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
+const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
 const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" }>();
 const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageVehicles: false,
@@ -54,6 +56,25 @@ const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageAdmins: false
 });
 
+type UserSecurityState = {
+  failedLoginAttempts: number;
+  mustResetPassword: boolean;
+};
+
+type LocalLoginProtectionState = UserSecurityState & {
+  resetCompleted: boolean;
+};
+
+const DEFAULT_USER_SECURITY_STATE: UserSecurityState = {
+  failedLoginAttempts: 0,
+  mustResetPassword: false
+};
+
+const DEFAULT_LOCAL_LOGIN_PROTECTION_STATE: LocalLoginProtectionState = {
+  ...DEFAULT_USER_SECURITY_STATE,
+  resetCompleted: false
+};
+
 function setSessionCookies(user: AppUser | null) {
   if (typeof document === "undefined") return;
   const maxAge = user ? "max-age=604800" : "max-age=0";
@@ -64,6 +85,141 @@ function setSessionCookies(user: AppUser | null) {
 
 function getErrorCode(error: unknown) {
   return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+}
+
+function normalizeAuthEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function readLocalLoginProtectionStore() {
+  if (typeof window === "undefined") return {} as Record<string, LocalLoginProtectionState>;
+
+  try {
+    const rawValue = window.localStorage.getItem(LOGIN_PROTECTION_STORAGE_KEY);
+    if (!rawValue) return {};
+
+    const parsedValue = JSON.parse(rawValue) as Record<string, Partial<LocalLoginProtectionState>>;
+    return Object.fromEntries(
+      Object.entries(parsedValue).map(([email, state]) => [
+        email,
+        {
+          failedLoginAttempts: typeof state.failedLoginAttempts === "number" ? state.failedLoginAttempts : 0,
+          mustResetPassword: Boolean(state.mustResetPassword),
+          resetCompleted: Boolean(state.resetCompleted)
+        }
+      ])
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeLocalLoginProtectionStore(store: Record<string, LocalLoginProtectionState>) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LOGIN_PROTECTION_STORAGE_KEY, JSON.stringify(store));
+}
+
+function getLocalLoginProtectionState(email: string): LocalLoginProtectionState {
+  const normalizedEmail = normalizeAuthEmail(email);
+  if (!normalizedEmail) return DEFAULT_LOCAL_LOGIN_PROTECTION_STATE;
+
+  return readLocalLoginProtectionStore()[normalizedEmail] ?? DEFAULT_LOCAL_LOGIN_PROTECTION_STATE;
+}
+
+function setLocalLoginProtectionState(email: string, state: LocalLoginProtectionState) {
+  const normalizedEmail = normalizeAuthEmail(email);
+  if (!normalizedEmail || typeof window === "undefined") return;
+
+  const store = readLocalLoginProtectionStore();
+
+  if (
+    state.failedLoginAttempts === 0 &&
+    !state.mustResetPassword &&
+    !state.resetCompleted
+  ) {
+    delete store[normalizedEmail];
+  } else {
+    store[normalizedEmail] = state;
+  }
+
+  writeLocalLoginProtectionStore(store);
+}
+
+function incrementLocalFailedLoginAttempts(email: string) {
+  const currentState = getLocalLoginProtectionState(email);
+  const failedLoginAttempts = currentState.failedLoginAttempts + 1;
+  const nextState: LocalLoginProtectionState = {
+    failedLoginAttempts,
+    mustResetPassword: failedLoginAttempts >= 3,
+    resetCompleted: false
+  };
+
+  setLocalLoginProtectionState(email, nextState);
+  return nextState;
+}
+
+function markLocalResetRequired(email: string) {
+  const currentState = getLocalLoginProtectionState(email);
+  const nextState: LocalLoginProtectionState = {
+    failedLoginAttempts: Math.max(currentState.failedLoginAttempts, 3),
+    mustResetPassword: true,
+    resetCompleted: false
+  };
+
+  setLocalLoginProtectionState(email, nextState);
+}
+
+export function markLocalPasswordResetComplete(email: string) {
+  const normalizedEmail = normalizeAuthEmail(email);
+  if (!normalizedEmail) return;
+
+  setLocalLoginProtectionState(normalizedEmail, {
+    failedLoginAttempts: 0,
+    mustResetPassword: false,
+    resetCompleted: true
+  });
+}
+
+function clearLocalLoginProtection(email: string) {
+  const normalizedEmail = normalizeAuthEmail(email);
+  if (!normalizedEmail) return;
+  setLocalLoginProtectionState(normalizedEmail, DEFAULT_LOCAL_LOGIN_PROTECTION_STATE);
+}
+
+function getUserSecurityState(data?: Record<string, unknown>): UserSecurityState {
+  return {
+    failedLoginAttempts: typeof data?.failedLoginAttempts === "number" ? data.failedLoginAttempts : 0,
+    mustResetPassword: data?.mustResetPassword === true
+  };
+}
+
+async function readUserSecurityState(firebaseUser: User) {
+  return await withProfileRetry(firebaseUser, async () => {
+    const snapshot = await getDoc(doc(db, "users", firebaseUser.uid));
+    if (!snapshot.exists()) {
+      return DEFAULT_USER_SECURITY_STATE;
+    }
+
+    return getUserSecurityState(snapshot.data() as Record<string, unknown>);
+  });
+}
+
+async function writeUserSecurityState(uid: string, state: UserSecurityState) {
+  await setDoc(
+    doc(db, "users", uid),
+    {
+      failedLoginAttempts: state.failedLoginAttempts,
+      mustResetPassword: state.mustResetPassword
+    },
+    { merge: true }
+  );
+}
+
+function isInvalidLoginAttemptCode(code: string) {
+  return code === "auth/invalid-login-credentials"
+    || code === "auth/invalid-credential"
+    || code === "auth/user-not-found"
+    || code === "auth/wrong-password";
 }
 
 export function mapAuthError(error: unknown) {
@@ -179,7 +335,9 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     displayName: user.displayName,
     phone: user.phone ?? "",
     role: user.role,
-    createdAt: Timestamp.now()
+    createdAt: Timestamp.now(),
+    failedLoginAttempts: 0,
+    mustResetPassword: false
   };
 
   if (user.role === "admin" || user.role === "super_admin") {
@@ -239,6 +397,8 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
         !data.uid ||
         !data.name ||
         !("phone" in data) ||
+        !("failedLoginAttempts" in data) ||
+        !("mustResetPassword" in data) ||
         data.role !== user.role ||
         JSON.stringify(data.adminPermissions ?? null) !== JSON.stringify(user.adminPermissions ?? null)
       ) {
@@ -248,7 +408,9 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
           displayName: user.displayName,
           email: user.email,
           phone: user.phone ?? "",
-          role: user.role
+          role: user.role,
+          failedLoginAttempts: getUserSecurityState(data).failedLoginAttempts,
+          mustResetPassword: getUserSecurityState(data).mustResetPassword
         };
 
         profileUpdate.adminPermissions = getProfilePermissions(user);
@@ -327,9 +489,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         }
 
+        const normalizedEmail = normalizeAuthEmail(email);
+        const localProtectionState = getLocalLoginProtectionState(normalizedEmail);
+
+        if (localProtectionState.mustResetPassword && !localProtectionState.resetCompleted) {
+          throw new Error(PASSWORD_RESET_REQUIRED_MESSAGE);
+        }
+
         try {
-          const credential = await signInWithEmailAndPassword(auth, email, password);
+          const credential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
           await credential.user.getIdToken(true);
+          const remoteSecurityState = await readUserSecurityState(credential.user);
+
+          if (remoteSecurityState.mustResetPassword && !localProtectionState.resetCompleted) {
+            markLocalResetRequired(normalizedEmail);
+            try {
+              await signOut(auth);
+            } catch {}
+            setSessionCookies(null);
+            throw new Error(PASSWORD_RESET_REQUIRED_MESSAGE);
+          }
+
           let profile: AppUser;
 
           try {
@@ -345,10 +525,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             throw new Error(mapProfileError(profileError, "login"));
           }
 
+          if (
+            remoteSecurityState.failedLoginAttempts !== 0 ||
+            remoteSecurityState.mustResetPassword ||
+            localProtectionState.failedLoginAttempts !== 0 ||
+            localProtectionState.mustResetPassword ||
+            localProtectionState.resetCompleted
+          ) {
+            await writeUserSecurityState(credential.user.uid, DEFAULT_USER_SECURITY_STATE);
+            clearLocalLoginProtection(normalizedEmail);
+          }
+
           setAppUser(profile);
           setAuthError("");
           return profile;
         } catch (error) {
+          const code = getErrorCode(error);
+
+          if (code === "auth/too-many-requests") {
+            markLocalResetRequired(normalizedEmail);
+            throw new Error(PASSWORD_RESET_REQUIRED_MESSAGE);
+          }
+
+          if (isInvalidLoginAttemptCode(code)) {
+            const updatedLocalProtectionState = incrementLocalFailedLoginAttempts(normalizedEmail);
+            if (updatedLocalProtectionState.mustResetPassword) {
+              throw new Error(PASSWORD_RESET_REQUIRED_MESSAGE);
+            }
+          }
+
           if (process.env.NODE_ENV === "development") {
             console.error("Login failed", error);
           }

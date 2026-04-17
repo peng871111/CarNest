@@ -188,12 +188,16 @@ service cloud.firestore {
           "name",
           "phone",
           "accountReference",
-          "adminPermissions"
+          "adminPermissions",
+          "failedLoginAttempts",
+          "mustResetPassword"
         ])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
         && isAllowedProfileRole(request.resource.data.role, request.resource.data.email)
-        && request.resource.data.createdAt is timestamp;
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.failedLoginAttempts is int
+        && request.resource.data.mustResetPassword is bool;
       allow update: if isSuperAdmin()
         || (
           signedIn()
