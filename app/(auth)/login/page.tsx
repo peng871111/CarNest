@@ -21,9 +21,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </div>
         <div>
           <p className="text-sm uppercase tracking-[0.35em] text-bronze">Sign in</p>
-          <h1 className="mt-3 font-display text-5xl text-ink">Access CarNest</h1>
+          <h1 className="mt-3 font-display text-5xl text-ink">Sign in to CarNest</h1>
           <p className="mt-4 text-sm leading-6 text-ink/65">
-            Sign in to save vehicles, submit offers, and book inspections. Create an account to manage your activity and get updates.
+            Sign in to your CarNest account to save vehicles, submit offers, book inspections, and manage your activity.
           </p>
         </div>
         {params?.reset === "success" ? (
