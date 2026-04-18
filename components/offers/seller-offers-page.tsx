@@ -92,7 +92,7 @@ export function SellerOffersPageClient({
   }
 
   return (
-    <SellerShell title="Offers" description="Review offer activity for vehicles you own and respond when a buyer is waiting.">
+    <SellerShell title="Offers on My Cars" description="View and manage offers buyers made on your vehicles">
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
           {loading ? "Loading offers..." : `${offers.length} offer${offers.length === 1 ? "" : "s"} received`}

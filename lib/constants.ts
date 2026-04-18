@@ -26,8 +26,8 @@ export const SELLER_LINKS = [
   { href: "/seller/vehicles", label: "My Vehicles" },
   { href: "/dashboard/saved", label: "Saved Vehicles" },
   { href: "/sell", label: "Add Vehicle" },
-  { href: "/seller/offers", label: "Offers" },
-  { href: "/dashboard/offers", label: "My Offers" }
+  { href: "/seller/offers", label: "Offers on My Cars" },
+  { href: "/dashboard/offers", label: "My Offers to Sellers" }
 ];
 
 export const VEHICLE_PLACEHOLDER_IMAGE = "/vehicle-placeholder.svg";

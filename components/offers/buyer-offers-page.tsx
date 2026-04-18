@@ -125,8 +125,8 @@ export function BuyerOffersPageClient() {
 
   return (
     <SellerShell
-      title="My Offers"
-      description="Track your offer activity across the vehicles you are following."
+      title="My Offers to Sellers"
+      description="Track offers you’ve made on other vehicles"
       allowedRoles={["buyer", "seller"]}
     >
       <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">

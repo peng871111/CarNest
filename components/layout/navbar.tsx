@@ -22,8 +22,8 @@ export default function Navbar() {
       : [
           { href: "/seller/vehicles", label: "My Vehicles" },
           { href: "/dashboard/saved", label: "Saved Vehicles" },
-          ...(appUser.role === "seller" ? [{ href: "/seller/offers", label: "Offers" }] : []),
-          { href: "/dashboard/offers", label: "My Offers" },
+          ...(appUser.role === "seller" ? [{ href: "/seller/offers", label: "Offers on My Cars" }] : []),
+          { href: "/dashboard/offers", label: "My Offers to Sellers" },
           { href: "/dashboard/settings", label: "Account Settings" }
         ]
     : [];

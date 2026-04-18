@@ -28,8 +28,8 @@ export default function DashboardPage() {
     if (appUser.role === "seller") {
       return [
         { href: "/seller/vehicles", label: "My Vehicles" },
-        { href: "/seller/offers", label: "Offers" },
-        { href: "/dashboard/offers", label: "My Offers" },
+        { href: "/seller/offers", label: "Offers on My Cars" },
+        { href: "/dashboard/offers", label: "My Offers to Sellers" },
         { href: "/pricing-advice", label: "Pricing Advice" },
         { href: "/dashboard/settings", label: "Account Settings" }
       ];
@@ -37,7 +37,7 @@ export default function DashboardPage() {
     return [
       { href: "/inventory", label: "Browse Inventory" },
       { href: "/dashboard/saved", label: "Saved Vehicles" },
-      { href: "/dashboard/offers", label: "My Offers" },
+      { href: "/dashboard/offers", label: "My Offers to Sellers" },
       { href: "/dashboard/settings", label: "Account Settings" }
     ];
   }, [appUser]);
