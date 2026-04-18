@@ -238,6 +238,7 @@ export function getVehicleStatusTone(status: VehicleStatus) {
 
 export function getSellerVehicleStatusLabel(status: SellerVehicleStatus) {
   if (status === "ACTIVE") return "Active";
+  if (status === "UNDER_OFFER") return "Under Offer";
   if (status === "PAUSED") return "Paused";
   if (status === "WITHDRAWN") return "Withdrawn";
   return "Sold";
@@ -245,6 +246,7 @@ export function getSellerVehicleStatusLabel(status: SellerVehicleStatus) {
 
 export function getSellerVehicleStatusTone(status: SellerVehicleStatus) {
   if (status === "ACTIVE") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "UNDER_OFFER") return "bg-[#FFF4E8] text-[#B54708] border-[#F5D7B2]";
   if (status === "PAUSED") return "bg-amber-50 text-amber-700 border-amber-200";
   if (status === "WITHDRAWN") return "bg-zinc-100 text-zinc-700 border-zinc-200";
   return "bg-blue-50 text-blue-700 border-blue-200";
@@ -252,6 +254,7 @@ export function getSellerVehicleStatusTone(status: SellerVehicleStatus) {
 
 export const SELLER_VEHICLE_STATUS_FLOW: Record<SellerVehicleStatus, SellerVehicleStatus[]> = {
   ACTIVE: ["PAUSED", "WITHDRAWN", "SOLD"],
+  UNDER_OFFER: ["ACTIVE", "WITHDRAWN", "SOLD"],
   PAUSED: ["ACTIVE", "WITHDRAWN", "SOLD"],
   WITHDRAWN: ["ACTIVE", "SOLD"],
   SOLD: ["ACTIVE", "WITHDRAWN"]
@@ -259,6 +262,7 @@ export const SELLER_VEHICLE_STATUS_FLOW: Record<SellerVehicleStatus, SellerVehic
 
 export function getSellerVehicleActionLabel(status: SellerVehicleStatus) {
   if (status === "ACTIVE") return "Resume Listing";
+  if (status === "UNDER_OFFER") return "Mark Under Offer";
   if (status === "PAUSED") return "Pause Listing";
   if (status === "WITHDRAWN") return "Withdraw Listing";
   return "Mark as Sold";
@@ -270,6 +274,7 @@ export function getSellerVehicleAvailableStatuses(status: SellerVehicleStatus) {
 
 export function getSellerListingStatusLabel(vehicle: Pick<Vehicle, "status" | "sellerStatus">) {
   if (vehicle.sellerStatus === "SOLD") return "Sold";
+  if (vehicle.sellerStatus === "UNDER_OFFER") return "Under Offer";
   if (vehicle.sellerStatus === "WITHDRAWN") return "Withdrawn";
   if (vehicle.sellerStatus === "PAUSED") return "Paused";
   if (vehicle.status !== "approved") return "Pending Review";
@@ -278,6 +283,7 @@ export function getSellerListingStatusLabel(vehicle: Pick<Vehicle, "status" | "s
 
 export function getSellerListingStatusTone(vehicle: Pick<Vehicle, "status" | "sellerStatus">) {
   if (vehicle.sellerStatus === "SOLD") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (vehicle.sellerStatus === "UNDER_OFFER") return "bg-[#FFF4E8] text-[#B54708] border-[#F5D7B2]";
   if (vehicle.sellerStatus === "WITHDRAWN") return "bg-zinc-100 text-zinc-700 border-zinc-200";
   if (vehicle.sellerStatus === "PAUSED") return "bg-amber-50 text-amber-700 border-amber-200";
   if (vehicle.status !== "approved") return "bg-amber-50 text-amber-700 border-amber-200";
@@ -285,18 +291,18 @@ export function getSellerListingStatusTone(vehicle: Pick<Vehicle, "status" | "se
 }
 
 export function getOfferStatusLabel(status: OfferStatus) {
-  if (status === "new") return "New";
-  if (status === "under_review") return "Under review";
-  if (status === "accepted") return "Accepted";
-  if (status === "declined") return "Declined";
-  return "Withdrawn";
+  if (status === "pending") return "Pending";
+  if (status === "accepted_pending_buyer_confirmation") return "Awaiting Buyer Confirmation";
+  if (status === "buyer_confirmed") return "Buyer Confirmed";
+  if (status === "buyer_declined") return "Buyer Declined";
+  return "Rejected";
 }
 
 export function getOfferStatusTone(status: OfferStatus) {
-  if (status === "accepted") return "bg-emerald-50 text-emerald-700 border-emerald-200";
-  if (status === "declined") return "bg-red-50 text-red-700 border-red-200";
-  if (status === "under_review") return "bg-blue-50 text-blue-700 border-blue-200";
-  if (status === "withdrawn") return "bg-zinc-100 text-zinc-600 border-zinc-200";
+  if (status === "buyer_confirmed") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "accepted_pending_buyer_confirmation") return "bg-[#FFF4E8] text-[#B54708] border-[#F5D7B2]";
+  if (status === "buyer_declined") return "bg-zinc-100 text-zinc-700 border-zinc-200";
+  if (status === "rejected") return "bg-red-50 text-red-700 border-red-200";
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 

@@ -67,7 +67,7 @@ export function AdminShell({
       setBadgeCounts({
         "/admin/vehicles": vehiclesResult.items.filter((vehicle) => vehicle.status === "pending").length,
         "/admin/enquiries": enquiriesResult.items.filter((item) => item.status === "NEW").length,
-        "/admin/offers": offersResult.items.filter((item) => item.status === "new").length,
+        "/admin/offers": offersResult.items.filter((item) => item.status === "pending").length,
         "/admin/inspections": inspectionsResult.items.filter((item) => item.status === "NEW").length,
         "/admin/quotes": quotesResult.items.filter((item) => item.status === "NEW").length,
         "/admin/pricing": pricingResult.items.filter((item) => item.status === "NEW").length,

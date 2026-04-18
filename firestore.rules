@@ -41,11 +41,11 @@ service cloud.firestore {
     }
 
     function isValidOfferStatus(status) {
-      return status == "new"
-        || status == "under_review"
-        || status == "accepted"
-        || status == "declined"
-        || status == "withdrawn";
+      return status == "pending"
+        || status == "accepted_pending_buyer_confirmation"
+        || status == "buyer_confirmed"
+        || status == "buyer_declined"
+        || status == "rejected";
     }
 
     function isValidQuoteStatus(status) {
@@ -108,9 +108,19 @@ service cloud.firestore {
 
     function isValidSellerVehicleStatus(status) {
       return status == "ACTIVE"
+        || status == "UNDER_OFFER"
         || status == "PAUSED"
         || status == "WITHDRAWN"
         || status == "SOLD";
+    }
+
+    function vehicleStatusFieldsOnlyChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        "sellerStatus",
+        "underOfferBuyerUid",
+        "soldAt",
+        "updatedAt"
+      ]);
     }
 
     function submittedByMatchesUser() {
@@ -123,13 +133,16 @@ service cloud.firestore {
     }
 
     function offerFieldsUnchanged() {
-      return request.resource.data.userId == resource.data.userId
+      return request.resource.data.buyerUid == resource.data.buyerUid
+        && request.resource.data.listingOwnerUid == resource.data.listingOwnerUid
+        && request.resource.data.userId == resource.data.userId
         && request.resource.data.vehicleId == resource.data.vehicleId
         && request.resource.data.vehicleTitle == resource.data.vehicleTitle
         && request.resource.data.vehiclePrice == resource.data.vehiclePrice
         && request.resource.data.buyerName == resource.data.buyerName
         && request.resource.data.buyerEmail == resource.data.buyerEmail
         && request.resource.data.buyerPhone == resource.data.buyerPhone
+        && request.resource.data.amount == resource.data.amount
         && request.resource.data.offerAmount == resource.data.offerAmount
         && request.resource.data.message == resource.data.message
         && request.resource.data.sellerOwnerUid == resource.data.sellerOwnerUid
@@ -218,6 +231,7 @@ service cloud.firestore {
           resource.data.status == "approved"
           && (
             resource.data.sellerStatus == "ACTIVE"
+            || resource.data.sellerStatus == "UNDER_OFFER"
             || resource.data.sellerStatus == "SOLD"
           )
         );
@@ -241,6 +255,19 @@ service cloud.firestore {
             request.resource.data.status == resource.data.status
             || (resource.data.status == "approved" && request.resource.data.status == "pending")
           )
+        )
+        || (
+          signedIn()
+          && resource.data.underOfferBuyerUid == request.auth.uid
+          && request.resource.data.ownerUid == resource.data.ownerUid
+          && request.resource.data.ownerRole == resource.data.ownerRole
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.sellerStatus == "ACTIVE"
+          && (
+            !("underOfferBuyerUid" in request.resource.data)
+            || request.resource.data.underOfferBuyerUid == ""
+          )
+          && vehicleStatusFieldsOnlyChanged()
         );
       allow delete: if isAdmin();
     }
@@ -252,6 +279,8 @@ service cloud.firestore {
     match /offers/{id} {
       allow create: if signedIn()
         && request.resource.data.keys().hasOnly([
+          "buyerUid",
+          "listingOwnerUid",
           "userId",
           "vehicleId",
           "vehicleTitle",
@@ -259,36 +288,144 @@ service cloud.firestore {
           "buyerName",
           "buyerEmail",
           "buyerPhone",
+          "amount",
           "offerAmount",
           "message",
+          "messages",
+          "buyerViewed",
+          "sellerViewed",
           "sellerOwnerUid",
           "submittedByUid",
           "status",
-          "createdAt"
+          "createdAt",
+          "updatedAt",
+          "respondedAt"
         ])
+        && request.resource.data.buyerUid == request.auth.uid
         && request.resource.data.userId == request.auth.uid
+        && request.resource.data.listingOwnerUid is string
         && request.resource.data.vehicleId is string
         && request.resource.data.vehicleTitle is string
         && request.resource.data.vehiclePrice is number
         && request.resource.data.buyerName is string
         && request.resource.data.buyerEmail is string
         && request.resource.data.buyerPhone is string
+        && request.resource.data.amount is number
+        && request.resource.data.amount > 0
         && request.resource.data.offerAmount is number
         && request.resource.data.offerAmount > 0
         && request.resource.data.message is string
+        && request.resource.data.messages is list
         && request.resource.data.sellerOwnerUid is string
         && isValidOfferStatus(request.resource.data.status)
-        && request.resource.data.status == "new"
+        && request.resource.data.status == "pending"
+        && request.resource.data.buyerViewed == true
+        && request.resource.data.sellerViewed == false
         && request.resource.data.submittedByUid == request.auth.uid
-        && request.resource.data.createdAt is timestamp;
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.respondedAt == null
+        && request.resource.data.listingOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
+        && request.resource.data.sellerOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
+        && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.status == "approved"
+        && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.sellerStatus == "ACTIVE";
       allow read: if isAdmin()
-        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
+        || (
+          signedIn()
+          && (
+            resource.data.sellerOwnerUid == request.auth.uid
+            || resource.data.listingOwnerUid == request.auth.uid
+            || resource.data.userId == request.auth.uid
+            || resource.data.buyerUid == request.auth.uid
+          )
+        );
       allow update: if (
           isAdmin()
-          || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+          && isValidOfferStatus(request.resource.data.status)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && request.resource.data.buyerViewed is bool
+          && request.resource.data.sellerViewed is bool
+          && request.resource.data.updatedAt is timestamp
+          && (request.resource.data.respondedAt == null || request.resource.data.respondedAt is timestamp)
         )
-        && isValidOfferStatus(request.resource.data.status)
-        && offerFieldsUnchanged();
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && request.resource.data.status == "pending"
+          && resource.data.status == "pending"
+          && request.resource.data.buyerViewed == resource.data.buyerViewed
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && isValidOfferStatus(request.resource.data.status)
+          && resource.data.status == "pending"
+          && (
+            request.resource.data.status == "accepted_pending_buyer_confirmation"
+            || request.resource.data.status == "rejected"
+          )
+          && request.resource.data.buyerViewed == false
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt is timestamp
+        )
+        || (
+          signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.buyerViewed == true
+          && request.resource.data.sellerViewed == resource.data.sellerViewed
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && resource.data.status == "accepted_pending_buyer_confirmation"
+          && (
+            request.resource.data.status == "buyer_confirmed"
+            || request.resource.data.status == "buyer_declined"
+          )
+          && request.resource.data.buyerViewed == true
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.buyerViewed == false
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && request.resource.data.messages is list
+          && resource.data.status == "pending"
+          && request.resource.data.status == "pending"
+          && request.resource.data.buyerViewed == true
+          && request.resource.data.sellerViewed == false
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        );
       allow delete: if isAdmin();
     }
 

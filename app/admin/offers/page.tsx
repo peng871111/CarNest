@@ -22,7 +22,15 @@ export default async function AdminOffersPage({
   const params = searchParams ? await searchParams : undefined;
   const writeStatus =
     params?.write === "success"
-      ? `Offer status updated to ${params.status?.replaceAll("_", " ") ?? "saved"}`
+      ? params.status === "accepted_pending_buyer_confirmation"
+        ? "Offer accepted and vehicle moved under offer"
+        : params.status === "rejected"
+          ? "Offer rejected"
+          : params.status === "buyer_confirmed"
+            ? "Buyer confirmed the accepted offer"
+            : params.status === "buyer_declined"
+              ? "Buyer declined the accepted offer"
+          : "Offer updated"
       : params?.write === "mock"
         ? "Offer update recorded"
         : "No recent updates";
@@ -70,7 +78,7 @@ export default async function AdminOffersPage({
                     <p className="mt-1 text-ink/55">Submitted {formatAdminDateTime(offer.createdAt)}</p>
                   </div>
                   <div>
-                    <p className="font-semibold text-ink">{formatCurrency(offer.offerAmount)}</p>
+                    <p className="font-semibold text-ink">{formatCurrency(offer.amount)}</p>
                     <p className="mt-1 line-clamp-3 text-ink/55">{offer.message}</p>
                   </div>
                   <div>

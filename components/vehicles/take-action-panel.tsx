@@ -51,6 +51,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
   const { appUser } = useAuth();
   const searchParams = useSearchParams();
   const canBookInspection = vehicle.listingType === "warehouse";
+  const isUnderOffer = vehicle.sellerStatus === "UNDER_OFFER";
   const [activeTab, setActiveTab] = useState<ActionTab>(canBookInspection && searchParams.get("action") === "inspection" ? "inspection" : "offer");
   const [form, setForm] = useState<ActionFormState>(initialState);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -137,8 +138,8 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
 
     setSuccess(
       result.writeSucceeded
-        ? "Offer submitted successfully. The seller will be notified and may contact you shortly."
-        : "Offer submitted successfully. The seller will be notified and may contact you shortly."
+        ? "Offer submitted successfully. You can track the result in My Offers."
+        : "Offer submitted successfully. You can track the result in My Offers."
     );
     setForm((current) => ({
       ...current,
@@ -247,6 +248,8 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
           "Please sign in to request an inspection.",
           "Inspection booking is only available for warehouse vehicles.",
           "Please enter a realistic offer amount.",
+          "This vehicle is not currently available for offers.",
+          "This vehicle is currently under offer.",
           "Too many requests. Please try again later.",
           "It looks like this request was already submitted.",
           "Please take a moment to review your details before submitting.",
@@ -427,10 +430,16 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
       </div>
 
       <div className="mt-5">
-        <Button type="button" disabled={saving} onClick={() => void handleSubmit()} className="w-full sm:w-auto">
+        <Button type="button" disabled={saving || isUnderOffer} onClick={() => void handleSubmit()} className="w-full sm:w-auto">
           {saving ? (activeTab === "offer" ? "Submitting offer..." : "Booking inspection...") : activeTab === "offer" ? "Submit offer" : "Book inspection"}
         </Button>
       </div>
+
+      {isUnderOffer ? (
+        <p className="mt-4 rounded-[24px] border border-[#F5D7B2] bg-[#FFF8F0] px-4 py-3 text-sm leading-6 text-[#B54708]">
+          This vehicle is currently under offer while the accepted buyer confirms whether they want to proceed.
+        </p>
+      ) : null}
 
       <AuthGateModal
         open={showAuthModal}

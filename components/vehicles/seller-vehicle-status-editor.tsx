@@ -9,6 +9,7 @@ import { SellerVehicleStatus, Vehicle } from "@/types";
 
 function getSellerVehicleSelectLabel(status: SellerVehicleStatus) {
   if (status === "ACTIVE") return "Live";
+  if (status === "UNDER_OFFER") return "Under Offer";
   if (status === "PAUSED") return "Paused";
   if (status === "WITHDRAWN") return "Withdrawn";
   return "Sold";

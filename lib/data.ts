@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { Timestamp, addDoc, collection, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
@@ -12,6 +12,8 @@ import {
   InspectionRequest,
   InspectionRequestStatus,
   Offer,
+  OfferMessage,
+  OfferMessageSender,
   OfferStatus,
   PricingLeadRating,
   PricingNextAction,
@@ -240,7 +242,7 @@ function normalizeVehicleStatus(status: unknown): VehicleStatus {
 }
 
 function normalizeSellerVehicleStatus(status: unknown, fallbackStatus?: unknown): SellerVehicleStatus {
-  if (status === "ACTIVE" || status === "PAUSED" || status === "WITHDRAWN" || status === "SOLD") {
+  if (status === "ACTIVE" || status === "UNDER_OFFER" || status === "PAUSED" || status === "WITHDRAWN" || status === "SOLD") {
     return status;
   }
 
@@ -347,6 +349,89 @@ function serializeVehicleViewEventDoc(id: string, data: Record<string, unknown>)
     city: typeof data.city === "string" ? data.city : "",
     listingType: (data.listingType as Vehicle["listingType"]) ?? "private",
     sellerOwnerUid: String(data.sellerOwnerUid ?? "")
+  };
+}
+
+function normalizeOfferStatus(status: unknown): OfferStatus {
+  if (
+    status === "pending"
+    || status === "accepted_pending_buyer_confirmation"
+    || status === "buyer_confirmed"
+    || status === "buyer_declined"
+    || status === "rejected"
+  ) {
+    return status;
+  }
+
+  if (status === "accepted") {
+    return "buyer_confirmed";
+  }
+
+  if (status === "declined" || status === "withdrawn") {
+    return "rejected";
+  }
+
+  return "pending";
+}
+
+function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
+  const status = normalizeOfferStatus(data.status);
+  const buyerUid =
+    typeof data.buyerUid === "string" && data.buyerUid
+      ? data.buyerUid
+      : typeof data.userId === "string"
+        ? data.userId
+        : typeof data.submittedByUid === "string"
+          ? data.submittedByUid
+          : "";
+  const listingOwnerUid =
+    typeof data.listingOwnerUid === "string" && data.listingOwnerUid
+      ? data.listingOwnerUid
+      : typeof data.sellerOwnerUid === "string"
+        ? data.sellerOwnerUid
+        : "";
+  const amount = Number(data.amount ?? data.offerAmount ?? 0);
+  const messages: OfferMessage[] = Array.isArray(data.messages)
+    ? data.messages
+        .flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const sender = (item as { sender?: unknown }).sender;
+          const text = typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "";
+          if ((sender !== "buyer" && sender !== "seller") || !text) return [];
+          const normalizedSender: OfferMessageSender = sender;
+
+          return [{
+            sender: normalizedSender,
+            text,
+            createdAt: serializeDate((item as { createdAt?: unknown }).createdAt)
+          }];
+        })
+        .sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))
+    : [];
+
+  return {
+    id,
+    buyerUid,
+    listingOwnerUid,
+    vehicleId: String(data.vehicleId ?? ""),
+    vehicleTitle: String(data.vehicleTitle ?? ""),
+    vehiclePrice: Number(data.vehiclePrice ?? 0),
+    buyerName: String(data.buyerName ?? ""),
+    buyerEmail: String(data.buyerEmail ?? ""),
+    buyerPhone: String(data.buyerPhone ?? ""),
+    amount,
+    message: String(data.message ?? ""),
+    messages,
+    buyerViewed: Boolean(data.buyerViewed ?? status === "pending"),
+    sellerViewed: Boolean(data.sellerViewed ?? status !== "pending"),
+    submittedByUid: typeof data.submittedByUid === "string" ? data.submittedByUid : undefined,
+    status,
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt),
+    respondedAt: data.respondedAt === null ? null : serializeDate(data.respondedAt) ?? null,
+    userId: typeof data.userId === "string" ? data.userId : buyerUid,
+    offerAmount: amount,
+    sellerOwnerUid: typeof data.sellerOwnerUid === "string" ? data.sellerOwnerUid : listingOwnerUid
   };
 }
 
@@ -481,7 +566,9 @@ export async function getOwnedVehiclesData(ownerUid: string) {
 export async function listPublishedVehicles() {
   const result = await getCollection<Vehicle>("vehicles", sampleVehicles, serializeVehicleDoc);
   return {
-    vehicles: result.items.filter((vehicle) => vehicle.status === "approved" && vehicle.sellerStatus === "ACTIVE"),
+    vehicles: result.items.filter(
+      (vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
+    ),
     source: result.source,
     error: result.error
   };
@@ -530,7 +617,7 @@ export async function listUsers() {
 }
 
 export async function getOffersData() {
-  return getCollection<Offer>("offers", []);
+  return getCollection<Offer>("offers", [], serializeOfferDoc);
 }
 
 export async function getSellerOffersData(ownerUid: string) {
@@ -544,12 +631,39 @@ export async function getSellerOffersData(ownerUid: string) {
   try {
     const snapshot = await getDocs(query(collection(db, "offers"), where("sellerOwnerUid", "==", ownerUid)));
     const items = snapshot.docs
-      .map((item) => serializeDoc<Offer>(item.id, item.data()))
+      .map((item) => serializeOfferDoc(item.id, item.data()))
       .sort((a, b) => {
         const aCreatedAt = a.createdAt ?? "";
         const bCreatedAt = b.createdAt ?? "";
         return bCreatedAt.localeCompare(aCreatedAt);
       });
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as Offer[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function getBuyerOffersData(buyerUid: string) {
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as Offer[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(query(collection(db, "offers"), where("userId", "==", buyerUid)));
+    const items = snapshot.docs
+      .map((item) => serializeOfferDoc(item.id, item.data()))
+      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? "").localeCompare(a.updatedAt ?? a.createdAt ?? ""));
 
     return {
       items,
@@ -860,7 +974,7 @@ async function buildVehicleAnalyticsSummary(vehicleId: string, sellerOwnerUid?: 
 
   const viewEvents = viewEventSnapshot.docs.map((item) => serializeVehicleViewEventDoc(item.id, item.data()));
   const savedVehicles = (savedVehicleSnapshot?.docs ?? []).map((item) => serializeDoc<SavedVehicle>(item.id, item.data()));
-  const offers = offerSnapshot.docs.map((item) => serializeDoc<Offer>(item.id, item.data()));
+  const offers = offerSnapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
   const inspections = inspectionSnapshot.docs.map((item) => serializeDoc<InspectionRequest>(item.id, item.data()));
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
@@ -1070,6 +1184,32 @@ function normalizeDuplicateText(value?: string) {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function buildOfferMessageForWrite(sender: OfferMessageSender, text: string) {
+  return {
+    sender,
+    text,
+    createdAt: Timestamp.now()
+  };
+}
+
+function toStoredOfferMessage(message: OfferMessage) {
+  const createdAt = message.createdAt ? new Date(message.createdAt) : null;
+
+  return {
+    sender: message.sender,
+    text: message.text,
+    createdAt: createdAt && Number.isFinite(createdAt.getTime()) ? Timestamp.fromDate(createdAt) : Timestamp.now()
+  };
+}
+
+function buildOfferMessageForReturn(sender: OfferMessageSender, text: string): OfferMessage {
+  return {
+    sender,
+    text,
+    createdAt: new Date().toISOString()
+  };
+}
+
 function isWithinWindow(createdAt: string | undefined, windowMs: number) {
   if (!createdAt) return false;
   const timestamp = new Date(createdAt).getTime();
@@ -1080,7 +1220,7 @@ async function findRecentOffersForUser(userId: string, vehicleId: string) {
   if (!isFirebaseConfigured) return [] as Offer[];
 
   const snapshot = await getDocs(query(collection(db, "offers"), where("userId", "==", userId), where("vehicleId", "==", vehicleId)));
-  return snapshot.docs.map((item) => serializeDoc<Offer>(item.id, item.data()));
+  return snapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
 }
 
 async function findRecentInspectionRequestsForUser(userId: string, vehicleId: string) {
@@ -1180,6 +1320,7 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
     images: galleryImages,
     submissionPreference: normalizedInput.submissionPreference ?? "basic",
     serviceQuoteNotes: normalizedInput.serviceQuoteNotes ?? "",
+    underOfferBuyerUid: existingVehicle?.underOfferBuyerUid ?? "",
     soldAt: existingVehicle?.soldAt ?? ""
   };
 }
@@ -1392,6 +1533,7 @@ export async function updateSellerVehicleStatus(
     const vehicle = {
       ...baseVehicle,
       sellerStatus,
+      underOfferBuyerUid: sellerStatus === "UNDER_OFFER" ? baseVehicle.underOfferBuyerUid ?? "" : "",
       soldAt,
       updatedAt: new Date().toISOString()
     } satisfies Vehicle;
@@ -1405,6 +1547,7 @@ export async function updateSellerVehicleStatus(
 
   await updateDoc(doc(db, "vehicles", id), {
     sellerStatus,
+    underOfferBuyerUid: sellerStatus === "UNDER_OFFER" ? baseVehicle.underOfferBuyerUid ?? "" : deleteField(),
     soldAt: sellerStatus === "SOLD" ? serverTimestamp() : deleteField(),
     updatedAt: serverTimestamp()
   });
@@ -1412,6 +1555,7 @@ export async function updateSellerVehicleStatus(
   const vehicle = {
     ...baseVehicle,
     sellerStatus,
+    underOfferBuyerUid: sellerStatus === "UNDER_OFFER" ? baseVehicle.underOfferBuyerUid ?? "" : "",
     soldAt,
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
@@ -1488,9 +1632,21 @@ export async function createOffer(input: OfferWriteInput) {
     throw new Error("Please enter a realistic offer amount.");
   }
 
+  const vehicle = await getVehicleById(input.vehicleId);
+  if (!vehicle || vehicle.status !== "approved" || vehicle.sellerStatus === "WITHDRAWN" || vehicle.sellerStatus === "SOLD") {
+    throw new Error("This vehicle is not currently available for offers.");
+  }
+  if (vehicle.sellerStatus === "UNDER_OFFER") {
+    throw new Error("This vehicle is currently under offer.");
+  }
+
   const sanitizedMessage = sanitizeMultilineText(input.message);
+  const initialMessages = sanitizedMessage ? [buildOfferMessageForReturn("buyer", sanitizedMessage)] : [];
+  const initialMessagesForWrite = sanitizedMessage ? [buildOfferMessageForWrite("buyer", sanitizedMessage)] : [];
 
   const payloadBase = {
+    buyerUid: input.userId,
+    listingOwnerUid: input.sellerOwnerUid,
     userId: input.userId,
     vehicleId: input.vehicleId,
     vehicleTitle: input.vehicleTitle,
@@ -1498,10 +1654,16 @@ export async function createOffer(input: OfferWriteInput) {
     buyerName,
     buyerEmail,
     buyerPhone,
+    amount: input.offerAmount,
     offerAmount: input.offerAmount,
     message: sanitizedMessage,
+    messages: initialMessages,
+    buyerViewed: true,
+    sellerViewed: false,
     sellerOwnerUid: input.sellerOwnerUid,
-    submittedByUid: input.submittedByUid ?? input.userId
+    submittedByUid: input.submittedByUid ?? input.userId,
+    respondedAt: null,
+    updatedAt: new Date().toISOString()
   };
 
   if (isFirebaseConfigured) {
@@ -1529,7 +1691,7 @@ export async function createOffer(input: OfferWriteInput) {
     const offer = {
       id: `mock-offer-${Date.now()}`,
       ...payloadBase,
-      status: "new" as const,
+      status: "pending" as const,
       createdAt: new Date().toISOString()
     } satisfies Offer;
 
@@ -1542,15 +1704,22 @@ export async function createOffer(input: OfferWriteInput) {
 
   const payload = {
     ...payloadBase,
-    status: "new",
-    createdAt: serverTimestamp()
+    messages: initialMessagesForWrite,
+    status: "pending",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
   };
 
   const ref = await addDoc(collection(db, "offers"), payload);
+  try {
+    await saveVehicle({ userId: input.userId, vehicleId: input.vehicleId });
+  } catch {
+    // Offer submission should still succeed even if the optional auto-save cannot complete.
+  }
   const offer = {
     id: ref.id,
     ...payloadBase,
-    status: "new" as const,
+    status: "pending" as const,
     createdAt: new Date().toISOString()
   } satisfies Offer;
 
@@ -1825,10 +1994,18 @@ export async function updateInspectionRequestStatus(
   } satisfies InspectionRequestWriteResult;
 }
 
-export async function updateOfferStatus(id: string, status: OfferStatus, actor: VehicleActor, existingOffer?: Offer) {
-  if (!isAdminLikeRole(actor.role) && actor.role !== "seller") {
-    throw new Error("Only admins and sellers can update offers.");
+export async function appendOfferMessage(
+  id: string,
+  sender: OfferMessageSender,
+  text: string,
+  actor: VehicleActor,
+  existingOffer?: Offer
+) {
+  const sanitizedText = sanitizeMultilineText(text);
+  if (!sanitizedText) {
+    throw new Error("Please enter a message before replying.");
   }
+
   if (isAdminLikeRole(actor.role)) {
     assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
   }
@@ -1840,7 +2017,7 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         if (!isFirebaseConfigured) return null;
         const snapshot = await getDoc(doc(db, "offers", id));
         if (!snapshot.exists()) return null;
-        return serializeDoc<Offer>(snapshot.id, snapshot.data());
+        return serializeOfferDoc(snapshot.id, snapshot.data());
       })()
     );
 
@@ -1848,27 +2025,229 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
     throw new Error("Offer not found.");
   }
 
-  if (actor.role === "seller" && offer.sellerOwnerUid !== actor.id) {
-    throw new Error("You can only manage offers for your own vehicles.");
+  const isOfferSeller = offer.listingOwnerUid === actor.id;
+  const isOfferBuyer = offer.buyerUid === actor.id;
+
+  if (sender === "seller" && !isOfferSeller && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only reply to offers for your own vehicles.");
   }
+
+  if (sender === "buyer" && !isOfferBuyer && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only reply to your own offers.");
+  }
+
+  if (sender === "buyer" && offer.status !== "pending") {
+    throw new Error("Buyer replies are only available while the offer is still pending.");
+  }
+
+  const nextMessage = buildOfferMessageForReturn(sender, sanitizedText);
+  const nextMessages = [...offer.messages, nextMessage];
+  const nextBuyerViewed = sender === "seller" ? false : true;
+  const nextSellerViewed = sender === "seller" ? true : false;
 
   if (!isFirebaseConfigured) {
     return {
       offer: {
         ...offer,
-        status
+        messages: nextMessages,
+        buyerViewed: nextBuyerViewed,
+        sellerViewed: nextSellerViewed,
+        updatedAt: new Date().toISOString()
       },
       source: "mock" as const,
       writeSucceeded: false
     } satisfies OfferWriteResult;
   }
 
-  await updateDoc(doc(db, "offers", id), { status });
+  await updateDoc(doc(db, "offers", id), {
+    messages: [...offer.messages.map(toStoredOfferMessage), buildOfferMessageForWrite(sender, sanitizedText)],
+    buyerViewed: nextBuyerViewed,
+    sellerViewed: nextSellerViewed,
+    updatedAt: serverTimestamp()
+  });
 
   return {
     offer: {
       ...offer,
-      status
+      messages: nextMessages,
+      buyerViewed: nextBuyerViewed,
+      sellerViewed: nextSellerViewed,
+      updatedAt: new Date().toISOString()
+    },
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies OfferWriteResult;
+}
+
+export async function markBuyerOfferResponsesViewed(buyerUid: string) {
+  if (!buyerUid || !isFirebaseConfigured) return;
+
+  const snapshot = await getDocs(query(collection(db, "offers"), where("userId", "==", buyerUid)));
+  const offers = snapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
+  const pendingUpdates = offers.filter((offer) => !offer.buyerViewed);
+
+  await Promise.all(
+    pendingUpdates.map((offer) =>
+      updateDoc(doc(db, "offers", offer.id), {
+        buyerViewed: true,
+        updatedAt: serverTimestamp()
+      })
+    )
+  );
+}
+
+export async function markSellerOffersViewed(ownerUid: string) {
+  if (!ownerUid || !isFirebaseConfigured) return;
+
+  const snapshot = await getDocs(query(collection(db, "offers"), where("sellerOwnerUid", "==", ownerUid)));
+  const offers = snapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
+  const pendingUpdates = offers.filter((offer) => offer.status === "pending" && !offer.sellerViewed);
+
+  await Promise.all(
+    pendingUpdates.map((offer) =>
+      updateDoc(doc(db, "offers", offer.id), {
+        sellerViewed: true,
+        updatedAt: serverTimestamp()
+      })
+    )
+  );
+}
+
+export async function updateOfferStatus(id: string, status: OfferStatus, actor: VehicleActor, existingOffer?: Offer) {
+  if (isAdminLikeRole(actor.role)) {
+    assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
+  }
+
+  const offer =
+    existingOffer ??
+    (
+      await (async () => {
+        if (!isFirebaseConfigured) return null;
+        const snapshot = await getDoc(doc(db, "offers", id));
+        if (!snapshot.exists()) return null;
+        return serializeOfferDoc(snapshot.id, snapshot.data());
+      })()
+    );
+
+  if (!offer) {
+    throw new Error("Offer not found.");
+  }
+
+  const isOfferSeller = offer.listingOwnerUid === actor.id;
+  const isOfferBuyer = offer.buyerUid === actor.id;
+
+  if (!isAdminLikeRole(actor.role) && !isOfferSeller && !isOfferBuyer) {
+    throw new Error("You do not have access to update this offer.");
+  }
+
+  if (isOfferSeller && status === "accepted_pending_buyer_confirmation" && offer.status !== "pending") {
+    throw new Error("Only pending offers can be accepted.");
+  }
+
+  if (isOfferSeller && status === "rejected" && offer.status !== "pending") {
+    throw new Error("Only pending offers can be rejected.");
+  }
+
+  if (isOfferBuyer && status === "buyer_confirmed" && offer.status !== "accepted_pending_buyer_confirmation") {
+    throw new Error("This offer is not awaiting buyer confirmation.");
+  }
+
+  if (isOfferBuyer && status === "buyer_declined" && offer.status !== "accepted_pending_buyer_confirmation") {
+    throw new Error("This offer is not awaiting buyer confirmation.");
+  }
+
+  const nextRespondedAt =
+    status === "accepted_pending_buyer_confirmation" || status === "rejected"
+      ? new Date().toISOString()
+      : offer.respondedAt ?? null;
+
+  const nextBuyerViewed =
+    status === "accepted_pending_buyer_confirmation" || status === "rejected"
+      ? false
+      : status === "buyer_confirmed" || status === "buyer_declined"
+        ? true
+        : offer.buyerViewed;
+
+  const nextSellerViewed =
+    status === "accepted_pending_buyer_confirmation" || status === "rejected"
+      ? true
+      : status === "buyer_confirmed" || status === "buyer_declined"
+        ? true
+        : offer.sellerViewed;
+
+  const baseVehicle = await getVehicleById(offer.vehicleId);
+  if (!baseVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  if (
+    status === "accepted_pending_buyer_confirmation"
+    && baseVehicle.sellerStatus === "UNDER_OFFER"
+    && baseVehicle.underOfferBuyerUid
+    && baseVehicle.underOfferBuyerUid !== offer.buyerUid
+  ) {
+    throw new Error("This vehicle is already under offer.");
+  }
+
+  const nextVehiclePatch =
+    status === "accepted_pending_buyer_confirmation"
+      ? {
+          sellerStatus: "UNDER_OFFER" as const,
+          underOfferBuyerUid: offer.buyerUid
+        }
+      : status === "buyer_declined"
+        ? {
+            sellerStatus: "ACTIVE" as const,
+            underOfferBuyerUid: ""
+          }
+        : null;
+
+  if (!isFirebaseConfigured) {
+    return {
+      offer: {
+        ...offer,
+        status,
+        buyerViewed: nextBuyerViewed,
+        sellerViewed: nextSellerViewed,
+        respondedAt: nextRespondedAt,
+        updatedAt: new Date().toISOString()
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies OfferWriteResult;
+  }
+
+  const batch = writeBatch(db);
+
+  if (nextVehiclePatch) {
+    batch.update(doc(db, "vehicles", offer.vehicleId), {
+      sellerStatus: nextVehiclePatch.sellerStatus,
+      underOfferBuyerUid: nextVehiclePatch.underOfferBuyerUid || deleteField(),
+      updatedAt: serverTimestamp()
+    });
+  }
+
+  batch.update(doc(db, "offers", id), {
+    status,
+    buyerViewed: nextBuyerViewed,
+    sellerViewed: nextSellerViewed,
+    respondedAt:
+      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+        ? serverTimestamp()
+        : nextRespondedAt,
+    updatedAt: serverTimestamp()
+  });
+
+  await batch.commit();
+
+  return {
+    offer: {
+      ...offer,
+      status,
+      buyerViewed: nextBuyerViewed,
+      sellerViewed: nextSellerViewed,
+      respondedAt: nextRespondedAt,
+      updatedAt: new Date().toISOString()
     },
     source: "firestore" as const,
     writeSucceeded: true

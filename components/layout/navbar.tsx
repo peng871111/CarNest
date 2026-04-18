@@ -19,18 +19,13 @@ export default function Navbar() {
           { href: "/admin/inspections", label: "Inspections" },
           { href: "/dashboard/settings", label: "Account Settings" }
         ]
-      : appUser.role === "seller"
-        ? [
-            { href: "/seller/vehicles", label: "My Vehicles" },
-            { href: "/dashboard/saved", label: "Saved Vehicles" },
-            { href: "/seller/offers", label: "Offers" },
-            { href: "/dashboard/settings", label: "Account Settings" }
-          ]
-        : [
-            { href: "/seller/vehicles", label: "My Vehicles" },
-            { href: "/dashboard/saved", label: "Saved Vehicles" },
-            { href: "/dashboard/settings", label: "Account Settings" }
-          ]
+      : [
+          { href: "/seller/vehicles", label: "My Vehicles" },
+          { href: "/dashboard/saved", label: "Saved Vehicles" },
+          ...(appUser.role === "seller" ? [{ href: "/seller/offers", label: "Offers" }] : []),
+          { href: "/dashboard/offers", label: "My Offers" },
+          { href: "/dashboard/settings", label: "Account Settings" }
+        ]
     : [];
 
   async function handleLogout() {

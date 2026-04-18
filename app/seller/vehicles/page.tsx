@@ -72,7 +72,7 @@ function SellerVehiclesPageContent() {
   const writeStatus =
     searchParams.get("write") === "success"
       ? searchParams.get("sellerStatus")
-        ? `Listing updated to ${searchParams.get("sellerStatus")}`
+        ? `Listing updated to ${searchParams.get("sellerStatus")?.replaceAll("_", " ").toLowerCase()}`
         : "Vehicle updated successfully"
       : "";
 

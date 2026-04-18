@@ -151,8 +151,8 @@ export function OfferForm({ vehicle }: { vehicle: Vehicle }) {
 
       setSuccess(
         result.writeSucceeded
-          ? "Offer submitted successfully. The seller will be notified and may contact you shortly."
-          : "Offer submitted successfully. The seller will be notified and may contact you shortly."
+          ? "Offer submitted successfully. You can track the result in My Offers."
+          : "Offer submitted successfully. You can track the result in My Offers."
       );
       setForm({
         ...initialState,
@@ -171,6 +171,8 @@ export function OfferForm({ vehicle }: { vehicle: Vehicle }) {
           "Please correct the highlighted fields before submitting.",
           "Please sign in to submit an offer.",
           "Please enter a realistic offer amount.",
+          "This vehicle is not currently available for offers.",
+          "This vehicle is currently under offer.",
           "Too many requests. Please try again later.",
           "It looks like this request was already submitted.",
           "Please take a moment to review your details before submitting.",
@@ -193,7 +195,7 @@ export function OfferForm({ vehicle }: { vehicle: Vehicle }) {
           <p className="text-xs uppercase tracking-[0.25em] text-bronze">Make an offer</p>
           <h2 className="mt-2 text-2xl font-semibold text-ink">Submit a serious offer</h2>
           <p className="mt-3 max-w-xl text-sm leading-6 text-ink/70">
-            Offers are sent to the vehicle owner and CarNest management for review.
+            Your offer is shared directly with the listing owner through CarNest.
           </p>
         </div>
         <div className="rounded-[22px] bg-shell px-4 py-3 text-right">
@@ -270,7 +272,7 @@ export function OfferForm({ vehicle }: { vehicle: Vehicle }) {
 
         <TurnstileField token={turnstileToken} onTokenChange={setTurnstileToken} />
 
-        <p className="text-sm font-medium text-ink/70">Your offer goes directly to the vehicle owner.</p>
+        <p className="text-sm font-medium text-ink/70">Track updates from your account after the owner responds.</p>
 
         <Button type="submit" disabled={saving}>
           {saving ? "Submitting offer..." : "Submit offer"}

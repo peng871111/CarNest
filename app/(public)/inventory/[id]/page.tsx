@@ -9,6 +9,7 @@ import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "
 import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
 import { ListingSummary } from "@/components/vehicles/listing-summary";
+import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { SaveVehicleButton } from "@/components/vehicles/save-vehicle-button";
 import { TakeActionPanel } from "@/components/vehicles/take-action-panel";
@@ -82,7 +83,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     );
   }
 
-  if (!vehicle || vehicle.status !== "approved" || vehicle.sellerStatus !== "ACTIVE") notFound();
+  if (!vehicle || vehicle.status !== "approved" || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")) notFound();
 
   const sellerTrust = await getSellerTrustInfo(vehicle.ownerUid);
   const { vehicles: publishedVehicles } = await listPublishedVehicles();
@@ -178,6 +179,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller and management status</p>
             <div className="mt-4 flex flex-wrap gap-2">
+              {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
               <span className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72">
                 {vehicle.listingType === "warehouse" ? "Warehouse managed" : "Private seller-managed"}
               </span>
@@ -239,7 +241,10 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
         </section>
         <aside className="space-y-6">
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-            <ListingBadge vehicle={vehicle} />
+            <div className="flex flex-wrap gap-2">
+              <ListingBadge vehicle={vehicle} />
+              {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
+            </div>
             <h1 className="mt-2 font-display text-4xl text-ink">
               {vehicle.year} {vehicle.make} {vehicle.model}
             </h1>

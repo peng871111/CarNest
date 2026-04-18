@@ -9,6 +9,7 @@ import { getPublicVehicleLocation, getVehicleImageCandidates } from "@/lib/permi
 import { ListingBadge } from "@/components/vehicles/listing-badge";
 import { ListingSummary } from "@/components/vehicles/listing-summary";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
+import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 
 export function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
   const candidates = useMemo(() => getVehicleImageCandidates(vehicle), [vehicle]);
@@ -37,7 +38,10 @@ export function VehicleCard({ vehicle }: { vehicle: Vehicle }) {
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <ListingBadge vehicle={vehicle} />
+            <div className="flex flex-wrap gap-2">
+              <ListingBadge vehicle={vehicle} />
+              {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
+            </div>
             <h3 className="mt-2 text-lg font-semibold leading-tight text-ink">
               {vehicle.year} {vehicle.make} {vehicle.model}
             </h3>

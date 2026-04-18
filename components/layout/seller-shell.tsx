@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useState } from "react";
 import { SELLER_LINKS } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
-import { getSellerOffersData } from "@/lib/data";
+import { getBuyerOffersData, getSellerOffersData } from "@/lib/data";
 import { canAccessRole } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
@@ -31,7 +31,9 @@ export function SellerShell({
   const { appUser, loading } = useAuth();
   const workspaceHomeHref = appUser?.role === "admin" || appUser?.role === "super_admin" ? "/admin/vehicles" : "/seller/vehicles";
   const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role);
+  const sidebarLinks = SELLER_LINKS.filter((link) => link.href !== "/seller/offers" || appUser?.role === "seller");
   const [offersBadgeCount, setOffersBadgeCount] = useState(0);
+  const [myOffersBadgeCount, setMyOffersBadgeCount] = useState(0);
 
   useEffect(() => {
     if (!loading && !hasWorkspaceAccess) {
@@ -45,13 +47,20 @@ export function SellerShell({
     async function loadOffersBadge() {
       if (loading || !hasWorkspaceAccess || !appUser || appUser.role === "admin" || appUser.role === "super_admin") {
         setOffersBadgeCount(0);
+        setMyOffersBadgeCount(0);
         return;
       }
 
-      const result = await getSellerOffersData(appUser.id);
+      const [sellerOffersResult, buyerOffersResult] = await Promise.all([
+        appUser.role === "seller" ? getSellerOffersData(appUser.id) : Promise.resolve({ items: [] }),
+        getBuyerOffersData(appUser.id)
+      ]);
       if (cancelled) return;
 
-      setOffersBadgeCount(result.items.filter((offer) => offer.status === "new").length);
+      setOffersBadgeCount(
+        sellerOffersResult.items.filter((offer) => offer.status === "pending" && !offer.sellerViewed).length
+      );
+      setMyOffersBadgeCount(buyerOffersResult.items.filter((offer) => !offer.buyerViewed).length);
     }
 
     void loadOffersBadge();
@@ -74,7 +83,7 @@ export function SellerShell({
         <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
           <p className="text-xs uppercase tracking-[0.32em] text-bronze">Account</p>
           <div className="mt-6 space-y-2">
-            {SELLER_LINKS.map((link) => (
+            {sidebarLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}
@@ -87,6 +96,11 @@ export function SellerShell({
                 {link.href === "/seller/offers" && offersBadgeCount > 0 ? (
                   <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-[#B42318] px-2 py-0.5 text-[11px] font-semibold text-white">
                     {formatBadgeCount(offersBadgeCount)}
+                  </span>
+                ) : null}
+                {link.href === "/dashboard/offers" && myOffersBadgeCount > 0 ? (
+                  <span className="inline-flex min-w-6 items-center justify-center rounded-full bg-[#B42318] px-2 py-0.5 text-[11px] font-semibold text-white">
+                    {formatBadgeCount(myOffersBadgeCount)}
                   </span>
                 ) : null}
               </Link>

@@ -11,8 +11,14 @@ export type AdminPermissionKey =
 export type AdminPermissions = Record<AdminPermissionKey, boolean>;
 export type ListingType = "warehouse" | "private";
 export type VehicleStatus = "pending" | "approved" | "rejected";
-export type SellerVehicleStatus = "ACTIVE" | "PAUSED" | "WITHDRAWN" | "SOLD";
-export type OfferStatus = "new" | "under_review" | "accepted" | "declined" | "withdrawn";
+export type SellerVehicleStatus = "ACTIVE" | "UNDER_OFFER" | "PAUSED" | "WITHDRAWN" | "SOLD";
+export type OfferMessageSender = "buyer" | "seller";
+export type OfferStatus =
+  | "pending"
+  | "accepted_pending_buyer_confirmation"
+  | "buyer_confirmed"
+  | "buyer_declined"
+  | "rejected";
 export type InspectionRequestStatus = "NEW" | "CONTACTED" | "BOOKED" | "CLOSED";
 export type QuoteStatus = "NEW" | "CONTACTED" | "QUOTED" | "CLOSED";
 export type QuoteType = "SERVICE_SUPPORT" | "WAREHOUSE_UPGRADE";
@@ -77,6 +83,7 @@ export interface Vehicle {
   images: string[];
   submissionPreference?: "basic" | "service_quote";
   serviceQuoteNotes?: string;
+  underOfferBuyerUid?: string;
   soldAt?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -123,21 +130,35 @@ export interface Enquiry {
   createdAt?: string;
 }
 
+export interface OfferMessage {
+  sender: OfferMessageSender;
+  text: string;
+  createdAt?: string;
+}
+
 export interface Offer {
   id: string;
-  userId: string;
+  buyerUid: string;
+  listingOwnerUid: string;
   vehicleId: string;
   vehicleTitle: string;
   vehiclePrice: number;
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string;
-  offerAmount: number;
+  amount: number;
   message: string;
-  sellerOwnerUid: string;
+  messages: OfferMessage[];
+  buyerViewed: boolean;
+  sellerViewed: boolean;
   submittedByUid?: string;
   status: OfferStatus;
   createdAt?: string;
+  updatedAt?: string;
+  respondedAt?: string | null;
+  userId?: string;
+  offerAmount?: number;
+  sellerOwnerUid?: string;
 }
 
 export interface InspectionRequest {
