@@ -41,6 +41,20 @@ export function formatMonthYear(value?: string) {
   }).format(new Date(value));
 }
 
+export function formatCalendarDate(value?: string) {
+  if (!value) return "Not provided";
+
+  const normalized = `${value}T00:00:00`;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return value;
+
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  }).format(parsed);
+}
+
 export function getVehicleDisplayReference(input: string | { id: string; displayReference?: string }) {
   if (typeof input !== "string" && input.displayReference) {
     return input.displayReference;

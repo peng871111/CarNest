@@ -3,8 +3,8 @@ import { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { getSellerTrustInfo, getVehicleById, listPublishedVehicles } from "@/lib/data";
-import { formatCurrency, formatMonthYear, getVehicleDisplayReference } from "@/lib/utils";
-import { getListingLabel, getPublicVehicleLocation, getVehicleGallery } from "@/lib/permissions";
+import { formatCalendarDate, formatCurrency, formatMonthYear, getVehicleDisplayReference } from "@/lib/utils";
+import { getListingLabel, getVehicleGallery } from "@/lib/permissions";
 import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "@/lib/seo";
 import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
@@ -100,6 +100,27 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
       ? ["Stored at CarNest warehouse", "Inspection available", "Better presented vehicle"]
       : ["Private seller", "Seller-managed vehicle"];
   const locationSummary = vehicle.sellerLocationSuburb || vehicle.sellerLocationState || "Australia";
+  const summaryFields = [
+    ["Current listing mode", getListingLabel(vehicle.listingType)],
+    ["Year", String(vehicle.year)],
+    ["Make", vehicle.make],
+    ["Model", vehicle.model],
+    ["Price", formatCurrency(vehicle.price)],
+    ["Mileage", `${vehicle.mileage.toLocaleString()} km`]
+  ];
+  const listingDetails = [
+    ["Transmission", vehicle.transmission],
+    ["Fuel type", vehicle.fuelType],
+    ["Drivetrain", vehicle.drivetrain],
+    ["Body type", vehicle.bodyType],
+    ["Colour", vehicle.colour],
+    ["Service history", vehicle.serviceHistory],
+    ["Keys", vehicle.keyCount],
+    ["Rego expiry", vehicle.regoExpiry ? formatCalendarDate(vehicle.regoExpiry) : ""],
+    ["Seller suburb", vehicle.sellerLocationSuburb ?? ""],
+    ["Seller state", vehicle.sellerLocationState ?? ""],
+    ["Vehicle ID", getVehicleDisplayReference(vehicle)]
+  ].filter(([, value]) => Boolean(value));
   const vehicleStructuredData = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -141,34 +162,19 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           </Link>
           <VehicleGallery images={getVehicleGallery(vehicle)} altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              {[
-                ["Brand", vehicle.make],
-                ["Model", vehicle.model],
-                ["Color", vehicle.colour],
-                ["Body type", vehicle.bodyType],
-                ["Mileage", `${vehicle.mileage.toLocaleString()} km`]
-              ].map(([label, value]) => (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {summaryFields.map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs uppercase tracking-[0.25em] text-ink/45">{label}</p>
                   <p className="mt-2 text-base text-ink">{value}</p>
                 </div>
               ))}
             </div>
-            <div className="mt-6 border-t border-black/5 pt-6">
-              <p className="text-xs uppercase tracking-[0.25em] text-ink/45">Vehicle ID</p>
-              <p className="mt-2 text-base text-ink">{getVehicleDisplayReference(vehicle)}</p>
-            </div>
           </div>
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">Listing details</p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {[
-                ["Listing type", getListingLabel(vehicle.listingType)],
-                ["Location", getPublicVehicleLocation(vehicle)],
-                ["Transmission", vehicle.transmission],
-                ["Fuel type", vehicle.fuelType]
-              ].map(([label, value]) => (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {listingDetails.map(([label, value]) => (
                 <div key={label}>
                   <p className="text-xs uppercase tracking-[0.22em] text-ink/45">{label}</p>
                   <p className="mt-2 text-sm text-ink">{value}</p>
@@ -198,26 +204,6 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             <p className="mt-4 text-ink/70">{vehicle.description}</p>
           </div>
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-            <p className="text-xs uppercase tracking-[0.25em] text-bronze">Vehicle overview</p>
-            <h2 className="mt-2 text-2xl font-semibold text-ink">A concise overview for buyers</h2>
-            <div className="mt-4 space-y-4 text-sm leading-7 text-ink/68">
-              <p>
-                This {vehicle.year} {vehicle.make} {vehicle.model} is currently offered through CarNest with a{" "}
-                {vehicle.listingType === "warehouse" ? "warehouse-supported" : "seller-managed"} listing path and location context in{" "}
-                {locationSummary}.
-              </p>
-              <p>
-                Buyers can review vehicle details, inspect the available image gallery, and move the listing forward through the CarNest
-                workflow by submitting an offer{vehicle.listingType === "warehouse" ? " or requesting an inspection" : ""}.
-              </p>
-              <p>
-                {vehicle.listingType === "warehouse"
-                  ? "Because this vehicle is stored at the CarNest warehouse, presentation is more controlled, inspections are available by request, and the listing typically carries stronger context for buyers."
-                  : "Because this is a private seller listing, the seller continues to manage access and timing directly while CarNest keeps the listing presentation and action flow clear."}
-              </p>
-            </div>
-          </div>
-          <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller trust</p>
             <h2 className="mt-2 text-2xl font-semibold text-ink">Seller information</h2>
             <div className="mt-5 grid gap-4 md:grid-cols-3">
@@ -235,7 +221,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               </div>
             </div>
             <p className="mt-5 text-sm leading-6 text-ink/65">
-              Seller contact details stay private. Communication and inspection coordination remain managed through the platform workflow.
+              Seller contact details stay private. Communication and inspection coordination remain managed through the platform workflow in {locationSummary}.
             </p>
           </div>
         </section>

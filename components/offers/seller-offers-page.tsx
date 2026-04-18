@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SellerShell } from "@/components/layout/seller-shell";
-import { OfferAmountInlineEditor } from "@/components/offers/offer-amount-inline-editor";
+import { OfferNegotiationCard } from "@/components/offers/offer-negotiation-card";
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
@@ -23,6 +23,7 @@ export function SellerOffersPageClient({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyOfferId, setBusyOfferId] = useState("");
+  const [editingCounterOfferId, setEditingCounterOfferId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -84,6 +85,7 @@ export function SellerOffersPageClient({
       const result = await updateOfferAmount(offer.id, amount, "seller", appUser, offer);
       setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
       setNotice("Counter-offer saved.");
+      setEditingCounterOfferId("");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer amount right now.");
     } finally {
@@ -147,13 +149,8 @@ export function SellerOffersPageClient({
                     <p className="mt-1 text-ink/55">{offer.buyerPhone}</p>
                   </div>
                   <div>
-                    <OfferAmountInlineEditor
-                      amount={offer.amount}
-                      canEdit={offer.status === "pending"}
-                      busy={busyOfferId === offer.id}
-                      onSave={(amount) => handleSellerCounter(offer, amount)}
-                    />
-                    <p className="mt-1 text-ink/55">Current amount</p>
+                    <p className="text-lg font-semibold text-ink">{formatCurrency(offer.amount)}</p>
+                    <p className="mt-1 text-ink/55">Current negotiated amount</p>
                   </div>
                   <div>
                     <p className="text-ink/70">{formatAdminDateTime(offer.createdAt)}</p>
@@ -164,6 +161,20 @@ export function SellerOffersPageClient({
                   </div>
                   <div>
                     <OfferStatusActions offer={offer} basePath="/seller/offers" />
+                    {offer.status === "pending" ? (
+                      <button
+                        type="button"
+                        disabled={busyOfferId === offer.id}
+                        onClick={() => {
+                          setEditingCounterOfferId((current) => (current === offer.id ? "" : offer.id));
+                          setNotice("");
+                          setError("");
+                        }}
+                        className="mt-3 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {editingCounterOfferId === offer.id ? "Hide counter-offer" : "Counter-offer"}
+                      </button>
+                    ) : null}
                     {!offer.contactUnlocked ? (
                       <button
                         type="button"
@@ -178,6 +189,20 @@ export function SellerOffersPageClient({
                     )}
                   </div>
                 </div>
+                {offer.status === "pending" && editingCounterOfferId === offer.id ? (
+                  <div className="mt-5">
+                    <OfferNegotiationCard
+                      title="Seller counter-offer"
+                      description="Revise the active negotiation amount here. This does not change the vehicle asking price."
+                      currentAmount={offer.amount}
+                      initialDraft={offer.amount}
+                      buttonLabel="Confirm"
+                      busy={busyOfferId === offer.id}
+                      onConfirm={(amount) => handleSellerCounter(offer, amount)}
+                      onCancel={() => setEditingCounterOfferId("")}
+                    />
+                  </div>
+                ) : null}
                 <div className="mt-5">
                   <OfferThread
                     offer={offer}

@@ -29,6 +29,10 @@ function applyUppercaseInput(event: FormEvent<HTMLInputElement>) {
   input.value = input.value.toUpperCase();
 }
 
+function blockManualDateEntry(event: FormEvent<HTMLInputElement>) {
+  event.preventDefault();
+}
+
 interface SelectedImage {
   id: string;
   file: File;
@@ -47,6 +51,7 @@ const initialState: VehicleFormInput = {
   drivetrain: "",
   bodyType: "",
   colour: "",
+  regoExpiry: "",
   serviceHistory: "",
   keyCount: "",
   sellerLocationSuburb: "",
@@ -100,6 +105,7 @@ export function VehicleForm({
             drivetrain: currentVehicle.drivetrain,
             bodyType: currentVehicle.bodyType.toUpperCase(),
             colour: currentVehicle.colour,
+            regoExpiry: currentVehicle.regoExpiry ?? "",
             serviceHistory: currentVehicle.serviceHistory?.toUpperCase?.() ?? "",
             keyCount: currentVehicle.keyCount?.toUpperCase?.() ?? "",
             sellerLocationSuburb: currentVehicle.sellerLocationSuburb?.toUpperCase() ?? "",
@@ -225,6 +231,7 @@ export function VehicleForm({
         drivetrain: String(form.get("drivetrain")),
         bodyType: uppercaseValue(form.get("bodyType")),
         colour: String(form.get("colour")),
+        regoExpiry: String(form.get("regoExpiry")),
         serviceHistory: uppercaseValue(form.get("serviceHistory")),
         keyCount: uppercaseValue(form.get("keyCount")),
         sellerLocationSuburb: uppercaseValue(form.get("sellerLocationSuburb")),
@@ -378,6 +385,16 @@ export function VehicleForm({
         <label className="space-y-2">
           <span className="text-sm font-medium text-ink">Colour</span>
           <Input name="colour" defaultValue={defaultValues.colour} required />
+        </label>
+        <label className="space-y-2">
+          <span className="text-sm font-medium text-ink">Rego expiry</span>
+          <Input
+            type="date"
+            name="regoExpiry"
+            defaultValue={defaultValues.regoExpiry}
+            onBeforeInput={blockManualDateEntry}
+            onPaste={(event) => event.preventDefault()}
+          />
         </label>
         <label className="space-y-2">
           <span className="text-sm font-medium text-ink">Service history</span>

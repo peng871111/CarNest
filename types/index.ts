@@ -73,6 +73,7 @@ export interface Vehicle {
   colour: string;
   vin: string;
   rego: string;
+  regoExpiry?: string;
   description: string;
   features: string[];
   conditionNotes: string;
@@ -103,6 +104,7 @@ export interface VehicleFormInput {
   drivetrain: string;
   bodyType: string;
   colour: string;
+  regoExpiry?: string;
   serviceHistory: string;
   keyCount: string;
   sellerLocationSuburb?: string;

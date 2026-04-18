@@ -27,6 +27,7 @@ function buildVehicleFormInput(vehicle: Vehicle, price: number): VehicleFormInpu
     drivetrain: vehicle.drivetrain,
     bodyType: vehicle.bodyType,
     colour: vehicle.colour,
+    regoExpiry: vehicle.regoExpiry ?? "",
     serviceHistory: vehicle.serviceHistory ?? "",
     keyCount: vehicle.keyCount ?? "",
     sellerLocationSuburb: vehicle.sellerLocationSuburb ?? "",
