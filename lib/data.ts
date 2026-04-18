@@ -13,6 +13,7 @@ import {
   InspectionRequest,
   InspectionRequestStatus,
   Offer,
+  OfferContactUnlockSource,
   OfferThreadEntry,
   OfferMessageSender,
   OfferStatus,
@@ -453,6 +454,12 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
     messages,
     buyerViewed: Boolean(data.buyerViewed ?? status === "pending"),
     sellerViewed: Boolean(data.sellerViewed ?? status !== "pending"),
+    contactUnlocked: Boolean(data.contactUnlocked),
+    contactUnlockedAt: serializeDate(data.contactUnlockedAt) ?? null,
+    contactUnlockedBy:
+      data.contactUnlockedBy === "buyer_confirm" || data.contactUnlockedBy === "seller_manual"
+        ? data.contactUnlockedBy
+        : null,
     lastUpdatedBy:
       data.lastUpdatedBy === "buyer" || data.lastUpdatedBy === "seller"
         ? data.lastUpdatedBy
@@ -1792,6 +1799,9 @@ export async function createOffer(input: OfferWriteInput) {
     messages: initialMessages,
     buyerViewed: true,
     sellerViewed: false,
+    contactUnlocked: false,
+    contactUnlockedAt: null,
+    contactUnlockedBy: null,
     lastUpdatedBy: "buyer" as const,
     sellerOwnerUid: input.sellerOwnerUid,
     submittedByUid: input.submittedByUid ?? input.userId,
@@ -2448,6 +2458,85 @@ export async function markSellerOffersViewed(ownerUid: string) {
   );
 }
 
+export async function unlockOfferContactDetails(
+  id: string,
+  actor: VehicleActor,
+  existingOffer?: Offer
+) {
+  if (isAdminLikeRole(actor.role)) {
+    assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
+  }
+
+  const offer =
+    existingOffer ??
+    (
+      await (async () => {
+        if (!isFirebaseConfigured) return null;
+        const snapshot = await getDoc(doc(db, "offers", id));
+        if (!snapshot.exists()) return null;
+        return serializeOfferDoc(snapshot.id, snapshot.data());
+      })()
+    );
+
+  if (!offer) {
+    throw new Error("Offer not found.");
+  }
+
+  const isOfferSeller = offer.listingOwnerUid === actor.id;
+  if (!isOfferSeller && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only share contact details for offers on your own vehicles.");
+  }
+
+  if (offer.contactUnlocked) {
+    return {
+      offer,
+      source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
+      writeSucceeded: isFirebaseConfigured
+    } satisfies OfferWriteResult;
+  }
+
+  const now = new Date().toISOString();
+
+  if (!isFirebaseConfigured) {
+    return {
+      offer: {
+        ...offer,
+        contactUnlocked: true,
+        contactUnlockedAt: now,
+        contactUnlockedBy: "seller_manual",
+        buyerViewed: false,
+        sellerViewed: true,
+        updatedAt: now
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies OfferWriteResult;
+  }
+
+  await updateDoc(doc(db, "offers", id), {
+    contactUnlocked: true,
+    contactUnlockedAt: serverTimestamp(),
+    contactUnlockedBy: "seller_manual" satisfies OfferContactUnlockSource,
+    buyerViewed: false,
+    sellerViewed: true,
+    updatedAt: serverTimestamp()
+  });
+
+  return {
+    offer: {
+      ...offer,
+      contactUnlocked: true,
+      contactUnlockedAt: now,
+      contactUnlockedBy: "seller_manual",
+      buyerViewed: false,
+      sellerViewed: true,
+      updatedAt: now
+    },
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies OfferWriteResult;
+}
+
 export async function updateOfferStatus(id: string, status: OfferStatus, actor: VehicleActor, existingOffer?: Offer) {
   if (isAdminLikeRole(actor.role)) {
     assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
@@ -2510,6 +2599,10 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         ? true
         : offer.sellerViewed;
 
+  const nextContactUnlocked = status === "buyer_confirmed" ? true : offer.contactUnlocked;
+  const nextContactUnlockedBy = status === "buyer_confirmed" ? ("buyer_confirm" as const) : offer.contactUnlockedBy ?? null;
+  const nextContactUnlockedAt = status === "buyer_confirmed" ? new Date().toISOString() : offer.contactUnlockedAt ?? null;
+
   const baseVehicle = await getVehicleById(offer.vehicleId);
   if (!baseVehicle) {
     throw new Error("Vehicle not found.");
@@ -2544,6 +2637,9 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         status,
         buyerViewed: nextBuyerViewed,
         sellerViewed: nextSellerViewed,
+        contactUnlocked: nextContactUnlocked,
+        contactUnlockedAt: nextContactUnlockedAt,
+        contactUnlockedBy: nextContactUnlockedBy,
         respondedAt: nextRespondedAt,
         updatedAt: new Date().toISOString()
       },
@@ -2566,6 +2662,12 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
     status,
     buyerViewed: nextBuyerViewed,
     sellerViewed: nextSellerViewed,
+    contactUnlocked: nextContactUnlocked,
+    contactUnlockedAt:
+      status === "buyer_confirmed"
+        ? serverTimestamp()
+        : nextContactUnlockedAt,
+    contactUnlockedBy: nextContactUnlockedBy,
     respondedAt:
       status === "accepted_pending_buyer_confirmation" || status === "rejected"
         ? serverTimestamp()
@@ -2581,6 +2683,9 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
       status,
       buyerViewed: nextBuyerViewed,
       sellerViewed: nextSellerViewed,
+      contactUnlocked: nextContactUnlocked,
+      contactUnlockedAt: nextContactUnlockedAt,
+      contactUnlockedBy: nextContactUnlockedBy,
       respondedAt: nextRespondedAt,
       updatedAt: new Date().toISOString()
     },

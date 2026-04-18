@@ -7,7 +7,7 @@ import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, updateOfferAmount } from "@/lib/data";
+import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, unlockOfferContactDetails, updateOfferAmount } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer } from "@/types";
 
@@ -91,6 +91,24 @@ export function SellerOffersPageClient({
     }
   }
 
+  async function handleShareContactDetails(offer: Offer) {
+    if (!appUser) return;
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await unlockOfferContactDetails(offer.id, appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setNotice("Your contact details are now available for this buyer.");
+    } catch (shareError) {
+      setError(shareError instanceof Error ? shareError.message : "We couldn't share your contact details right now.");
+    } finally {
+      setBusyOfferId("");
+    }
+  }
+
   return (
     <SellerShell title="Offers on My Cars" description="View and manage offers buyers made on your vehicles">
       <div className="grid gap-3 md:grid-cols-2">
@@ -146,6 +164,18 @@ export function SellerOffersPageClient({
                   </div>
                   <div>
                     <OfferStatusActions offer={offer} basePath="/seller/offers" />
+                    {!offer.contactUnlocked ? (
+                      <button
+                        type="button"
+                        disabled={busyOfferId === offer.id}
+                        onClick={() => void handleShareContactDetails(offer)}
+                        className="mt-3 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {busyOfferId === offer.id ? "Sharing..." : "Share my contact details"}
+                      </button>
+                    ) : (
+                      <p className="mt-3 text-sm text-ink/55">Contact details shared for this buyer.</p>
+                    )}
                   </div>
                 </div>
                 <div className="mt-5">

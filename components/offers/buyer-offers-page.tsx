@@ -8,9 +8,9 @@ import { OfferAmountInlineEditor } from "@/components/offers/offer-amount-inline
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getBuyerOffersData, markBuyerOfferResponsesViewed, submitBuyerReplacementOffer, updateOfferAmount, updateOfferStatus } from "@/lib/data";
+import { appendOfferMessage, getAppUserById, getBuyerOffersData, markBuyerOfferResponsesViewed, submitBuyerReplacementOffer, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
-import { Offer, OfferStatus } from "@/types";
+import { AppUser, Offer, OfferStatus } from "@/types";
 
 export function BuyerOffersPageClient() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export function BuyerOffersPageClient() {
   const [busyOfferId, setBusyOfferId] = useState("");
   const [notice, setNotice] = useState("");
   const [replacementDrafts, setReplacementDrafts] = useState<Record<string, string>>({});
+  const [sellerInfoByOfferId, setSellerInfoByOfferId] = useState<Record<string, AppUser | null>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +33,16 @@ export function BuyerOffersPageClient() {
 
       setOffers(result.items);
       setError(result.error ?? "");
+      const sellerRecords = await Promise.all(
+        result.items.map(async (offer) => ({
+          offerId: offer.id,
+          seller: await getAppUserById(offer.listingOwnerUid)
+        }))
+      );
+      if (cancelled) return;
+      setSellerInfoByOfferId(
+        Object.fromEntries(sellerRecords.map((record) => [record.offerId, record.seller]))
+      );
       void markBuyerOfferResponsesViewed(appUser.id);
     }
 
@@ -171,6 +182,26 @@ export function BuyerOffersPageClient() {
                   <div className="text-ink/70">{formatAdminDateTime(offer.createdAt)}</div>
                   <div className="text-ink/70">{formatAdminDateTime(offer.respondedAt ?? offer.updatedAt ?? offer.createdAt)}</div>
                   <div className="space-y-3">
+                    <div className="rounded-[20px] border border-black/5 bg-shell p-4">
+                      {offer.contactUnlocked ? (
+                        <>
+                          <p className="text-xs uppercase tracking-[0.22em] text-bronze">Seller contact details</p>
+                          <p className="mt-2 font-medium text-ink">
+                            {sellerInfoByOfferId[offer.id]?.displayName || "Seller"}
+                          </p>
+                          <p className="mt-1 text-sm text-ink/70">
+                            {sellerInfoByOfferId[offer.id]?.email || "Email not available"}
+                          </p>
+                          {sellerInfoByOfferId[offer.id]?.phone ? (
+                            <p className="mt-1 text-sm text-ink/70">{sellerInfoByOfferId[offer.id]?.phone}</p>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="text-sm leading-6 text-ink/60">
+                          Seller contact details will be available once you proceed with this deal.
+                        </p>
+                      )}
+                    </div>
                     {offer.status === "accepted_pending_buyer_confirmation" ? (
                       <>
                         <p className="text-sm leading-6 text-ink/70">

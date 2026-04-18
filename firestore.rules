@@ -160,6 +160,22 @@ service cloud.firestore {
         && request.resource.data.offerAmount == resource.data.offerAmount;
     }
 
+    function offerContactUnlockFieldsValid() {
+      return request.resource.data.contactUnlocked is bool
+        && (request.resource.data.contactUnlockedAt == null || request.resource.data.contactUnlockedAt is timestamp)
+        && (
+          request.resource.data.contactUnlockedBy == null
+          || request.resource.data.contactUnlockedBy == "buyer_confirm"
+          || request.resource.data.contactUnlockedBy == "seller_manual"
+        );
+    }
+
+    function offerContactUnlockFieldsUnchanged() {
+      return request.resource.data.contactUnlocked == resource.data.contactUnlocked
+        && request.resource.data.contactUnlockedAt == resource.data.contactUnlockedAt
+        && request.resource.data.contactUnlockedBy == resource.data.contactUnlockedBy;
+    }
+
     function quoteFieldsUnchanged() {
       return request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.sellerUid == resource.data.sellerUid
@@ -304,6 +320,9 @@ service cloud.firestore {
           "messages",
           "buyerViewed",
           "sellerViewed",
+          "contactUnlocked",
+          "contactUnlockedAt",
+          "contactUnlockedBy",
           "lastUpdatedBy",
           "sellerOwnerUid",
           "submittedByUid",
@@ -332,6 +351,9 @@ service cloud.firestore {
         && request.resource.data.status == "pending"
         && request.resource.data.buyerViewed == true
         && request.resource.data.sellerViewed == false
+        && request.resource.data.contactUnlocked == false
+        && request.resource.data.contactUnlockedAt == null
+        && request.resource.data.contactUnlockedBy == null
         && request.resource.data.lastUpdatedBy == "buyer"
         && request.resource.data.submittedByUid == request.auth.uid
         && request.resource.data.createdAt is timestamp
@@ -356,6 +378,7 @@ service cloud.firestore {
           && isValidOfferStatus(request.resource.data.status)
           && offerFieldsUnchanged()
           && offerAmountsAreValid()
+          && offerContactUnlockFieldsValid()
           && request.resource.data.messages is list
           && request.resource.data.buyerViewed is bool
           && request.resource.data.sellerViewed is bool
@@ -376,6 +399,7 @@ service cloud.firestore {
           ])
           && request.resource.data.messages == resource.data.messages
           && offerAmountsUnchanged()
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == resource.data.buyerViewed
           && request.resource.data.sellerViewed == true
@@ -404,6 +428,7 @@ service cloud.firestore {
           && request.resource.data.messages == resource.data.messages
           && request.resource.data.amount == resource.data.amount
           && request.resource.data.offerAmount == resource.data.offerAmount
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
@@ -423,6 +448,7 @@ service cloud.firestore {
           ])
           && request.resource.data.messages == resource.data.messages
           && offerAmountsUnchanged()
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == resource.data.sellerViewed
@@ -444,6 +470,9 @@ service cloud.firestore {
             "status",
             "buyerViewed",
             "sellerViewed",
+            "contactUnlocked",
+            "contactUnlockedAt",
+            "contactUnlockedBy",
             "updatedAt"
           ])
           && request.resource.data.messages == resource.data.messages
@@ -451,6 +480,18 @@ service cloud.firestore {
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == true
+          && (
+            (
+              request.resource.data.status == "buyer_confirmed"
+              && request.resource.data.contactUnlocked == true
+              && request.resource.data.contactUnlockedAt is timestamp
+              && request.resource.data.contactUnlockedBy == "buyer_confirm"
+            )
+            || (
+              request.resource.data.status == "buyer_declined"
+              && offerContactUnlockFieldsUnchanged()
+            )
+          )
           && request.resource.data.updatedAt is timestamp
           && request.resource.data.respondedAt == resource.data.respondedAt
         )
@@ -474,10 +515,39 @@ service cloud.firestore {
             "updatedAt"
           ])
           && request.resource.data.lastUpdatedBy == "buyer"
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == false
           && request.resource.data.respondedAt == null
           && request.resource.data.updatedAt is timestamp
+        )
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
+          && isValidOfferStatus(request.resource.data.status)
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "contactUnlocked",
+            "contactUnlockedAt",
+            "contactUnlockedBy",
+            "buyerViewed",
+            "sellerViewed",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && offerAmountsUnchanged()
+          && resource.data.contactUnlocked == false
+          && request.resource.data.contactUnlocked == true
+          && request.resource.data.contactUnlockedAt is timestamp
+          && request.resource.data.contactUnlockedBy == "seller_manual"
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
+          && request.resource.data.buyerViewed == false
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
         )
         || (
           signedIn()
@@ -494,6 +564,7 @@ service cloud.firestore {
             "updatedAt"
           ])
           && offerAmountsUnchanged()
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
@@ -515,6 +586,7 @@ service cloud.firestore {
             "updatedAt"
           ])
           && offerAmountsUnchanged()
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == false
@@ -539,6 +611,7 @@ service cloud.firestore {
             "updatedAt"
           ])
           && request.resource.data.lastUpdatedBy == "seller"
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
@@ -562,6 +635,7 @@ service cloud.firestore {
             "updatedAt"
           ])
           && request.resource.data.lastUpdatedBy == "buyer"
+          && offerContactUnlockFieldsUnchanged()
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == false
           && request.resource.data.updatedAt is timestamp
