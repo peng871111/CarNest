@@ -456,6 +456,31 @@ service cloud.firestore {
         )
         || (
           signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
+          && resource.data.status == "buyer_declined"
+          && request.resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "amount",
+            "offerAmount",
+            "status",
+            "messages",
+            "buyerViewed",
+            "sellerViewed",
+            "lastUpdatedBy",
+            "respondedAt",
+            "updatedAt"
+          ])
+          && request.resource.data.lastUpdatedBy == "buyer"
+          && request.resource.data.buyerViewed == true
+          && request.resource.data.sellerViewed == false
+          && request.resource.data.respondedAt == null
+          && request.resource.data.updatedAt is timestamp
+        )
+        || (
+          signedIn()
           && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
           && offerFieldsUnchanged()
           && offerAmountsAreValid()

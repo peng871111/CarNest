@@ -2310,6 +2310,110 @@ export async function updateOfferAmount(
   } satisfies OfferWriteResult;
 }
 
+export async function submitBuyerReplacementOffer(
+  id: string,
+  nextAmount: number,
+  actor: VehicleActor,
+  existingOffer?: Offer
+) {
+  if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+    throw new Error("Offer amount must be greater than zero.");
+  }
+
+  if (isAdminLikeRole(actor.role)) {
+    assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
+  }
+
+  const offer =
+    existingOffer ??
+    (
+      await (async () => {
+        if (!isFirebaseConfigured) return null;
+        const snapshot = await getDoc(doc(db, "offers", id));
+        if (!snapshot.exists()) return null;
+        return serializeOfferDoc(snapshot.id, snapshot.data());
+      })()
+    );
+
+  if (!offer) {
+    throw new Error("Offer not found.");
+  }
+
+  const isOfferBuyer = offer.buyerUid === actor.id;
+  if (!isOfferBuyer && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only update your own offers.");
+  }
+
+  if (offer.status !== "buyer_declined") {
+    throw new Error("A replacement offer is only available after you decline an accepted offer.");
+  }
+
+  const minimumOffer = Math.max(1000, Math.round(offer.vehiclePrice * 0.5));
+  if (nextAmount < minimumOffer) {
+    throw new Error("Please enter a realistic offer amount.");
+  }
+
+  const vehicle = await getVehicleById(offer.vehicleId);
+  if (!vehicle || vehicle.status !== "approved" || vehicle.sellerStatus === "WITHDRAWN" || vehicle.sellerStatus === "SOLD") {
+    throw new Error("This vehicle is not currently available for another offer.");
+  }
+
+  if (vehicle.sellerStatus === "UNDER_OFFER" && vehicle.underOfferBuyerUid && vehicle.underOfferBuyerUid !== offer.buyerUid) {
+    throw new Error("This vehicle is currently under offer.");
+  }
+
+  const nextEntry = buildOfferUpdateForReturn("buyer", nextAmount);
+  const nextMessages = [...offer.messages, nextEntry];
+
+  if (!isFirebaseConfigured) {
+    return {
+      offer: {
+        ...offer,
+        amount: nextAmount,
+        offerAmount: nextAmount,
+        status: "pending",
+        messages: nextMessages,
+        buyerViewed: true,
+        sellerViewed: false,
+        lastUpdatedBy: "buyer",
+        respondedAt: null,
+        updatedAt: new Date().toISOString()
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies OfferWriteResult;
+  }
+
+  await updateDoc(doc(db, "offers", id), {
+    amount: nextAmount,
+    offerAmount: nextAmount,
+    status: "pending",
+    messages: [...offer.messages.map(toStoredOfferThreadEntry), buildOfferThreadEntryForWrite(nextEntry)],
+    buyerViewed: true,
+    sellerViewed: false,
+    lastUpdatedBy: "buyer",
+    respondedAt: null,
+    updatedAt: serverTimestamp()
+  });
+
+  return {
+    offer: {
+      ...offer,
+      amount: nextAmount,
+      offerAmount: nextAmount,
+      status: "pending",
+      messages: nextMessages,
+      buyerViewed: true,
+      sellerViewed: false,
+      lastUpdatedBy: "buyer",
+      respondedAt: null,
+      updatedAt: new Date().toISOString()
+    },
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies OfferWriteResult;
+}
+
 export async function markBuyerOfferResponsesViewed(buyerUid: string) {
   if (!buyerUid || !isFirebaseConfigured) return;
 

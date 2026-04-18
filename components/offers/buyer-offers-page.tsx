@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Input } from "@/components/ui/input";
 import { SellerShell } from "@/components/layout/seller-shell";
 import { OfferAmountInlineEditor } from "@/components/offers/offer-amount-inline-editor";
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getBuyerOffersData, markBuyerOfferResponsesViewed, updateOfferAmount, updateOfferStatus } from "@/lib/data";
+import { appendOfferMessage, getBuyerOffersData, markBuyerOfferResponsesViewed, submitBuyerReplacementOffer, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer, OfferStatus } from "@/types";
 
@@ -18,6 +19,7 @@ export function BuyerOffersPageClient() {
   const [error, setError] = useState("");
   const [busyOfferId, setBusyOfferId] = useState("");
   const [notice, setNotice] = useState("");
+  const [replacementDrafts, setReplacementDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +92,32 @@ export function BuyerOffersPageClient() {
       setNotice("Offer amount updated.");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update your offer right now.");
+    } finally {
+      setBusyOfferId("");
+    }
+  }
+
+  async function handleBuyerReplacementOffer(offer: Offer) {
+    if (!appUser) return;
+
+    const nextAmount = Number((replacementDrafts[offer.id] ?? "").trim());
+    if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+      setError("Enter a valid new offer amount.");
+      return;
+    }
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await submitBuyerReplacementOffer(offer.id, nextAmount, appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setReplacementDrafts((current) => ({ ...current, [offer.id]: "" }));
+      setNotice("New offer submitted. The seller can review it now.");
+      router.refresh();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "We couldn't submit your new offer right now.");
     } finally {
       setBusyOfferId("");
     }
@@ -172,7 +200,36 @@ export function BuyerOffersPageClient() {
                     ) : offer.status === "buyer_confirmed" ? (
                       <p className="text-sm leading-6 text-ink/60">You confirmed that you want to proceed.</p>
                     ) : offer.status === "buyer_declined" ? (
-                      <p className="text-sm leading-6 text-ink/60">You declined to proceed, and the listing was returned to live status.</p>
+                      <div className="space-y-3">
+                        <p className="text-sm leading-6 text-ink/60">You declined to proceed, and the listing was returned to live status.</p>
+                        <div className="rounded-[20px] border border-black/5 bg-shell p-4">
+                          <p className="text-sm leading-6 text-ink/70">Your offer was declined. Enter a new offer:</p>
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            <Input
+                              type="number"
+                              min="1"
+                              inputMode="numeric"
+                              value={replacementDrafts[offer.id] ?? ""}
+                              onChange={(event) =>
+                                setReplacementDrafts((current) => ({
+                                  ...current,
+                                  [offer.id]: event.target.value
+                                }))
+                              }
+                              placeholder={String(offer.amount)}
+                              className="max-w-[220px]"
+                            />
+                            <button
+                              type="button"
+                              disabled={busyOfferId === offer.id}
+                              onClick={() => void handleBuyerReplacementOffer(offer)}
+                              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {busyOfferId === offer.id ? "Submitting..." : "Submit new offer"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
                       <p className="text-sm leading-6 text-ink/60">Waiting for the seller to review your offer.</p>
                     )}
