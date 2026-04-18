@@ -12,7 +12,7 @@ import {
   InspectionRequest,
   InspectionRequestStatus,
   Offer,
-  OfferMessage,
+  OfferThreadEntry,
   OfferMessageSender,
   OfferStatus,
   PricingLeadRating,
@@ -391,23 +391,51 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
         ? data.sellerOwnerUid
         : "";
   const amount = Number(data.amount ?? data.offerAmount ?? 0);
-  const messages: OfferMessage[] = Array.isArray(data.messages)
+  const messages: OfferThreadEntry[] = Array.isArray(data.messages)
     ? data.messages
         .flatMap((item) => {
           if (!item || typeof item !== "object") return [];
+          const type = (item as { type?: unknown }).type;
           const sender = (item as { sender?: unknown }).sender;
           const text = typeof (item as { text?: unknown }).text === "string" ? (item as { text: string }).text : "";
-          if ((sender !== "buyer" && sender !== "seller") || !text) return [];
+          const amount = Number((item as { amount?: unknown }).amount ?? NaN);
+          if (sender !== "buyer" && sender !== "seller") return [];
           const normalizedSender: OfferMessageSender = sender;
+          const normalizedType: OfferThreadEntry["type"] =
+            type === "offer_update"
+              ? "offer_update"
+              : "message";
+          if (normalizedType === "message" && !text) return [];
+          if (normalizedType === "offer_update" && !Number.isFinite(amount)) return [];
 
           return [{
+            type: normalizedType,
             sender: normalizedSender,
-            text,
+            ...(text ? { text } : {}),
+            ...(Number.isFinite(amount) ? { amount } : {}),
             createdAt: serializeDate((item as { createdAt?: unknown }).createdAt)
           }];
         })
         .sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))
     : [];
+
+  if (!messages.some((entry) => entry.type === "offer_update") && Number.isFinite(amount) && amount > 0) {
+    messages.unshift({
+      type: "offer_update",
+      sender: "buyer",
+      amount,
+      createdAt: serializeDate(data.createdAt)
+    });
+  }
+
+  if (!messages.some((entry) => entry.type === "message") && typeof data.message === "string" && data.message.trim()) {
+    messages.push({
+      type: "message",
+      sender: "buyer",
+      text: String(data.message),
+      createdAt: serializeDate(data.createdAt)
+    });
+  }
 
   return {
     id,
@@ -424,6 +452,10 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
     messages,
     buyerViewed: Boolean(data.buyerViewed ?? status === "pending"),
     sellerViewed: Boolean(data.sellerViewed ?? status !== "pending"),
+    lastUpdatedBy:
+      data.lastUpdatedBy === "buyer" || data.lastUpdatedBy === "seller"
+        ? data.lastUpdatedBy
+        : undefined,
     submittedByUid: typeof data.submittedByUid === "string" ? data.submittedByUid : undefined,
     status,
     createdAt: serializeDate(data.createdAt),
@@ -1184,28 +1216,42 @@ function normalizeDuplicateText(value?: string) {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function buildOfferMessageForWrite(sender: OfferMessageSender, text: string) {
+function buildOfferThreadEntryForWrite(entry: OfferThreadEntry) {
   return {
-    sender,
-    text,
+    type: entry.type,
+    sender: entry.sender,
+    ...(entry.text ? { text: entry.text } : {}),
+    ...(typeof entry.amount === "number" ? { amount: entry.amount } : {}),
     createdAt: Timestamp.now()
   };
 }
 
-function toStoredOfferMessage(message: OfferMessage) {
-  const createdAt = message.createdAt ? new Date(message.createdAt) : null;
+function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
+  const createdAt = entry.createdAt ? new Date(entry.createdAt) : null;
 
   return {
-    sender: message.sender,
-    text: message.text,
+    type: entry.type,
+    sender: entry.sender,
+    ...(entry.text ? { text: entry.text } : {}),
+    ...(typeof entry.amount === "number" ? { amount: entry.amount } : {}),
     createdAt: createdAt && Number.isFinite(createdAt.getTime()) ? Timestamp.fromDate(createdAt) : Timestamp.now()
   };
 }
 
-function buildOfferMessageForReturn(sender: OfferMessageSender, text: string): OfferMessage {
+function buildOfferMessageForReturn(sender: OfferMessageSender, text: string): OfferThreadEntry {
   return {
+    type: "message",
     sender,
     text,
+    createdAt: new Date().toISOString()
+  };
+}
+
+function buildOfferUpdateForReturn(sender: OfferMessageSender, amount: number): OfferThreadEntry {
+  return {
+    type: "offer_update",
+    sender,
+    amount,
     createdAt: new Date().toISOString()
   };
 }
@@ -1641,8 +1687,11 @@ export async function createOffer(input: OfferWriteInput) {
   }
 
   const sanitizedMessage = sanitizeMultilineText(input.message);
-  const initialMessages = sanitizedMessage ? [buildOfferMessageForReturn("buyer", sanitizedMessage)] : [];
-  const initialMessagesForWrite = sanitizedMessage ? [buildOfferMessageForWrite("buyer", sanitizedMessage)] : [];
+  const initialMessages = [
+    buildOfferUpdateForReturn("buyer", input.offerAmount),
+    ...(sanitizedMessage ? [buildOfferMessageForReturn("buyer", sanitizedMessage)] : [])
+  ];
+  const initialMessagesForWrite = initialMessages.map(buildOfferThreadEntryForWrite);
 
   const payloadBase = {
     buyerUid: input.userId,
@@ -1660,6 +1709,7 @@ export async function createOffer(input: OfferWriteInput) {
     messages: initialMessages,
     buyerViewed: true,
     sellerViewed: false,
+    lastUpdatedBy: "buyer" as const,
     sellerOwnerUid: input.sellerOwnerUid,
     submittedByUid: input.submittedByUid ?? input.userId,
     respondedAt: null,
@@ -2060,7 +2110,7 @@ export async function appendOfferMessage(
   }
 
   await updateDoc(doc(db, "offers", id), {
-    messages: [...offer.messages.map(toStoredOfferMessage), buildOfferMessageForWrite(sender, sanitizedText)],
+    messages: [...offer.messages.map(toStoredOfferThreadEntry), buildOfferThreadEntryForWrite(buildOfferMessageForReturn(sender, sanitizedText))],
     buyerViewed: nextBuyerViewed,
     sellerViewed: nextSellerViewed,
     updatedAt: serverTimestamp()
@@ -2072,6 +2122,104 @@ export async function appendOfferMessage(
       messages: nextMessages,
       buyerViewed: nextBuyerViewed,
       sellerViewed: nextSellerViewed,
+      updatedAt: new Date().toISOString()
+    },
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies OfferWriteResult;
+}
+
+export async function updateOfferAmount(
+  id: string,
+  nextAmount: number,
+  sender: OfferMessageSender,
+  actor: VehicleActor,
+  existingOffer?: Offer
+) {
+  if (!Number.isFinite(nextAmount) || nextAmount <= 0) {
+    throw new Error("Offer amount must be greater than zero.");
+  }
+
+  if (isAdminLikeRole(actor.role)) {
+    assertAdminPermissionForActor(actor, "manageOffers", "You do not have access to manage offers.");
+  }
+
+  const offer =
+    existingOffer ??
+    (
+      await (async () => {
+        if (!isFirebaseConfigured) return null;
+        const snapshot = await getDoc(doc(db, "offers", id));
+        if (!snapshot.exists()) return null;
+        return serializeOfferDoc(snapshot.id, snapshot.data());
+      })()
+    );
+
+  if (!offer) {
+    throw new Error("Offer not found.");
+  }
+
+  if (offer.status !== "pending") {
+    throw new Error("Price updates are only available while the offer is still pending.");
+  }
+
+  const isOfferSeller = offer.listingOwnerUid === actor.id;
+  const isOfferBuyer = offer.buyerUid === actor.id;
+
+  if (sender === "seller" && !isOfferSeller && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only counter offers for your own listings.");
+  }
+
+  if (sender === "buyer" && !isOfferBuyer && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only revise your own offers.");
+  }
+
+  const minimumOffer = Math.max(1000, Math.round(offer.vehiclePrice * 0.5));
+  if (nextAmount < minimumOffer) {
+    throw new Error("Please enter a realistic offer amount.");
+  }
+
+  const nextEntry = buildOfferUpdateForReturn(sender, nextAmount);
+  const nextMessages = [...offer.messages, nextEntry];
+  const nextBuyerViewed = sender === "seller" ? false : true;
+  const nextSellerViewed = sender === "seller" ? true : false;
+
+  if (!isFirebaseConfigured) {
+    return {
+      offer: {
+        ...offer,
+        amount: nextAmount,
+        offerAmount: nextAmount,
+        messages: nextMessages,
+        buyerViewed: nextBuyerViewed,
+        sellerViewed: nextSellerViewed,
+        lastUpdatedBy: sender,
+        updatedAt: new Date().toISOString()
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies OfferWriteResult;
+  }
+
+  await updateDoc(doc(db, "offers", id), {
+    amount: nextAmount,
+    offerAmount: nextAmount,
+    messages: [...offer.messages.map(toStoredOfferThreadEntry), buildOfferThreadEntryForWrite(nextEntry)],
+    buyerViewed: nextBuyerViewed,
+    sellerViewed: nextSellerViewed,
+    lastUpdatedBy: sender,
+    updatedAt: serverTimestamp()
+  });
+
+  return {
+    offer: {
+      ...offer,
+      amount: nextAmount,
+      offerAmount: nextAmount,
+      messages: nextMessages,
+      buyerViewed: nextBuyerViewed,
+      sellerViewed: nextSellerViewed,
+      lastUpdatedBy: sender,
       updatedAt: new Date().toISOString()
     },
     source: "firestore" as const,

@@ -13,6 +13,7 @@ export type ListingType = "warehouse" | "private";
 export type VehicleStatus = "pending" | "approved" | "rejected";
 export type SellerVehicleStatus = "ACTIVE" | "UNDER_OFFER" | "PAUSED" | "WITHDRAWN" | "SOLD";
 export type OfferMessageSender = "buyer" | "seller";
+export type OfferThreadEntryType = "message" | "offer_update";
 export type OfferStatus =
   | "pending"
   | "accepted_pending_buyer_confirmation"
@@ -130,9 +131,11 @@ export interface Enquiry {
   createdAt?: string;
 }
 
-export interface OfferMessage {
+export interface OfferThreadEntry {
+  type: OfferThreadEntryType;
   sender: OfferMessageSender;
-  text: string;
+  text?: string;
+  amount?: number;
   createdAt?: string;
 }
 
@@ -148,9 +151,10 @@ export interface Offer {
   buyerPhone: string;
   amount: number;
   message: string;
-  messages: OfferMessage[];
+  messages: OfferThreadEntry[];
   buyerViewed: boolean;
   sellerViewed: boolean;
+  lastUpdatedBy?: OfferMessageSender;
   submittedByUid?: string;
   status: OfferStatus;
   createdAt?: string;

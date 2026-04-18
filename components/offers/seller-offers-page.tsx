@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { SellerShell } from "@/components/layout/seller-shell";
+import { OfferAmountInlineEditor } from "@/components/offers/offer-amount-inline-editor";
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed } from "@/lib/data";
+import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, updateOfferAmount } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer } from "@/types";
 
@@ -21,7 +22,7 @@ export function SellerOffersPageClient({
   const [offers, setOffers] = useState<Offer[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [busyReplyOfferId, setBusyReplyOfferId] = useState("");
+  const [busyOfferId, setBusyOfferId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +58,7 @@ export function SellerOffersPageClient({
   async function handleSellerReply(offer: Offer, text: string) {
     if (!appUser) return;
 
-    setBusyReplyOfferId(offer.id);
+    setBusyOfferId(offer.id);
     setError("");
     setNotice("");
 
@@ -68,7 +69,25 @@ export function SellerOffersPageClient({
     } catch (replyError) {
       setError(replyError instanceof Error ? replyError.message : "We couldn't send your reply right now.");
     } finally {
-      setBusyReplyOfferId("");
+      setBusyOfferId("");
+    }
+  }
+
+  async function handleSellerCounter(offer: Offer, amount: number) {
+    if (!appUser) return;
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await updateOfferAmount(offer.id, amount, "seller", appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setNotice("Counter-offer saved.");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer amount right now.");
+    } finally {
+      setBusyOfferId("");
     }
   }
 
@@ -110,8 +129,13 @@ export function SellerOffersPageClient({
                     <p className="mt-1 text-ink/55">{offer.buyerPhone}</p>
                   </div>
                   <div>
-                    <p className="font-semibold text-ink">{formatCurrency(offer.amount)}</p>
-                    <p className="mt-1 text-ink/55">{offer.messages.length ? `${offer.messages.length} message${offer.messages.length === 1 ? "" : "s"}` : "No thread yet"}</p>
+                    <OfferAmountInlineEditor
+                      amount={offer.amount}
+                      canEdit={offer.status === "pending"}
+                      busy={busyOfferId === offer.id}
+                      onSave={(amount) => handleSellerCounter(offer, amount)}
+                    />
+                    <p className="mt-1 text-ink/55">Current amount</p>
                   </div>
                   <div>
                     <p className="text-ink/70">{formatAdminDateTime(offer.createdAt)}</p>
@@ -129,7 +153,7 @@ export function SellerOffersPageClient({
                     offer={offer}
                     canReply
                     replyPlaceholder="Add a short seller reply for this offer."
-                    busy={busyReplyOfferId === offer.id}
+                    busy={busyOfferId === offer.id}
                     onReply={(text) => handleSellerReply(offer, text)}
                   />
                 </div>

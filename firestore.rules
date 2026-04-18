@@ -142,12 +142,22 @@ service cloud.firestore {
         && request.resource.data.buyerName == resource.data.buyerName
         && request.resource.data.buyerEmail == resource.data.buyerEmail
         && request.resource.data.buyerPhone == resource.data.buyerPhone
-        && request.resource.data.amount == resource.data.amount
-        && request.resource.data.offerAmount == resource.data.offerAmount
         && request.resource.data.message == resource.data.message
         && request.resource.data.sellerOwnerUid == resource.data.sellerOwnerUid
         && request.resource.data.submittedByUid == resource.data.submittedByUid
         && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    function offerAmountsAreValid() {
+      return request.resource.data.amount is number
+        && request.resource.data.offerAmount is number
+        && request.resource.data.amount > 0
+        && request.resource.data.amount == request.resource.data.offerAmount;
+    }
+
+    function offerAmountsUnchanged() {
+      return request.resource.data.amount == resource.data.amount
+        && request.resource.data.offerAmount == resource.data.offerAmount;
     }
 
     function quoteFieldsUnchanged() {
@@ -294,6 +304,7 @@ service cloud.firestore {
           "messages",
           "buyerViewed",
           "sellerViewed",
+          "lastUpdatedBy",
           "sellerOwnerUid",
           "submittedByUid",
           "status",
@@ -321,6 +332,7 @@ service cloud.firestore {
         && request.resource.data.status == "pending"
         && request.resource.data.buyerViewed == true
         && request.resource.data.sellerViewed == false
+        && request.resource.data.lastUpdatedBy == "buyer"
         && request.resource.data.submittedByUid == request.auth.uid
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp
@@ -343,6 +355,7 @@ service cloud.firestore {
           isAdmin()
           && isValidOfferStatus(request.resource.data.status)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && request.resource.data.buyerViewed is bool
           && request.resource.data.sellerViewed is bool
@@ -353,9 +366,17 @@ service cloud.firestore {
           signedIn()
           && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && request.resource.data.status == "pending"
           && resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "sellerViewed",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && offerAmountsUnchanged()
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == resource.data.buyerViewed
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
@@ -365,6 +386,7 @@ service cloud.firestore {
           signedIn()
           && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && isValidOfferStatus(request.resource.data.status)
           && resource.data.status == "pending"
@@ -372,6 +394,17 @@ service cloud.firestore {
             request.resource.data.status == "accepted_pending_buyer_confirmation"
             || request.resource.data.status == "rejected"
           )
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "status",
+            "buyerViewed",
+            "sellerViewed",
+            "respondedAt",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && request.resource.data.amount == resource.data.amount
+          && request.resource.data.offerAmount == resource.data.offerAmount
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
@@ -381,8 +414,16 @@ service cloud.firestore {
           signedIn()
           && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && request.resource.data.status == resource.data.status
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "buyerViewed",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && offerAmountsUnchanged()
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == resource.data.sellerViewed
           && request.resource.data.updatedAt is timestamp
@@ -392,12 +433,22 @@ service cloud.firestore {
           signedIn()
           && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && resource.data.status == "accepted_pending_buyer_confirmation"
           && (
             request.resource.data.status == "buyer_confirmed"
             || request.resource.data.status == "buyer_declined"
           )
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "status",
+            "buyerViewed",
+            "sellerViewed",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && offerAmountsUnchanged()
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
@@ -407,8 +458,18 @@ service cloud.firestore {
           signedIn()
           && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
-          && request.resource.data.status == resource.data.status
+          && resource.data.status == "pending"
+          && request.resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "messages",
+            "buyerViewed",
+            "sellerViewed",
+            "updatedAt"
+          ])
+          && offerAmountsUnchanged()
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
@@ -418,9 +479,64 @@ service cloud.firestore {
           signedIn()
           && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
           && offerFieldsUnchanged()
+          && offerAmountsAreValid()
           && request.resource.data.messages is list
           && resource.data.status == "pending"
           && request.resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "messages",
+            "buyerViewed",
+            "sellerViewed",
+            "updatedAt"
+          ])
+          && offerAmountsUnchanged()
+          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
+          && request.resource.data.buyerViewed == true
+          && request.resource.data.sellerViewed == false
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
+          && resource.data.status == "pending"
+          && request.resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "amount",
+            "offerAmount",
+            "messages",
+            "buyerViewed",
+            "sellerViewed",
+            "lastUpdatedBy",
+            "updatedAt"
+          ])
+          && request.resource.data.lastUpdatedBy == "seller"
+          && request.resource.data.buyerViewed == false
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
+          && resource.data.status == "pending"
+          && request.resource.data.status == "pending"
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "amount",
+            "offerAmount",
+            "messages",
+            "buyerViewed",
+            "sellerViewed",
+            "lastUpdatedBy",
+            "updatedAt"
+          ])
+          && request.resource.data.lastUpdatedBy == "buyer"
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == false
           && request.resource.data.updatedAt is timestamp

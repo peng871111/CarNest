@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SellerShell } from "@/components/layout/seller-shell";
+import { OfferAmountInlineEditor } from "@/components/offers/offer-amount-inline-editor";
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getBuyerOffersData, markBuyerOfferResponsesViewed, updateOfferStatus } from "@/lib/data";
+import { appendOfferMessage, getBuyerOffersData, markBuyerOfferResponsesViewed, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer, OfferStatus } from "@/types";
 
@@ -76,6 +77,24 @@ export function BuyerOffersPageClient() {
     }
   }
 
+  async function handleBuyerAmountUpdate(offer: Offer, amount: number) {
+    if (!appUser) return;
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await updateOfferAmount(offer.id, amount, "buyer", appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setNotice("Offer amount updated.");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "We couldn't update your offer right now.");
+    } finally {
+      setBusyOfferId("");
+    }
+  }
+
   return (
     <SellerShell
       title="My Offers"
@@ -110,8 +129,13 @@ export function BuyerOffersPageClient() {
                     <p className="mt-1 text-ink/55">Asking price: {formatCurrency(offer.vehiclePrice)}</p>
                   </div>
                   <div>
-                    <p className="font-semibold text-ink">{formatCurrency(offer.amount)}</p>
-                    <p className="mt-1 text-ink/55">{offer.messages.length ? `${offer.messages.length} message${offer.messages.length === 1 ? "" : "s"}` : "No thread yet"}</p>
+                    <OfferAmountInlineEditor
+                      amount={offer.amount}
+                      canEdit={offer.status === "pending"}
+                      busy={busyOfferId === offer.id}
+                      onSave={(amount) => handleBuyerAmountUpdate(offer, amount)}
+                    />
+                    <p className="mt-1 text-ink/55">Current amount</p>
                   </div>
                   <div>
                     <OfferStatusBadge status={offer.status} />
