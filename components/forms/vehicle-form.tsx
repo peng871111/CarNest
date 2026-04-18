@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
-import { createVehicle, updateVehicle } from "@/lib/data";
+import { createVehicle, deleteVehicleImage, updateVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
 import { optimizeVehicleImages, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
 import { uploadVehicleImages } from "@/lib/storage";
@@ -73,38 +73,45 @@ export function VehicleForm({
   const { appUser, loading } = useAuth();
   const [saving, setSaving] = useState(false);
   const [processingImages, setProcessingImages] = useState(false);
+  const [deletingImageUrl, setDeletingImageUrl] = useState("");
   const [message, setMessage] = useState("");
   const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
   const [listingType, setListingType] = useState<Vehicle["listingType"]>(vehicle?.listingType ?? "warehouse");
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
+  const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
+  const currentVehicle = activeVehicle ?? vehicle;
+
+  useEffect(() => {
+    setActiveVehicle(vehicle);
+  }, [vehicle]);
 
   const defaultValues = useMemo<VehicleFormInput>(
     () =>
-      vehicle
+      currentVehicle
         ? {
-            listingType: vehicle.listingType,
-            make: vehicle.make.toUpperCase(),
-            model: vehicle.model.toUpperCase(),
-            year: vehicle.year,
-            price: vehicle.price,
-            mileage: vehicle.mileage,
-            transmission: vehicle.transmission.toUpperCase(),
-            fuelType: vehicle.fuelType.toUpperCase(),
-            drivetrain: vehicle.drivetrain,
-            bodyType: vehicle.bodyType.toUpperCase(),
-            colour: vehicle.colour,
-            serviceHistory: vehicle.serviceHistory?.toUpperCase?.() ?? "",
-            keyCount: vehicle.keyCount?.toUpperCase?.() ?? "",
-            sellerLocationSuburb: vehicle.sellerLocationSuburb?.toUpperCase() ?? "",
-            sellerLocationState: vehicle.sellerLocationState?.toUpperCase() ?? "",
-            description: vehicle.description,
-            coverImage: vehicle.coverImage ?? vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
-            coverImageUrl: vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
-            imageUrls: vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images,
-            images: vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images
+            listingType: currentVehicle.listingType,
+            make: currentVehicle.make.toUpperCase(),
+            model: currentVehicle.model.toUpperCase(),
+            year: currentVehicle.year,
+            price: currentVehicle.price,
+            mileage: currentVehicle.mileage,
+            transmission: currentVehicle.transmission.toUpperCase(),
+            fuelType: currentVehicle.fuelType.toUpperCase(),
+            drivetrain: currentVehicle.drivetrain,
+            bodyType: currentVehicle.bodyType.toUpperCase(),
+            colour: currentVehicle.colour,
+            serviceHistory: currentVehicle.serviceHistory?.toUpperCase?.() ?? "",
+            keyCount: currentVehicle.keyCount?.toUpperCase?.() ?? "",
+            sellerLocationSuburb: currentVehicle.sellerLocationSuburb?.toUpperCase() ?? "",
+            sellerLocationState: currentVehicle.sellerLocationState?.toUpperCase() ?? "",
+            description: currentVehicle.description,
+            coverImage: currentVehicle.coverImage ?? currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
+            coverImageUrl: currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
+            imageUrls: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images,
+            images: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images
           }
         : initialState,
-    [vehicle]
+    [currentVehicle]
   );
 
   useEffect(() => {
@@ -126,7 +133,7 @@ export function VehicleForm({
     setMessage("");
 
     try {
-      const existingImageCount = vehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0;
+      const existingImageCount = currentVehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0;
       const remainingSlots = Math.max(0, VEHICLE_IMAGE_UPLOAD_LIMIT - existingImageCount);
       const acceptedFiles = Array.from(files).slice(0, remainingSlots);
 
@@ -160,6 +167,35 @@ export function VehicleForm({
     });
   }
 
+  async function handleDeleteExistingImage(imageUrl: string) {
+    if (loading || !appUser || !currentVehicle) return;
+
+    if (defaultValues.imageUrls.length <= 1) {
+      setMessage("Upload a replacement before removing the final saved image.");
+      return;
+    }
+
+    const confirmed = window.confirm("Delete this image from the listing?");
+    if (!confirmed) return;
+
+    setDeletingImageUrl(imageUrl);
+    setMessage("");
+
+    try {
+      const result = await deleteVehicleImage(currentVehicle.id, imageUrl, appUser, currentVehicle);
+      setActiveVehicle(result.vehicle);
+      setMessage(
+        result.writeSucceeded && !result.storageDeleteSucceeded
+          ? "Image removed from the listing. The storage file could not be deleted automatically."
+          : "Image deleted."
+      );
+    } catch {
+      setMessage("Something went wrong. Please try again.");
+    } finally {
+      setDeletingImageUrl("");
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading || !appUser) return;
@@ -169,12 +205,12 @@ export function VehicleForm({
     try {
       const form = new FormData(event.currentTarget);
       const files = selectedImages.map((image) => image.file);
-      const existingImageUrls = vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? [];
+      const existingImageUrls = currentVehicle?.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle?.images ?? [];
       let imageUrls = existingImageUrls;
 
       if (files.length && isFirebaseStorageConfigured) {
-        const uploadedUrls = await uploadVehicleImages(files, appUser.id);
-        imageUrls = vehicle && imageMode === "append" ? [...existingImageUrls, ...uploadedUrls] : uploadedUrls;
+        const uploadedUrls = await uploadVehicleImages(files, currentVehicle?.ownerUid ?? appUser.id);
+        imageUrls = currentVehicle && imageMode === "append" ? [...existingImageUrls, ...uploadedUrls] : uploadedUrls;
       }
 
       const payload: VehicleFormInput = {
@@ -194,17 +230,21 @@ export function VehicleForm({
         sellerLocationSuburb: uppercaseValue(form.get("sellerLocationSuburb")),
         sellerLocationState: uppercaseValue(form.get("sellerLocationState")),
         description: String(form.get("description")),
-        coverImage: imageUrls[0] || vehicle?.coverImage || vehicle?.coverImageUrl || "",
-        coverImageUrl: imageUrls[0] || vehicle?.coverImageUrl || "",
+        coverImage: imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
+        coverImageUrl: imageUrls[0] || currentVehicle?.coverImageUrl || "",
         imageUrls,
         images: imageUrls
       };
 
-      const result = vehicle
-        ? await updateVehicle(vehicle.id, payload, appUser, vehicle)
+      const result = currentVehicle
+        ? await updateVehicle(currentVehicle.id, payload, appUser, currentVehicle)
         : await createVehicle(payload, appUser);
 
-      if (vehicle) {
+      if (currentVehicle) {
+        setActiveVehicle(result.vehicle);
+      }
+
+      if (currentVehicle) {
         setMessage(result.writeSucceeded ? "Vehicle updated successfully." : "Vehicle updated successfully.");
       } else {
         setMessage(result.writeSucceeded ? "Vehicle created successfully." : "Vehicle created successfully.");
@@ -224,7 +264,7 @@ export function VehicleForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 rounded-[32px] border border-black/5 bg-white p-8 shadow-panel">
-      {vehicle && appUser?.role === "seller" && vehicle.ownerUid !== appUser.id ? (
+      {currentVehicle && appUser?.role === "seller" && currentVehicle.ownerUid !== appUser.id ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
           You cannot edit a vehicle you do not own.
         </div>
@@ -402,7 +442,7 @@ export function VehicleForm({
       <div className="space-y-3">
         <label className="block space-y-2">
           <span className="text-sm font-medium text-ink">Vehicle images</span>
-          {vehicle ? (
+          {currentVehicle ? (
             <select
               value={imageMode}
               onChange={(event) => setImageMode(event.target.value as "append" | "replace")}
@@ -428,7 +468,7 @@ export function VehicleForm({
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {(
             selectedImages.length
-              ? vehicle && imageMode === "append"
+              ? currentVehicle && imageMode === "append"
                 ? [...defaultValues.imageUrls, ...selectedImages.map((image) => image.previewUrl)]
                 : selectedImages.map((image) => image.previewUrl)
               : defaultValues.imageUrls.length
@@ -437,17 +477,26 @@ export function VehicleForm({
           ).map((image, index) => (
             <div key={`${image}-${index}`} className="relative h-44 overflow-hidden rounded-[24px] border border-black/5 bg-shell">
               <Image src={image} alt={`Vehicle preview ${index + 1}`} fill className="object-cover" unoptimized={image.startsWith("blob:")} />
-              {selectedImages[index - (vehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0)] ? (
+              {selectedImages[index - (currentVehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0)] ? (
                 <button
                   type="button"
                   onClick={() =>
                     removeSelectedImage(
-                      selectedImages[index - (vehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0)].id
+                      selectedImages[index - (currentVehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0)].id
                     )
                   }
                   className="absolute right-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-semibold text-white transition hover:bg-black/80"
                 >
                   Remove
+                </button>
+              ) : image !== VEHICLE_PLACEHOLDER_IMAGE && defaultValues.imageUrls.includes(image) ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteExistingImage(image)}
+                  disabled={deletingImageUrl === image}
+                  className="absolute right-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-semibold text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {deletingImageUrl === image ? "..." : "×"}
                 </button>
               ) : null}
             </div>
@@ -458,12 +507,12 @@ export function VehicleForm({
       {message ? <p className="rounded-[24px] bg-shell px-4 py-3 text-sm leading-6 text-ink/70">{message}</p> : null}
 
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={saving || loading || !appUser || (vehicle ? appUser.role === "seller" && vehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
+        <Button type="submit" disabled={saving || deletingImageUrl !== "" || loading || !appUser || (currentVehicle ? appUser.role === "seller" && currentVehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
           {saving && selectedImages.length && isFirebaseStorageConfigured
             ? "Uploading images..."
             : saving
               ? "Saving..."
-              : vehicle
+              : currentVehicle
                 ? "Update vehicle"
                 : "Create vehicle"}
         </Button>

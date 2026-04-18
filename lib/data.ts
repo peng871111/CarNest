@@ -3,6 +3,7 @@ import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
 import { createAdminPermissions, createSuperAdminPermissions, hasAdminPermission, isAdminLikeRole, isSuperAdminUser, resolveManagedUserAccess } from "@/lib/permissions";
+import { deleteVehicleImageFile } from "@/lib/storage";
 import {
   AdminPermissions,
   AppUser,
@@ -1371,6 +1372,13 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
   };
 }
 
+function removeVehicleImageUrl(imageUrls: string[], imageUrl: string) {
+  const imageIndex = imageUrls.indexOf(imageUrl);
+  if (imageIndex < 0) return imageUrls;
+
+  return [...imageUrls.slice(0, imageIndex), ...imageUrls.slice(imageIndex + 1)];
+}
+
 export async function createVehicle(input: VehicleFormInput, actor: VehicleActor) {
   assertVehicleManager(actor);
   if (isAdminLikeRole(actor.role)) {
@@ -1511,6 +1519,81 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     source: "firestore" as const,
     writeSucceeded: true
   } satisfies VehicleWriteResult;
+}
+
+export async function deleteVehicleImage(
+  id: string,
+  imageUrl: string,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle
+) {
+  assertVehicleManager(actor);
+  if (isAdminLikeRole(actor.role)) {
+    assertAdminPermissionForActor(actor, "manageVehicles", "You do not have access to manage vehicles.");
+  }
+
+  const baseVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!baseVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  assertVehicleOwnership(actor, baseVehicle);
+
+  const existingImageUrls = baseVehicle.imageUrls?.length ? baseVehicle.imageUrls : baseVehicle.images ?? [];
+  if (!existingImageUrls.includes(imageUrl)) {
+    throw new Error("Image not found on this vehicle.");
+  }
+
+  if (existingImageUrls.length <= 1) {
+    throw new Error("Upload a replacement before removing the final saved image.");
+  }
+
+  const nextImageUrls = removeVehicleImageUrl(existingImageUrls, imageUrl);
+  const nextCoverImage = nextImageUrls[0] ?? "";
+
+  if (!isFirebaseConfigured) {
+    const vehicle = {
+      ...baseVehicle,
+      coverImage: nextCoverImage,
+      coverImageUrl: nextCoverImage,
+      imageUrls: nextImageUrls,
+      images: nextImageUrls,
+      updatedAt: new Date().toISOString()
+    } satisfies Vehicle;
+
+    return {
+      vehicle,
+      source: "mock" as const,
+      writeSucceeded: false,
+      storageDeleteSucceeded: false
+    };
+  }
+
+  await updateDoc(doc(db, "vehicles", id), {
+    coverImage: nextCoverImage,
+    coverImageUrl: nextCoverImage,
+    imageUrls: nextImageUrls,
+    images: nextImageUrls,
+    updatedAt: serverTimestamp()
+  });
+
+  const storageDeleteSucceeded = await deleteVehicleImageFile(imageUrl);
+
+  const vehicle = {
+    ...baseVehicle,
+    coverImage: nextCoverImage,
+    coverImageUrl: nextCoverImage,
+    imageUrls: nextImageUrls,
+    images: nextImageUrls,
+    updatedAt: new Date().toISOString()
+  } satisfies Vehicle;
+
+  return {
+    vehicle,
+    source: "firestore" as const,
+    writeSucceeded: true,
+    storageDeleteSucceeded
+  };
 }
 
 export async function updateVehicleStatus(id: string, status: VehicleStatus, actor: VehicleActor, existingVehicle?: Vehicle) {

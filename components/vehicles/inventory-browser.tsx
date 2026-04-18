@@ -147,9 +147,9 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
 
       {vehicles.length ? (
         filteredVehicles.length ? (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {filteredVehicles.map((vehicle) => (
-              <VehicleCard key={vehicle.id} vehicle={vehicle} />
+              <VehicleCard key={vehicle.id} vehicle={vehicle} compact />
             ))}
           </div>
         ) : (
