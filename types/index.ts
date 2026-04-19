@@ -157,6 +157,7 @@ export interface VehicleActor {
   email?: string;
   adminPermissions?: AdminPermissions;
   dealerVerified?: boolean;
+  listingRestricted?: boolean;
 }
 
 export interface Enquiry {
