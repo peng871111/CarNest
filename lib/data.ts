@@ -1215,6 +1215,10 @@ function assertVehicleManager(actor: VehicleActor) {
   }
 }
 
+function isSellerWorkspaceActor(actor: VehicleActor) {
+  return actor.role === "seller" || actor.role === "buyer";
+}
+
 function assertAdminPermissionForActor(actor: VehicleActor, permission: keyof AdminPermissions, message: string) {
   if (!isAdminLikeRole(actor.role)) {
     throw new Error(message);
@@ -1470,12 +1474,14 @@ function removeVehicleImageUrl(imageUrls: string[], imageUrl: string) {
 }
 
 export async function createVehicle(input: VehicleFormInput, actor: VehicleActor) {
-  assertVehicleManager(actor);
+  if (!isAdminLikeRole(actor.role) && !isSellerWorkspaceActor(actor)) {
+    throw new Error("Only signed-in seller accounts can create vehicles.");
+  }
   if (isAdminLikeRole(actor.role)) {
     assertAdminPermissionForActor(actor, "manageVehicles", "You do not have access to manage vehicles.");
   }
 
-  if (actor.role === "seller" && isFirebaseConfigured) {
+  if (isSellerWorkspaceActor(actor) && isFirebaseConfigured) {
     const recentVehicles = await findRecentVehiclesForOwner(actor.id);
     const submissionsInDay = recentVehicles.filter((vehicle) => isWithinWindow(vehicle.createdAt, 24 * 60 * 60 * 1000));
     if (submissionsInDay.length >= 3) {
@@ -1483,7 +1489,7 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
     }
   }
 
-  if (actor.role === "seller") {
+  if (isSellerWorkspaceActor(actor)) {
     validateSellerVehicleDescription(normalizeVehicleInput(input).description);
   }
 

@@ -25,6 +25,14 @@ service cloud.firestore {
       return signedIn() && userDoc().data.role == "seller";
     }
 
+    function isSellerWorkspaceUser() {
+      return signedIn()
+        && (
+          userDoc().data.role == "seller"
+          || userDoc().data.role == "buyer"
+        );
+    }
+
     function isCraigEmail(email) {
       return email == "peng871111@gmail.com";
     }
@@ -263,7 +271,7 @@ service cloud.firestore {
         );
       allow create: if isAdmin()
         || (
-          isSeller()
+          isSellerWorkspaceUser()
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.ownerRole == "seller"
           && request.resource.data.status == "pending"

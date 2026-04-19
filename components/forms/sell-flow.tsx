@@ -134,7 +134,7 @@ export function SellFlow() {
     [selectedFiles]
   );
 
-  const canSubmit = appUser?.role === "seller";
+  const canSubmit = appUser?.role === "seller" || appUser?.role === "buyer";
 
   function setField<K extends keyof SellFlowState>(key: K, value: SellFlowState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -175,7 +175,7 @@ export function SellFlow() {
   }
 
   async function handleSubmit() {
-    if (!appUser || appUser.role !== "seller") return;
+    if (!appUser || !canSubmit) return;
 
     const reviewError = validateStep(3);
     if (reviewError) {
@@ -297,7 +297,7 @@ export function SellFlow() {
     );
   }
 
-  if (appUser.role !== "seller") {
+  if (!canSubmit) {
     return (
       <div className="rounded-[32px] border border-white/10 bg-[#121212] p-8 text-[#F5F5F5] shadow-panel">
         <p className="text-xs uppercase tracking-[0.28em] text-[#C6A87D]">Seller access</p>
