@@ -158,6 +158,8 @@ export interface VehicleActor {
   adminPermissions?: AdminPermissions;
   dealerVerified?: boolean;
   listingRestricted?: boolean;
+  possibleUnlicensedTrader?: boolean;
+  dealerStatus?: "pending" | "info_requested" | "approved" | "rejected";
 }
 
 export interface Enquiry {
