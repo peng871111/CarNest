@@ -1,6 +1,6 @@
 import { Timestamp, addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
-import { isValidEmailAddress } from "@/lib/form-safety";
+import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
 import { createAdminPermissions, createSuperAdminPermissions, hasAdminPermission, isAdminLikeRole, isSuperAdminUser, resolveManagedUserAccess } from "@/lib/permissions";
 import { deleteVehicleImageFile } from "@/lib/storage";
@@ -3061,6 +3061,10 @@ export async function createContactMessage(input: ContactMessageWriteInput) {
 
   if (!isValidEmailAddress(email)) {
     throw new Error("Please enter a valid email address.");
+  }
+
+  if (!/^\d+$/.test(phone) || !isValidAustralianMobileNumber(phone)) {
+    throw new Error("Please enter a valid Australian mobile number (e.g. 0412345678)");
   }
 
   const payloadBase = {

@@ -1,4 +1,5 @@
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const AUSTRALIAN_MOBILE_PATTERN = /^04\d{8}$/;
 export const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ?? "";
 export const TURNSTILE_ENABLED = Boolean(TURNSTILE_SITE_KEY);
 const DEFAULT_RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
@@ -14,6 +15,14 @@ interface AntiSpamCheckInput {
 
 export function isValidEmailAddress(value: string) {
   return EMAIL_PATTERN.test(value.trim());
+}
+
+export function sanitizeAustralianMobileInput(value: string) {
+  return value.replace(/\D/g, "").slice(0, 10);
+}
+
+export function isValidAustralianMobileNumber(value: string) {
+  return AUSTRALIAN_MOBILE_PATTERN.test(value.trim());
 }
 
 function readSubmissionEntries(storageKey: string) {

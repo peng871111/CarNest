@@ -154,9 +154,11 @@ function SellerVehiclesPageContent() {
         <Link href="/dashboard/saved" className="rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink">
           Saved Vehicles
         </Link>
-        <Link href="/sell" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
-          Add vehicle
-        </Link>
+        {appUser?.role === "seller" ? (
+          <Link href="/seller/vehicles/new" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
+            Add vehicle
+          </Link>
+        ) : null}
       </div>
       {writeStatus || workspaceNotice ? (
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">{workspaceNotice || writeStatus}</div>
@@ -223,7 +225,12 @@ function SellerVehiclesPageContent() {
             ))
           ) : (
             <div className="px-6 py-12 text-sm text-ink/60">
-              No vehicles yet. Add your first listing.
+              <p>No vehicles yet. Add your first listing.</p>
+              {appUser?.role === "seller" ? (
+                <Link href="/seller/vehicles/new" className="mt-4 inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
+                  Add vehicle
+                </Link>
+              ) : null}
             </div>
           )}
         </div>

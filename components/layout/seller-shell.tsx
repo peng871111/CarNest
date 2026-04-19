@@ -31,7 +31,11 @@ export function SellerShell({
   const { appUser, loading } = useAuth();
   const workspaceHomeHref = appUser?.role === "admin" || appUser?.role === "super_admin" ? "/admin/vehicles" : "/seller/vehicles";
   const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role);
-  const sidebarLinks = SELLER_LINKS.filter((link) => link.href !== "/seller/offers" || appUser?.role === "seller");
+  const sidebarLinks = SELLER_LINKS.filter((link) => {
+    if (link.href === "/seller/offers") return appUser?.role === "seller";
+    if (link.href === "/seller/vehicles/new") return appUser?.role === "seller";
+    return true;
+  });
   const [offersBadgeCount, setOffersBadgeCount] = useState(0);
   const [myOffersBadgeCount, setMyOffersBadgeCount] = useState(0);
 

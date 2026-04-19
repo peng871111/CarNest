@@ -7,18 +7,21 @@ import { useAuth } from "@/lib/auth";
 export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | "ACCOUNT" | "DASHBOARD" }) {
   const router = useRouter();
   const { appUser, logout } = useAuth();
+
+  const workspaceIdentityLabel = (() => {
+    if (!appUser) return workspaceLabel;
+    if (appUser.role === "admin" || appUser.role === "super_admin") return "Admin Dashboard";
+
+    const candidates = [appUser.displayName, appUser.name, appUser.email.split("@")[0]];
+    return candidates.find((candidate) => candidate && candidate.trim() && candidate.trim().toLowerCase() !== "carnest user")?.trim() ?? "Account";
+  })();
+
   const dashboardHref =
     appUser?.role === "admin" || appUser?.role === "super_admin"
       ? "/admin/vehicles"
       : appUser?.role === "seller" || appUser?.role === "buyer"
         ? "/seller/vehicles"
         : null;
-  const dashboardLabel =
-    appUser?.role === "admin" || appUser?.role === "super_admin"
-      ? "Admin Dashboard"
-      : appUser?.role === "seller" || appUser?.role === "buyer"
-        ? "Account"
-        : workspaceLabel;
 
   async function handleLogout() {
     await logout();
@@ -43,11 +46,11 @@ export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | 
               href={dashboardHref}
               className="relative z-50 inline-flex min-h-10 items-center justify-center rounded-full border border-sand bg-shell px-4 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-bronze transition hover:border-bronze hover:bg-white focus:outline-none focus:ring-2 focus:ring-bronze/30"
             >
-              {dashboardLabel}
+              {workspaceIdentityLabel}
             </Link>
           ) : (
             <span className="rounded-full border border-sand bg-shell px-3 py-2 text-xs font-semibold uppercase tracking-[0.22em] text-bronze">
-              {dashboardLabel}
+              {workspaceIdentityLabel}
             </span>
           )}
           {appUser ? (

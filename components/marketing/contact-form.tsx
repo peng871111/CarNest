@@ -11,9 +11,11 @@ import {
   checkAntiSpamGuards,
   checkDuplicateSubmission,
   checkRateLimit,
+  isValidAustralianMobileNumber,
   isValidEmailAddress,
   rememberSubmission,
   rememberSubmissionEvent,
+  sanitizeAustralianMobileInput,
   validateTurnstileToken,
   verifyTurnstileToken
 } from "@/lib/form-safety";
@@ -45,6 +47,8 @@ const initialState: ContactFormState = {
   website: ""
 };
 
+const AUSTRALIAN_MOBILE_ERROR = "Please enter a valid Australian mobile number (e.g. 0412345678)";
+
 export function ContactForm() {
   const [form, setForm] = useState<ContactFormState>(initialState);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -60,13 +64,29 @@ export function ContactForm() {
     setSubmitted(false);
   }
 
+  function getPhoneError(phone: string) {
+    if (!phone.trim()) return "Please enter your phone number.";
+    if (!isValidAustralianMobileNumber(phone)) return AUSTRALIAN_MOBILE_ERROR;
+    return "";
+  }
+
+  function handlePhoneChange(value: string) {
+    setField("phone", sanitizeAustralianMobileInput(value));
+  }
+
+  function handlePhoneBlur() {
+    const nextError = getPhoneError(form.phone);
+    setFieldErrors((current) => ({ ...current, phone: nextError }));
+  }
+
   function validateForm() {
     const nextErrors: Record<string, string> = {};
 
     if (!form.name.trim()) nextErrors.name = "Please enter your name.";
     if (!form.email.trim()) nextErrors.email = "Please enter your email address.";
     else if (!isValidEmailAddress(form.email)) nextErrors.email = "Please enter a valid email address.";
-    if (!form.phone.trim()) nextErrors.phone = "Please enter your phone number.";
+    const phoneError = getPhoneError(form.phone);
+    if (phoneError) nextErrors.phone = phoneError;
     if (!form.subject.trim()) nextErrors.subject = "Please enter a subject.";
     if (!form.category.trim()) nextErrors.category = "Please choose a category.";
     if (!form.message.trim()) nextErrors.message = "Please enter your message.";
@@ -139,10 +159,14 @@ export function ContactForm() {
       rememberSubmission("carnest-contact-form");
       rememberSubmissionEvent(contactKey, duplicateFingerprint);
     } catch (submitError) {
+      if (submitError instanceof Error && submitError.message === AUSTRALIAN_MOBILE_ERROR) {
+        setFieldErrors((current) => ({ ...current, phone: AUSTRALIAN_MOBILE_ERROR }));
+      }
       setError(
         submitError instanceof Error &&
         [
           "Please correct the highlighted fields before sending your enquiry.",
+          AUSTRALIAN_MOBILE_ERROR,
           "Too many requests. Please try again later.",
           "It looks like this request was already submitted.",
           "Please take a moment to review your details before submitting.",
@@ -200,10 +224,15 @@ export function ContactForm() {
           <Input
             name="phone"
             type="tel"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="e.g. 0412345678"
             value={form.phone}
-            onChange={(event) => setField("phone", event.target.value)}
+            onChange={(event) => handlePhoneChange(event.target.value)}
+            onBlur={handlePhoneBlur}
             required
             aria-invalid={Boolean(fieldErrors.phone)}
+            className={fieldErrors.phone ? "border-red-300 focus:border-red-400" : ""}
           />
           {fieldErrors.phone ? <p className="text-sm text-red-700">{fieldErrors.phone}</p> : null}
         </label>
