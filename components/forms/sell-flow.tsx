@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 import { createVehicle } from "@/lib/data";
 import { db, isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
+import { optimizeVehicleImages } from "@/lib/image-processing";
 import { uploadVehicleImages } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
@@ -119,11 +120,17 @@ function toUppercaseValue(value: string) {
   return value.toUpperCase();
 }
 
+function moveItemToFront<T>(items: T[], index: number) {
+  if (index <= 0 || index >= items.length) return items;
+  return [items[index], ...items.slice(0, index), ...items.slice(index + 1)];
+}
+
 export function SellFlow() {
   const router = useRouter();
   const { appUser, loading } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [processingImages, setProcessingImages] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [form, setForm] = useState<SellFlowState>(initialState);
@@ -172,6 +179,29 @@ export function SellFlow() {
   function handleBack() {
     setError("");
     setCurrentStep((step) => Math.max(step - 1, 1));
+  }
+
+  function setSelectedFileAsCover(index: number) {
+    setSelectedFiles((current) => moveItemToFront(current, index));
+  }
+
+  async function handleImageSelection(files: FileList | null) {
+    if (!files?.length) {
+      setSelectedFiles([]);
+      return;
+    }
+
+    setProcessingImages(true);
+    setError("");
+
+    try {
+      const processedFiles = await optimizeVehicleImages(Array.from(files));
+      setSelectedFiles(processedFiles);
+    } catch {
+      setError("We couldn't prepare your photos right now. Please try again.");
+    } finally {
+      setProcessingImages(false);
+    }
   }
 
   async function handleSubmit() {
@@ -470,18 +500,39 @@ export function SellFlow() {
                 type="file"
                 accept="image/*"
                 multiple
-                onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
+                onChange={(event) => void handleImageSelection(event.target.files)}
                 className="block w-full text-sm text-[#F5F5F5]/72"
               />
               <p className="mt-3 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
                 Local previews stay available even before cloud upload is configured.
               </p>
+              <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
+                Images are resized before upload for faster listing performance.
+              </p>
+              {processingImages ? <p className="mt-3 text-sm text-[#F5F5F5]/72">Preparing images...</p> : null}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {previewImages.map((image, index) => (
                 <div key={`${image}-${index}`} className="relative h-48 overflow-hidden rounded-[24px] border border-white/10 bg-[#181818]">
                   <Image src={image} alt={`Vehicle preview ${index + 1}`} fill className="object-cover" unoptimized={image.startsWith("blob:")} />
+                  {selectedFiles[index] ? (
+                    <>
+                      {index === 0 ? (
+                        <span className="absolute left-3 top-3 rounded-full bg-[#C6A87D] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#111111]">
+                          Cover
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedFileAsCover(index)}
+                          className="absolute left-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-semibold text-white transition hover:bg-black/80"
+                        >
+                          Set as cover
+                        </button>
+                      )}
+                    </>
+                  ) : null}
                 </div>
               ))}
             </div>

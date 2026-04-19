@@ -1,7 +1,7 @@
 "use client";
 
-const MAX_IMAGE_DIMENSION = 1440;
-const OUTPUT_QUALITY = 0.72;
+const MAX_IMAGE_DIMENSION = 1600;
+const OUTPUT_QUALITY = 0.76;
 
 function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
