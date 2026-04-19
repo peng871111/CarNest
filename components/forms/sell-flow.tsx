@@ -2,11 +2,10 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { ChangeEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 import { createVehicle } from "@/lib/data";
@@ -15,7 +14,12 @@ import { optimizeVehicleImages } from "@/lib/image-processing";
 import { uploadVehicleImages } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
-import { VehicleFormInput } from "@/types";
+import { VehicleFormFieldsValue, VehicleFormInput } from "@/types";
+import {
+  VehicleFormFields,
+  buildVehicleFormFieldsValue,
+  validateVehicleFormFields
+} from "@/components/forms/vehicle-form-fields";
 
 const STEPS = [
   { id: 1, title: "Vehicle details" },
@@ -24,101 +28,19 @@ const STEPS = [
   { id: 4, title: "Review and submit" }
 ] as const;
 
-const MAKE_OPTIONS = [
-  "ABARTH",
-  "ALFA ROMEO",
-  "AUDI",
-  "BMW",
-  "BYD",
-  "CHEVROLET",
-  "CHRYSLER",
-  "CUPRA",
-  "FERRARI",
-  "FIAT",
-  "FORD",
-  "GENESIS",
-  "GWM",
-  "HOLDEN",
-  "HONDA",
-  "HYUNDAI",
-  "ISUZU",
-  "JAGUAR",
-  "JEEP",
-  "KIA",
-  "LAMBORGHINI",
-  "LAND ROVER",
-  "LDV",
-  "LEXUS",
-  "MAHINDRA",
-  "MASERATI",
-  "MAZDA",
-  "MERCEDES-BENZ",
-  "MG",
-  "MINI",
-  "MITSUBISHI",
-  "NISSAN",
-  "PEUGEOT",
-  "POLESTAR",
-  "PORSCHE",
-  "RENAULT",
-  "SKODA",
-  "SUBARU",
-  "SUZUKI",
-  "TESLA",
-  "TOYOTA",
-  "VOLKSWAGEN",
-  "VOLVO",
-  "OTHER"
-];
-const BODY_TYPE_OPTIONS = ["SEDAN", "HATCHBACK", "WAGON", "SUV", "COUPE", "CONVERTIBLE", "UTE", "VAN", "PEOPLE MOVER", "OTHER"];
-const FUEL_TYPE_OPTIONS = ["PETROL", "DIESEL", "EV", "PHEV", "HEV"];
-const TRANSMISSION_OPTIONS = ["AT", "MT"];
-const DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD", "OTHER"];
-const STATE_OPTIONS = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR + 1 - 1980 + 1 }, (_, index) => String(CURRENT_YEAR + 1 - index));
-
 type ListingChoice = "basic" | "service_quote";
 
-interface SellFlowState {
-  make: string;
-  year: string;
-  model: string;
-  bodyType: string;
-  fuelType: string;
-  transmission: string;
-  drivetrain: string;
-  mileage: string;
-  price: string;
-  colour: string;
-  suburb: string;
-  state: string;
-  description: string;
+interface SellFlowState extends VehicleFormFieldsValue {
   listingChoice: ListingChoice;
   serviceQuoteNotes: string;
 }
 
 const initialState: SellFlowState = {
-  make: "",
-  year: String(new Date().getFullYear()),
-  model: "",
-  bodyType: "",
-  fuelType: "",
-  transmission: "",
-  drivetrain: "",
-  mileage: "",
-  price: "",
-  colour: "",
-  suburb: "",
-  state: "VIC",
-  description: "",
+  ...buildVehicleFormFieldsValue(),
+  sellerLocationState: "VIC",
   listingChoice: "basic",
   serviceQuoteNotes: ""
 };
-
-function toUppercaseValue(value: string) {
-  return value.toUpperCase();
-}
 
 function moveItemToFront<T>(items: T[], index: number) {
   if (index <= 0 || index >= items.length) return items;
@@ -149,13 +71,7 @@ export function SellFlow() {
 
   function validateStep(step: number) {
     if (step === 1) {
-      if (!form.make || !form.year || !form.model || !form.bodyType || !form.fuelType || !form.transmission) {
-        return "Complete the core vehicle details before continuing.";
-      }
-      if (!form.drivetrain || !form.suburb || !form.state || !form.description) {
-        return "Please complete the remaining required vehicle fields.";
-      }
-      return "";
+      return validateVehicleFormFields(form);
     }
 
     if (step === 3 && form.listingChoice === "service_quote" && !form.serviceQuoteNotes.trim()) {
@@ -234,11 +150,11 @@ export function SellFlow() {
         drivetrain: form.drivetrain,
         bodyType: form.bodyType,
         colour: form.colour,
-        regoExpiry: "",
-        serviceHistory: "",
-        keyCount: "",
-        sellerLocationSuburb: form.suburb,
-        sellerLocationState: form.state,
+        regoExpiry: form.regoExpiry,
+        serviceHistory: form.serviceHistory,
+        keyCount: form.keyCount,
+        sellerLocationSuburb: form.sellerLocationSuburb,
+        sellerLocationState: form.sellerLocationState,
         description: form.description,
         coverImageUrl: imageUrls[0] || "",
         imageUrls,
@@ -277,8 +193,8 @@ export function SellFlow() {
             mileage: Number(form.mileage || 0),
             price: Number(form.price || 0),
             colour: form.colour,
-            suburb: form.suburb,
-            state: form.state,
+            suburb: form.sellerLocationSuburb,
+            state: form.sellerLocationState,
             description: form.description,
             imageCount: selectedFiles.length
           },
@@ -379,109 +295,7 @@ export function SellFlow() {
                 Share the core vehicle information first. CarNest will save this submission as a pending seller listing for review.
               </p>
             </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Make</span>
-                <select value={form.make} onChange={(event) => setField("make", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  <option value="">SELECT MAKE</option>
-                  {MAKE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Year</span>
-                <select value={form.year} onChange={(event) => setField("year", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm" required>
-                  {YEAR_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Model</span>
-                <Input value={form.model} onChange={(event) => setField("model", toUppercaseValue(event.target.value))} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5] uppercase" required />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Body type</span>
-                <select value={form.bodyType} onChange={(event) => setField("bodyType", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  <option value="">SELECT BODY TYPE</option>
-                  {BODY_TYPE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Fuel type</span>
-                <select value={form.fuelType} onChange={(event) => setField("fuelType", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  <option value="">SELECT FUEL TYPE</option>
-                  {FUEL_TYPE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Transmission</span>
-                <select value={form.transmission} onChange={(event) => setField("transmission", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  <option value="">SELECT TRANSMISSION</option>
-                  {TRANSMISSION_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Drivetrain</span>
-                <select value={form.drivetrain} onChange={(event) => setField("drivetrain", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  <option value="">SELECT DRIVETRAIN</option>
-                  {DRIVETRAIN_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Mileage</span>
-                <Input type="number" min="0" value={form.mileage} onChange={(event) => setField("mileage", event.target.value)} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5]" />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Target asking price</span>
-                <Input type="number" min="0" value={form.price} onChange={(event) => setField("price", event.target.value)} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5]" />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Colour</span>
-                <Input value={form.colour} onChange={(event) => setField("colour", event.target.value)} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5]" />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">Suburb</span>
-                <Input value={form.suburb} onChange={(event) => setField("suburb", toUppercaseValue(event.target.value))} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5] uppercase" required />
-              </label>
-              <label className="space-y-2">
-                <span className="text-sm font-medium">State</span>
-                <select value={form.state} onChange={(event) => setField("state", event.target.value)} className="w-full rounded-2xl border border-white/10 bg-[#1A1A1A] px-4 py-3 text-sm uppercase" required>
-                  {STATE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="block space-y-2">
-              <span className="text-sm font-medium">Description</span>
-              <Textarea value={form.description} onChange={(event) => setField("description", event.target.value)} className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5]" required />
-            </label>
+            <VehicleFormFields value={form} onFieldChange={setField} theme="dark" />
           </div>
         ) : null}
 
@@ -580,7 +394,7 @@ export function SellFlow() {
                 <span className="text-sm font-medium">Quote request notes</span>
                 <Textarea
                   value={form.serviceQuoteNotes}
-                  onChange={(event) => setField("serviceQuoteNotes", event.target.value)}
+                  onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setField("serviceQuoteNotes", event.target.value)}
                   placeholder="Tell us whether you want help with inspection prep, premium presentation, warehouse handling, or end-to-end sales support."
                   className="border-white/10 bg-[#1A1A1A] text-[#F5F5F5]"
                   required
@@ -643,7 +457,7 @@ export function SellFlow() {
                   <div>
                     <p className="text-[#F5F5F5]/42">Location</p>
                     <p className="mt-1">
-                      {[form.suburb, form.state].filter(Boolean).join(", ") || "Not provided"}
+                      {[form.sellerLocationSuburb, form.sellerLocationState].filter(Boolean).join(", ") || "Not provided"}
                     </p>
                   </div>
                   <div>

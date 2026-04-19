@@ -4,35 +4,18 @@ import Image from "next/image";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 import { createVehicle, deleteVehicleImage, updateVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
 import { optimizeVehicleImages, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
 import { uploadVehicleImages } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
-import { formatCalendarDate } from "@/lib/utils";
-import { Vehicle, VehicleFormInput } from "@/types";
-
-const FUEL_TYPE_OPTIONS = ["PETROL", "DIESEL", "EV", "PHEV", "HEV", "HYBRID", "LPG", "OTHER"];
-const TRANSMISSION_OPTIONS = ["AT", "MT", "DCT", "CVT", "PDK", "OTHER"];
-const BODY_TYPE_OPTIONS = ["SUV", "SEDAN", "COUPE", "HATCH", "UTE", "WAGON", "CONVERTIBLE", "VAN", "OTHER"];
-const SERVICE_HISTORY_OPTIONS = ["FULL DEALER SERVICE HISTORY", "PARTIAL DEALER SERVICE HISTORY", "NO SERVICE HISTORY"];
-const KEY_COUNT_OPTIONS = ["1 KEY", "2 KEYS", "3 KEYS"];
-
-function uppercaseValue(value: FormDataEntryValue | null) {
-  return String(value ?? "").toUpperCase();
-}
-
-function applyUppercaseInput(event: FormEvent<HTMLInputElement>) {
-  const input = event.currentTarget;
-  input.value = input.value.toUpperCase();
-}
-
-function blockManualDateEntry(event: FormEvent<HTMLInputElement>) {
-  event.preventDefault();
-}
+import { Vehicle, VehicleFormFieldsValue, VehicleFormInput } from "@/types";
+import {
+  VehicleFormFields,
+  buildVehicleFormFieldsValue,
+  validateVehicleFormFields
+} from "@/components/forms/vehicle-form-fields";
 
 interface SelectedImage {
   id: string;
@@ -46,30 +29,6 @@ interface ImagePreviewItem {
   source: "existing" | "selected";
   selectedImageId?: string;
 }
-
-const initialState: VehicleFormInput = {
-  listingType: "warehouse",
-  make: "",
-  model: "",
-  year: new Date().getFullYear(),
-  price: 0,
-  mileage: 0,
-  transmission: "",
-  fuelType: "",
-  drivetrain: "",
-  bodyType: "",
-  colour: "",
-  regoExpiry: "",
-  serviceHistory: "",
-  keyCount: "",
-  sellerLocationSuburb: "",
-  sellerLocationState: "",
-  description: "",
-  coverImage: "",
-  coverImageUrl: "",
-  imageUrls: [],
-  images: []
-};
 
 function getListingModeLabel(listingType: Vehicle["listingType"]) {
   return listingType === "warehouse" ? "WAREHOUSE MANAGED" : "ONLINE LISTING ONLY";
@@ -94,53 +53,25 @@ export function VehicleForm({
   const [deletingImageUrl, setDeletingImageUrl] = useState("");
   const [message, setMessage] = useState("");
   const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
+  const [formValues, setFormValues] = useState<VehicleFormFieldsValue>(buildVehicleFormFieldsValue(vehicle));
   const [existingImageUrls, setExistingImageUrls] = useState<string[]>(vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? []);
   const [listingType, setListingType] = useState<Vehicle["listingType"]>(vehicle?.listingType ?? "warehouse");
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const currentVehicle = activeVehicle ?? vehicle;
-  const [regoExpiryPreview, setRegoExpiryPreview] = useState(vehicle?.regoExpiry ?? "");
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveVehicle(vehicle);
-    setRegoExpiryPreview(vehicle?.regoExpiry ?? "");
     setExistingImageUrls(vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? []);
     setCoverImageKey(null);
-  }, [vehicle]);
-
-  const defaultValues = useMemo<VehicleFormInput>(
-    () =>
-      currentVehicle
-        ? {
-            listingType: currentVehicle.listingType,
-            make: currentVehicle.make.toUpperCase(),
-            model: currentVehicle.model.toUpperCase(),
-            year: currentVehicle.year,
-            price: currentVehicle.price,
-            mileage: currentVehicle.mileage,
-            transmission: currentVehicle.transmission.toUpperCase(),
-            fuelType: currentVehicle.fuelType.toUpperCase(),
-            drivetrain: currentVehicle.drivetrain,
-            bodyType: currentVehicle.bodyType.toUpperCase(),
-            colour: currentVehicle.colour,
-            regoExpiry: currentVehicle.regoExpiry ?? "",
-            serviceHistory: currentVehicle.serviceHistory?.toUpperCase?.() ?? "",
-            keyCount: currentVehicle.keyCount?.toUpperCase?.() ?? "",
-            sellerLocationSuburb: currentVehicle.sellerLocationSuburb?.toUpperCase() ?? "",
-            sellerLocationState: currentVehicle.sellerLocationState?.toUpperCase() ?? "",
-            description:
-              appUser?.role === "seller" && currentVehicle.pendingDescription
-                ? currentVehicle.pendingDescription
-                : currentVehicle.description,
-            coverImage: currentVehicle.coverImage ?? currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
-            coverImageUrl: currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
-            imageUrls: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images,
-            images: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images
-          }
-        : initialState,
-    [appUser?.role, currentVehicle]
-  );
+    setFormValues(
+      buildVehicleFormFieldsValue(
+        vehicle,
+        appUser?.role === "seller" && vehicle?.pendingDescription ? vehicle.pendingDescription : undefined
+      )
+    );
+  }, [appUser?.role, vehicle]);
 
   useEffect(() => {
     return () => {
@@ -176,7 +107,7 @@ export function VehicleForm({
     setMessage("");
 
     try {
-      const existingImageCount = currentVehicle && imageMode === "append" ? defaultValues.imageUrls.length : 0;
+      const existingImageCount = currentVehicle && imageMode === "append" ? existingImageUrls.length : 0;
       const remainingSlots = Math.max(0, VEHICLE_IMAGE_UPLOAD_LIMIT - existingImageCount);
       const acceptedFiles = Array.from(files).slice(0, remainingSlots);
 
@@ -284,11 +215,15 @@ export function VehicleForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading || !appUser) return;
+    const validationError = validateVehicleFormFields(formValues);
+    if (validationError) {
+      setMessage(validationError);
+      return;
+    }
     setSaving(true);
     setMessage("");
 
     try {
-      const form = new FormData(event.currentTarget);
       const files = selectedImages.map((image) => image.file);
       let imageUrls = [...existingImageUrls];
 
@@ -322,23 +257,23 @@ export function VehicleForm({
       }
 
       const payload: VehicleFormInput = {
-        listingType: String(form.get("listingType")) as Vehicle["listingType"],
-        make: uppercaseValue(form.get("make")),
-        model: uppercaseValue(form.get("model")),
-        year: Number(form.get("year")),
-        price: Number(form.get("price")),
-        mileage: Number(form.get("mileage")),
-        transmission: uppercaseValue(form.get("transmission")),
-        fuelType: uppercaseValue(form.get("fuelType")),
-        drivetrain: String(form.get("drivetrain")),
-        bodyType: uppercaseValue(form.get("bodyType")),
-        colour: String(form.get("colour")),
-        regoExpiry: String(form.get("regoExpiry")),
-        serviceHistory: uppercaseValue(form.get("serviceHistory")),
-        keyCount: uppercaseValue(form.get("keyCount")),
-        sellerLocationSuburb: uppercaseValue(form.get("sellerLocationSuburb")),
-        sellerLocationState: uppercaseValue(form.get("sellerLocationState")),
-        description: String(form.get("description")),
+        listingType,
+        make: formValues.make,
+        model: formValues.model,
+        year: Number(formValues.year),
+        price: Number(formValues.price),
+        mileage: Number(formValues.mileage),
+        transmission: formValues.transmission,
+        fuelType: formValues.fuelType,
+        drivetrain: formValues.drivetrain,
+        bodyType: formValues.bodyType,
+        colour: formValues.colour,
+        regoExpiry: formValues.regoExpiry,
+        serviceHistory: formValues.serviceHistory,
+        keyCount: formValues.keyCount,
+        sellerLocationSuburb: formValues.sellerLocationSuburb,
+        sellerLocationState: formValues.sellerLocationState,
+        description: formValues.description,
         coverImage: imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
         coverImageUrl: imageUrls[0] || currentVehicle?.coverImageUrl || "",
         imageUrls,
@@ -355,6 +290,12 @@ export function VehicleForm({
         setActiveVehicle(result.vehicle);
         setExistingImageUrls(result.vehicle.imageUrls?.length ? result.vehicle.imageUrls : result.vehicle.images);
         setCoverImageKey(null);
+        setFormValues(
+          buildVehicleFormFieldsValue(
+            result.vehicle,
+            appUser.role === "seller" && descriptionReviewPending ? formValues.description : undefined
+          )
+        );
       }
 
       if (currentVehicle) {
@@ -411,17 +352,16 @@ export function VehicleForm({
         {listingTypeReadOnly ? (
           <div className="space-y-2">
             <span className="text-sm font-medium text-ink">Current listing mode</span>
-            <input type="hidden" name="listingType" value={defaultValues.listingType} />
+            <input type="hidden" name="listingType" value={listingType} />
             <div className="rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm font-medium uppercase tracking-[0.16em] text-ink/80">
-              {getListingModeLabel(defaultValues.listingType)}
+              {getListingModeLabel(listingType)}
             </div>
           </div>
         ) : (
           <label className="space-y-2">
             <span className="text-sm font-medium text-ink">Listing type</span>
             <select
-              name="listingType"
-              defaultValue={defaultValues.listingType}
+              value={listingType}
               onChange={(event) => setListingType(event.target.value as Vehicle["listingType"])}
               className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm"
             >
@@ -430,169 +370,27 @@ export function VehicleForm({
             </select>
           </label>
         )}
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Year</span>
-          <Input type="number" name="year" min="1900" defaultValue={defaultValues.year} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Make</span>
-          <Input name="make" defaultValue={defaultValues.make} className="uppercase" onInput={applyUppercaseInput} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Model</span>
-          <Input name="model" defaultValue={defaultValues.model} className="uppercase" onInput={applyUppercaseInput} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Price</span>
-          <Input type="number" name="price" min="0" defaultValue={defaultValues.price} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Mileage</span>
-          <Input type="number" name="mileage" min="0" defaultValue={defaultValues.mileage} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Transmission</span>
-          <select
-            name="transmission"
-            defaultValue={defaultValues.transmission}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm uppercase"
-            required
-          >
-            <option value="">SELECT TRANSMISSION</option>
-            {TRANSMISSION_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Fuel type</span>
-          <select
-            name="fuelType"
-            defaultValue={defaultValues.fuelType}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm uppercase"
-            required
-          >
-            <option value="">SELECT FUEL TYPE</option>
-            {FUEL_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Drivetrain</span>
-          <Input name="drivetrain" defaultValue={defaultValues.drivetrain} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Body type</span>
-          <select
-            name="bodyType"
-            defaultValue={defaultValues.bodyType}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm uppercase"
-            required
-          >
-            <option value="">SELECT BODY TYPE</option>
-            {BODY_TYPE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Colour</span>
-          <Input name="colour" defaultValue={defaultValues.colour} required />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Rego expiry</span>
-          <Input
-            type="date"
-            name="regoExpiry"
-            defaultValue={defaultValues.regoExpiry}
-            lang="en-AU"
-            onChange={(event) => setRegoExpiryPreview(event.target.value)}
-            onBeforeInput={blockManualDateEntry}
-            onPaste={(event) => event.preventDefault()}
-          />
-          <p className="text-xs uppercase tracking-[0.18em] text-ink/45">
-            {regoExpiryPreview ? `Displayed in CarNest as ${formatCalendarDate(regoExpiryPreview)}` : "Display format: DD/MM/YYYY"}
-          </p>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Service history</span>
-          <select
-            name="serviceHistory"
-            defaultValue={defaultValues.serviceHistory}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm uppercase"
-            required
-          >
-            <option value="">SELECT SERVICE HISTORY</option>
-            {SERVICE_HISTORY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Keys</span>
-          <select
-            name="keyCount"
-            defaultValue={defaultValues.keyCount}
-            className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm uppercase"
-            required
-          >
-            <option value="">SELECT KEYS</option>
-            {KEY_COUNT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Seller suburb</span>
-          <Input
-            name="sellerLocationSuburb"
-            defaultValue={defaultValues.sellerLocationSuburb}
-            placeholder={listingType === "private" ? "Required for private listings" : "Not shown for warehouse listings"}
-            className="uppercase"
-            onInput={applyUppercaseInput}
-            required={listingType === "private"}
-          />
-        </label>
-        <label className="space-y-2">
-          <span className="text-sm font-medium text-ink">Seller state</span>
-          <Input
-            name="sellerLocationState"
-            defaultValue={defaultValues.sellerLocationState}
-            placeholder={listingType === "private" ? "Stored for admin context" : "Not shown for warehouse listings"}
-            className="uppercase"
-            onInput={applyUppercaseInput}
-          />
-        </label>
       </div>
-
-      <label className="block space-y-2">
-        <span className="text-sm font-medium text-ink">Description</span>
-        {appUser?.role === "seller" && currentVehicle?.pendingDescription ? (
-          <div className="rounded-[20px] border border-black/5 bg-shell px-4 py-3 text-sm leading-6 text-ink/70">
-            <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Current live description</p>
-            <p className="mt-2 whitespace-pre-wrap">{currentVehicle.description}</p>
-          </div>
-        ) : null}
-        <Textarea name="description" defaultValue={defaultValues.description} required />
-        {appUser?.role === "seller" ? (
-          <p className="text-xs leading-5 text-ink/55">
-            {currentVehicle?.pendingDescription
+      <VehicleFormFields
+        value={formValues}
+        onFieldChange={(field, nextValue) => setFormValues((current) => ({ ...current, [field]: nextValue }))}
+        theme="light"
+        descriptionLead={
+          appUser?.role === "seller" && currentVehicle?.pendingDescription ? (
+            <div className="rounded-[20px] border border-black/5 bg-shell px-4 py-3 text-sm leading-6 text-ink/70">
+              <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Current live description</p>
+              <p className="mt-2 whitespace-pre-wrap">{currentVehicle.description}</p>
+            </div>
+          ) : null
+        }
+        descriptionHint={
+          appUser?.role === "seller"
+            ? currentVehicle?.pendingDescription
               ? "This textarea is your pending description under review. Do not include phone numbers, email addresses, or instructions to contact outside CarNest."
-              : "Description changes are reviewed before publishing. Do not include phone numbers, email addresses, or instructions to contact outside CarNest."}
-          </p>
-        ) : null}
-      </label>
+              : "Description changes are reviewed before publishing. Do not include phone numbers, email addresses, or instructions to contact outside CarNest."
+            : undefined
+        }
+      />
 
       <div className="space-y-3">
         <label className="block space-y-2">

@@ -119,6 +119,25 @@ export interface VehicleFormInput {
   serviceQuoteNotes?: string;
 }
 
+export interface VehicleFormFieldsValue {
+  year: string;
+  make: string;
+  model: string;
+  price: string;
+  mileage: string;
+  transmission: string;
+  fuelType: string;
+  drivetrain: string;
+  bodyType: string;
+  colour: string;
+  regoExpiry: string;
+  serviceHistory: string;
+  keyCount: string;
+  sellerLocationSuburb: string;
+  sellerLocationState: string;
+  description: string;
+}
+
 export interface VehicleActor {
   id: string;
   role: UserRole;
