@@ -159,7 +159,7 @@ export interface VehicleActor {
   dealerVerified?: boolean;
   listingRestricted?: boolean;
   possibleUnlicensedTrader?: boolean;
-  dealerStatus?: "pending" | "info_requested" | "approved" | "rejected";
+  dealerStatus?: DealerStatus;
 }
 
 export interface Enquiry {
