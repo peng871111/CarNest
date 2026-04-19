@@ -156,6 +156,7 @@ export interface VehicleActor {
   role: UserRole;
   email?: string;
   adminPermissions?: AdminPermissions;
+  dealerVerified?: boolean;
 }
 
 export interface Enquiry {
