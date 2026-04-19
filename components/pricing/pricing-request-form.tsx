@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AuthGateModal } from "@/components/auth/auth-gate-modal";
@@ -247,10 +248,25 @@ export function PricingRequestForm() {
               ? "Loading your vehicles..."
               : !appUser
                 ? "Sign in to link one of your vehicles to this request."
-              : selectedVehicle
-                ? `Linked to ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-                : "Optional, but helpful if you want advice tied to a specific listing."}
+                : appUser.role === "seller" && vehicles.length === 0
+                  ? "No vehicles available to link yet. Add a vehicle first if you'd like pricing advice tied to a listing."
+                : selectedVehicle
+                  ? `Linked to ${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+                  : "Optional, but helpful if you want advice tied to a specific listing."}
           </p>
+          {appUser?.role === "seller" && !vehiclesLoading && vehicles.length === 0 ? (
+            <div className="rounded-[20px] border border-black/5 bg-shell px-4 py-4">
+              <p className="text-sm leading-6 text-ink/70">
+                No vehicles available to link yet. Add a vehicle first if you&apos;d like pricing advice tied to a listing.
+              </p>
+              <Link
+                href="/seller/vehicles/new"
+                className="mt-3 inline-flex rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#17212a]"
+              >
+                Add Vehicle
+              </Link>
+            </div>
+          ) : null}
         </label>
 
         <div className="grid gap-5 md:grid-cols-[1fr,1fr]">
