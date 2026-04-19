@@ -54,6 +54,10 @@ function canvasToJpegFile(canvas: HTMLCanvasElement, fileName: string) {
 }
 
 export async function optimizeVehicleImage(file: File) {
+  // TODO: Public licence-plate blur is not implemented yet.
+  // The current client-side upload path only resizes/compresses images.
+  // Proper plate blur needs a server-side detection + blurred-derivative pipeline
+  // before public inventory/detail pages can safely serve blurred images.
   const image = await loadImage(file);
   const { width, height } = getScaledDimensions(image.naturalWidth, image.naturalHeight);
 

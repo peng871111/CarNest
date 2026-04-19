@@ -12,6 +12,7 @@ import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebas
 import { optimizeVehicleImages, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
 import { uploadVehicleImages } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
+import { formatCalendarDate } from "@/lib/utils";
 import { Vehicle, VehicleFormInput } from "@/types";
 
 const FUEL_TYPE_OPTIONS = ["PETROL", "DIESEL", "EV", "PHEV", "HEV", "HYBRID", "LPG", "OTHER"];
@@ -85,9 +86,11 @@ export function VehicleForm({
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const currentVehicle = activeVehicle ?? vehicle;
+  const [regoExpiryPreview, setRegoExpiryPreview] = useState(vehicle?.regoExpiry ?? "");
 
   useEffect(() => {
     setActiveVehicle(vehicle);
+    setRegoExpiryPreview(vehicle?.regoExpiry ?? "");
   }, [vehicle]);
 
   const defaultValues = useMemo<VehicleFormInput>(
@@ -392,9 +395,14 @@ export function VehicleForm({
             type="date"
             name="regoExpiry"
             defaultValue={defaultValues.regoExpiry}
+            lang="en-AU"
+            onChange={(event) => setRegoExpiryPreview(event.target.value)}
             onBeforeInput={blockManualDateEntry}
             onPaste={(event) => event.preventDefault()}
           />
+          <p className="text-xs uppercase tracking-[0.18em] text-ink/45">
+            {regoExpiryPreview ? `Displayed in CarNest as ${formatCalendarDate(regoExpiryPreview)}` : "Display format: DD/MM/YYYY"}
+          </p>
         </label>
         <label className="space-y-2">
           <span className="text-sm font-medium text-ink">Service history</span>

@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { SellerShell } from "@/components/layout/seller-shell";
-import { OfferNegotiationCard } from "@/components/offers/offer-negotiation-card";
 import { OfferThread } from "@/components/offers/offer-thread";
-import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
+import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, unlockOfferContactDetails, updateOfferAmount } from "@/lib/data";
+import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, unlockOfferContactDetails, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer } from "@/types";
 
@@ -23,7 +22,8 @@ export function SellerOffersPageClient({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyOfferId, setBusyOfferId] = useState("");
-  const [editingCounterOfferId, setEditingCounterOfferId] = useState("");
+  const [counterOfferOpenId, setCounterOfferOpenId] = useState("");
+  const [counterOfferDrafts, setCounterOfferDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -74,8 +74,33 @@ export function SellerOffersPageClient({
     }
   }
 
-  async function handleSellerCounter(offer: Offer, amount: number) {
+  async function handleSellerAccept(offer: Offer) {
     if (!appUser) return;
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await updateOfferStatus(offer.id, "accepted_pending_buyer_confirmation", appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setNotice("Offer accepted. The buyer has been notified and the vehicle is now under offer.");
+      setCounterOfferOpenId("");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer right now.");
+    } finally {
+      setBusyOfferId("");
+    }
+  }
+
+  async function handleSellerCounterOffer(offer: Offer) {
+    if (!appUser) return;
+
+    const amount = Number((counterOfferDrafts[offer.id] ?? "").trim());
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError("Enter a valid price.");
+      return;
+    }
 
     setBusyOfferId(offer.id);
     setError("");
@@ -84,8 +109,9 @@ export function SellerOffersPageClient({
     try {
       const result = await updateOfferAmount(offer.id, amount, "seller", appUser, offer);
       setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice("Counter-offer saved.");
-      setEditingCounterOfferId("");
+      setNotice("Counter-offer sent.");
+      setCounterOfferDrafts((current) => ({ ...current, [offer.id]: "" }));
+      setCounterOfferOpenId("");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer amount right now.");
     } finally {
@@ -160,21 +186,36 @@ export function SellerOffersPageClient({
                     <OfferStatusBadge status={offer.status} />
                   </div>
                   <div>
-                    <OfferStatusActions offer={offer} basePath="/seller/offers" />
                     {offer.status === "pending" ? (
-                      <button
-                        type="button"
-                        disabled={busyOfferId === offer.id}
-                        onClick={() => {
-                          setEditingCounterOfferId((current) => (current === offer.id ? "" : offer.id));
-                          setNotice("");
-                          setError("");
-                        }}
-                        className="mt-3 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {editingCounterOfferId === offer.id ? "Hide counter-offer" : "Counter-offer"}
-                      </button>
-                    ) : null}
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleSellerAccept(offer)}
+                          disabled={busyOfferId === offer.id}
+                          className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {busyOfferId === offer.id ? "Saving..." : "Accept"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCounterOfferOpenId(offer.id);
+                            setCounterOfferDrafts((current) => ({
+                              ...current,
+                              [offer.id]: current[offer.id] ?? String(offer.amount)
+                            }));
+                            setError("");
+                            setNotice("");
+                          }}
+                          disabled={busyOfferId === offer.id}
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-ink/55">Response sent</p>
+                    )}
                     {!offer.contactUnlocked ? (
                       <button
                         type="button"
@@ -189,19 +230,47 @@ export function SellerOffersPageClient({
                     )}
                   </div>
                 </div>
-                {offer.status === "pending" && editingCounterOfferId === offer.id ? (
-                  <div className="mt-5">
-                    <OfferNegotiationCard
-                      title="Seller counter-offer"
-                      description="Revise the active negotiation amount here. This does not change the vehicle asking price."
-                      currentAmount={offer.amount}
-                      initialDraft={offer.amount}
-                      buttonLabel="Confirm"
-                      busy={busyOfferId === offer.id}
-                      onConfirm={(amount) => handleSellerCounter(offer, amount)}
-                      onCancel={() => setEditingCounterOfferId("")}
-                    />
-                  </div>
+                {offer.status === "pending" && counterOfferOpenId === offer.id ? (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleSellerCounterOffer(offer);
+                    }}
+                    className="mt-4 flex flex-wrap items-end gap-3 rounded-[20px] border border-black/5 bg-shell px-4 py-4"
+                  >
+                    <label className="min-w-[220px] flex-1 space-y-2">
+                      <span className="text-sm font-medium text-ink">Enter your price</span>
+                      <Input
+                        type="number"
+                        min="1"
+                        inputMode="numeric"
+                        autoFocus
+                        value={counterOfferDrafts[offer.id] ?? ""}
+                        onChange={(event) =>
+                          setCounterOfferDrafts((current) => ({
+                            ...current,
+                            [offer.id]: event.target.value
+                          }))
+                        }
+                        className="max-w-[220px]"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={busyOfferId === offer.id}
+                      className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {busyOfferId === offer.id ? "Sending..." : "Send"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyOfferId === offer.id}
+                      onClick={() => setCounterOfferOpenId("")}
+                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                  </form>
                 ) : null}
                 <div className="mt-5">
                   <OfferThread

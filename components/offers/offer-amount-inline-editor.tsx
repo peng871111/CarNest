@@ -8,11 +8,15 @@ export function OfferAmountInlineEditor({
   amount,
   canEdit,
   busy = false,
+  confirmLabel = "Confirm",
+  showConfirmButton = true,
   onSave
 }: {
   amount: number;
   canEdit?: boolean;
   busy?: boolean;
+  confirmLabel?: string;
+  showConfirmButton?: boolean;
   onSave?: (amount: number) => Promise<void> | void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -74,17 +78,20 @@ export function OfferAmountInlineEditor({
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
+        autoFocus
         className="h-11 rounded-[18px] px-3 py-2"
       />
       {localError ? <p className="text-xs text-red-700">{localError}</p> : null}
       <div className="flex flex-wrap gap-2">
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-full bg-ink px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {busy ? "Saving..." : "Confirm"}
-        </button>
+        {showConfirmButton ? (
+          <button
+            type="submit"
+            disabled={busy}
+            className="rounded-full bg-ink px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Saving..." : confirmLabel}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={cancelEdit}

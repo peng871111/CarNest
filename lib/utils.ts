@@ -44,15 +44,19 @@ export function formatMonthYear(value?: string) {
 export function formatCalendarDate(value?: string) {
   if (!value) return "Not provided";
 
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
+
   const normalized = `${value}T00:00:00`;
   const parsed = new Date(normalized);
   if (Number.isNaN(parsed.getTime())) return value;
 
-  return new Intl.DateTimeFormat("en-AU", {
-    day: "numeric",
-    month: "short",
-    year: "numeric"
-  }).format(parsed);
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const year = parsed.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
 export function getVehicleDisplayReference(input: string | { id: string; displayReference?: string }) {
