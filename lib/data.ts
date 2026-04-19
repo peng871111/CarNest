@@ -4,6 +4,7 @@ import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustr
 import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
 import { createAdminPermissions, createSuperAdminPermissions, hasAdminPermission, isAdminLikeRole, isSuperAdminUser, resolveManagedUserAccess } from "@/lib/permissions";
+import { buildAbsoluteUrl } from "@/lib/seo";
 import { deleteVehicleImageFile } from "@/lib/storage";
 import {
   AdminPermissions,
@@ -32,6 +33,7 @@ import {
   SellerTrustInfo,
   UserRole,
   Vehicle,
+  VehicleActivityEvent,
   VehicleActor,
   VehicleAnalytics,
   VehicleAnalyticsBreakdown,
@@ -51,6 +53,7 @@ type CollectionName =
   | "pricingRequests"
   | "inspectionRequests"
   | "savedVehicles"
+  | "vehicleActivityEvents"
   | "vehicleViewEvents"
   | "vehicleAnalytics";
 export type VehicleDataSource = "firestore" | "mock";
@@ -116,6 +119,21 @@ interface SaveVehicleWriteResult {
   savedVehicle: SavedVehicle;
   source: VehicleDataSource;
   writeSucceeded: boolean;
+}
+
+interface OfferActivityNotificationLog {
+  id: string;
+  vehicleId: string;
+  offerId: string;
+  relatedOfferId: string;
+  recipientUserId: string;
+  recipientEmail: string;
+  actorUid: string;
+  subject: string;
+  message: string;
+  vehicleLink: string;
+  deliveryChannel: "email";
+  createdAt?: string;
 }
 
 export interface VehicleViewEventWriteInput {
@@ -327,6 +345,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     ...data,
     status: normalizedVehicleStatus,
     sellerStatus: normalizedSellerStatus,
+    approvedAt: serializeDate(data.approvedAt),
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     coverImage,
@@ -337,6 +356,44 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   } as Vehicle;
+}
+
+function serializeVehicleActivityEventDoc(id: string, data: Record<string, unknown>): VehicleActivityEvent {
+  return {
+    id,
+    vehicleId: typeof data.vehicleId === "string" ? data.vehicleId : "",
+    type: data.type === "offer_created" ? "offer_created" : "offer_created",
+    message: typeof data.message === "string" ? data.message : "",
+    actorUid: typeof data.actorUid === "string" ? data.actorUid : undefined,
+    createdAt: serializeDate(data.createdAt)
+  };
+}
+
+function serializeSavedVehicleDoc(id: string, data: Record<string, unknown>): SavedVehicle {
+  return {
+    id,
+    userId: typeof data.userId === "string" ? data.userId : "",
+    vehicleId: typeof data.vehicleId === "string" ? data.vehicleId : "",
+    createdAt: serializeDate(data.createdAt),
+    lastViewedActivityAt: serializeDate(data.lastViewedActivityAt)
+  };
+}
+
+function serializeOfferActivityNotificationDoc(id: string, data: Record<string, unknown>): OfferActivityNotificationLog {
+  return {
+    id,
+    vehicleId: typeof data.vehicleId === "string" ? data.vehicleId : "",
+    offerId: typeof data.offerId === "string" ? data.offerId : "",
+    relatedOfferId: typeof data.relatedOfferId === "string" ? data.relatedOfferId : "",
+    recipientUserId: typeof data.recipientUserId === "string" ? data.recipientUserId : "",
+    recipientEmail: typeof data.recipientEmail === "string" ? data.recipientEmail : "",
+    actorUid: typeof data.actorUid === "string" ? data.actorUid : "",
+    subject: typeof data.subject === "string" ? data.subject : "",
+    message: typeof data.message === "string" ? data.message : "",
+    vehicleLink: typeof data.vehicleLink === "string" ? data.vehicleLink : "",
+    deliveryChannel: data.deliveryChannel === "email" ? "email" : "email",
+    createdAt: serializeDate(data.createdAt)
+  };
 }
 
 function serializePendingDescriptionDoc(data: Record<string, unknown>) {
@@ -893,7 +950,7 @@ export async function getSavedVehicleRecord(userId: string, vehicleId: string) {
       query(collection(db, "savedVehicles"), where("userId", "==", userId), where("vehicleId", "==", vehicleId))
     );
     const records = snapshot.docs
-      .map((item) => serializeDoc<SavedVehicle>(item.id, item.data()))
+      .map((item) => serializeSavedVehicleDoc(item.id, item.data()))
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
     return records[0] ?? null;
@@ -913,7 +970,7 @@ export async function getSavedVehiclesData(userId: string) {
   try {
     const snapshot = await getDocs(query(collection(db, "savedVehicles"), where("userId", "==", userId)));
     const items = snapshot.docs
-      .map((item) => serializeDoc<SavedVehicle>(item.id, item.data()))
+      .map((item) => serializeSavedVehicleDoc(item.id, item.data()))
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
     return {
@@ -929,20 +986,78 @@ export async function getSavedVehiclesData(userId: string) {
   }
 }
 
-export async function getSavedVehiclesWithDetails(userId: string) {
+async function getVehicleActivityEventsForVehicleIds(vehicleIds: string[]) {
+  if (!vehicleIds.length) return [] as VehicleActivityEvent[];
+  if (!isFirebaseConfigured) return [] as VehicleActivityEvent[];
+
+  const uniqueVehicleIds = Array.from(new Set(vehicleIds));
+  const chunks = Array.from({ length: Math.ceil(uniqueVehicleIds.length / 10) }, (_, index) =>
+    uniqueVehicleIds.slice(index * 10, index * 10 + 10)
+  );
+
+  const snapshots = await Promise.all(
+    chunks.map((chunk) =>
+      getDocs(query(collection(db, "vehicleActivityEvents"), where("vehicleId", "in", chunk))).catch(() => null)
+    )
+  );
+
+  return snapshots
+    .flatMap((snapshot) => snapshot?.docs ?? [])
+    .map((item) => serializeVehicleActivityEventDoc(item.id, item.data()))
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+}
+
+export async function markSavedVehicleActivityViewed(userId: string, vehicleId: string, activityCreatedAt: string) {
+  if (!isFirebaseConfigured) return;
+
+  const savedVehicle = await getSavedVehicleRecord(userId, vehicleId);
+  if (!savedVehicle) return;
+
+  const currentViewedAt = savedVehicle.lastViewedActivityAt ?? "";
+  if (currentViewedAt >= activityCreatedAt) return;
+
+  await updateDoc(doc(db, "savedVehicles", savedVehicle.id), {
+    lastViewedActivityAt: Timestamp.fromDate(new Date(activityCreatedAt))
+  });
+}
+
+export async function getSavedVehiclesWithDetails(userId: string): Promise<{
+  items: Array<{
+    savedVehicle: SavedVehicle;
+    vehicle: Vehicle;
+    latestActivity: VehicleActivityEvent | undefined;
+  }>;
+  source: VehicleDataSource;
+  error?: string;
+}> {
   const result = await getSavedVehiclesData(userId);
+  const activityEvents = await getVehicleActivityEventsForVehicleIds(result.items.map((savedVehicle) => savedVehicle.vehicleId));
+  const latestActivityByVehicleId = new Map<string, VehicleActivityEvent>();
+  for (const event of activityEvents) {
+    if (!event.vehicleId || latestActivityByVehicleId.has(event.vehicleId)) continue;
+    latestActivityByVehicleId.set(event.vehicleId, event);
+  }
   const vehicles = (
     await Promise.all(
       result.items.map(async (savedVehicle) => {
         try {
           const vehicle = await getVehicleById(savedVehicle.vehicleId);
-          return vehicle ? { savedVehicle, vehicle } : null;
+          const latestActivity = latestActivityByVehicleId.get(savedVehicle.vehicleId);
+          return vehicle ? { savedVehicle, vehicle, latestActivity } : null;
         } catch {
           return null;
         }
       })
     )
-  ).filter((item): item is { savedVehicle: SavedVehicle; vehicle: Vehicle } => Boolean(item));
+  ).filter(
+    (
+      item
+    ): item is {
+      savedVehicle: SavedVehicle;
+      vehicle: Vehicle;
+      latestActivity: VehicleActivityEvent | undefined;
+    } => item !== null
+  );
 
   return {
     items: vehicles,
@@ -961,6 +1076,81 @@ async function getUserById(userId: string) {
   if (!snapshot.exists()) return null;
 
   return serializeUserDoc(snapshot.id, snapshot.data());
+}
+
+async function queueOfferActivityNotificationsForOffer(
+  offer: Offer,
+  vehicle: Vehicle,
+  actorUserId: string
+) {
+  if (!isFirebaseConfigured) return;
+  if (vehicle.sellerStatus === "SOLD") return;
+
+  const existingOffers = await findOffersForVehicle(offer.vehicleId);
+  const previousOffers = existingOffers.filter((existingOffer) => existingOffer.id !== offer.id);
+  if (!previousOffers.length) return;
+
+  const previousHighestOffer = previousOffers.reduce((highest, existingOffer) => {
+    return Math.max(highest, existingOffer.amount);
+  }, 0);
+
+  if (offer.amount <= previousHighestOffer) return;
+
+  const recipientOffers = new Map<string, Offer>();
+  for (const previousOffer of previousOffers) {
+    const recipientUserId = previousOffer.buyerUid || previousOffer.userId;
+    if (!recipientUserId || recipientUserId === actorUserId) continue;
+    if (!recipientOffers.has(recipientUserId)) {
+      recipientOffers.set(recipientUserId, previousOffer);
+    }
+  }
+
+  if (!recipientOffers.size) return;
+
+  const emailCopy = buildOfferActivityNotificationCopy(offer.vehicleId);
+
+  for (const [recipientUserId, relatedOffer] of recipientOffers.entries()) {
+    const recentNotifications = await findOfferActivityNotificationsForRecipient(offer.vehicleId, recipientUserId);
+    if (recentNotifications.length >= OFFER_ACTIVITY_NOTIFICATION_LIMIT) continue;
+
+    const latestNotification = recentNotifications[0];
+    if (
+      latestNotification?.createdAt
+      && isWithinWindow(latestNotification.createdAt, OFFER_ACTIVITY_NOTIFICATION_DEDUPE_WINDOW_MS)
+    ) {
+      continue;
+    }
+
+    const recipientUser = await getUserById(recipientUserId);
+    const recipientEmail = (recipientUser?.email || relatedOffer.buyerEmail || "").trim().toLowerCase();
+    if (!recipientEmail || !isValidEmailAddress(recipientEmail)) continue;
+
+    const notificationRef = await addDoc(collection(db, "offerActivityNotifications"), {
+      vehicleId: offer.vehicleId,
+      offerId: offer.id,
+      relatedOfferId: relatedOffer.id,
+      recipientUserId,
+      recipientEmail,
+      actorUid: actorUserId,
+      subject: emailCopy.subject,
+      message: emailCopy.text,
+      vehicleLink: emailCopy.vehicleLink,
+      deliveryChannel: "email",
+      createdAt: serverTimestamp()
+    });
+
+    await addDoc(collection(db, "mail"), {
+      to: recipientEmail,
+      message: {
+        subject: emailCopy.subject,
+        text: emailCopy.text,
+        html: emailCopy.html
+      },
+      offerActivityNotificationId: notificationRef.id,
+      type: "offer_activity",
+      createdAt: serverTimestamp()
+    }).catch(() => undefined);
+  }
 }
 
 export async function getAppUserById(userId: string) {
@@ -1322,6 +1512,34 @@ function buildOfferThreadEntryForWrite(entry: OfferThreadEntry) {
   };
 }
 
+const OFFER_ACTIVITY_NOTIFICATION_SUBJECT = "Update on your offer activity";
+const OFFER_ACTIVITY_NOTIFICATION_LIMIT = 3;
+const OFFER_ACTIVITY_NOTIFICATION_DEDUPE_WINDOW_MS = 6 * 60 * 60 * 1000;
+
+function buildOfferActivityNotificationCopy(vehicleId: string) {
+  const vehicleLink = buildAbsoluteUrl(`/inventory/${vehicleId}`);
+  const text = [
+    "There has been new activity on a vehicle you’ve made an offer on.",
+    "The listing is seeing continued interest.",
+    "Vehicles with multiple interested parties may move quickly.",
+    "",
+    `View the vehicle: ${vehicleLink}`
+  ].join("\n");
+  const html = [
+    "<p>There has been new activity on a vehicle you’ve made an offer on.</p>",
+    "<p>The listing is seeing continued interest.</p>",
+    "<p>Vehicles with multiple interested parties may move quickly.</p>",
+    `<p><a href="${vehicleLink}">View the vehicle</a></p>`
+  ].join("");
+
+  return {
+    subject: OFFER_ACTIVITY_NOTIFICATION_SUBJECT,
+    text,
+    html,
+    vehicleLink
+  };
+}
+
 function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
   const createdAt = entry.createdAt ? new Date(entry.createdAt) : null;
 
@@ -1363,6 +1581,35 @@ async function findRecentOffersForUser(userId: string, vehicleId: string) {
 
   const snapshot = await getDocs(query(collection(db, "offers"), where("userId", "==", userId), where("vehicleId", "==", vehicleId)));
   return snapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
+}
+
+async function findOffersForVehicle(vehicleId: string) {
+  if (!isFirebaseConfigured) {
+    return [] as Offer[];
+  }
+
+  const snapshot = await getDocs(query(collection(db, "offers"), where("vehicleId", "==", vehicleId)));
+  return snapshot.docs
+    .map((item) => serializeOfferDoc(item.id, item.data()))
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+}
+
+async function findOfferActivityNotificationsForRecipient(vehicleId: string, recipientUserId: string) {
+  if (!isFirebaseConfigured) {
+    return [] as OfferActivityNotificationLog[];
+  }
+
+  const snapshot = await getDocs(
+    query(
+      collection(db, "offerActivityNotifications"),
+      where("vehicleId", "==", vehicleId),
+      where("recipientUserId", "==", recipientUserId)
+    )
+  );
+
+  return snapshot.docs
+    .map((item) => serializeOfferActivityNotificationDoc(item.id, item.data()))
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
 }
 
 async function findRecentInspectionRequestsForUser(userId: string, vehicleId: string) {
@@ -1529,11 +1776,13 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
   validateVehicleLocation(normalizeVehicleInput(input));
 
   if (!isFirebaseConfigured) {
+    const createdAt = new Date().toISOString();
     const vehicle = {
       id: `${actor.role}-sample-${Date.now()}`,
       ...buildVehiclePayload(input, actor),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      approvedAt: resolveVehicleStatus(actor) === "approved" ? createdAt : "",
+      createdAt,
+      updatedAt: createdAt
     } satisfies Vehicle;
 
     return {
@@ -1545,16 +1794,19 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
 
   const payload = {
     ...buildVehiclePayload(input, actor),
+    ...(resolveVehicleStatus(actor) === "approved" ? { approvedAt: serverTimestamp() } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   };
 
+  const createdAt = new Date().toISOString();
   const ref = await addDoc(collection(db, "vehicles"), payload);
   const vehicle = {
     id: ref.id,
     ...buildVehiclePayload(input, actor),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    approvedAt: resolveVehicleStatus(actor) === "approved" ? createdAt : "",
+    createdAt,
+    updatedAt: createdAt
   } satisfies Vehicle;
 
   return {
@@ -1909,9 +2161,11 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
   }
 
   if (!isFirebaseConfigured) {
+    const approvedAt = status === "approved" ? baseVehicle.approvedAt || new Date().toISOString() : "";
     const vehicle = {
       ...baseVehicle,
       status,
+      approvedAt,
       updatedAt: new Date().toISOString()
     } satisfies Vehicle;
 
@@ -1924,12 +2178,15 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
 
   await updateDoc(doc(db, "vehicles", id), {
     status,
+    approvedAt: status === "approved" ? (baseVehicle.approvedAt ? Timestamp.fromDate(new Date(baseVehicle.approvedAt)) : serverTimestamp()) : deleteField(),
     updatedAt: serverTimestamp()
   });
 
+  const approvedAt = status === "approved" ? baseVehicle.approvedAt || new Date().toISOString() : "";
   const vehicle = {
     ...baseVehicle,
     status,
+    approvedAt,
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
 
@@ -2152,6 +2409,17 @@ export async function createOffer(input: OfferWriteInput) {
 
   const ref = await addDoc(collection(db, "offers"), payload);
   try {
+    await addDoc(collection(db, "vehicleActivityEvents"), {
+      vehicleId: input.vehicleId,
+      type: "offer_created",
+      message: "Activity update: a new offer has been made on a vehicle you saved.",
+      actorUid: input.userId,
+      createdAt: serverTimestamp()
+    });
+  } catch {
+    // Offer submission should still succeed even if the activity feed event cannot be written.
+  }
+  try {
     await saveVehicle({ userId: input.userId, vehicleId: input.vehicleId });
   } catch {
     // Offer submission should still succeed even if the optional auto-save cannot complete.
@@ -2162,6 +2430,8 @@ export async function createOffer(input: OfferWriteInput) {
     status: "pending" as const,
     createdAt: new Date().toISOString()
   } satisfies Offer;
+
+  await queueOfferActivityNotificationsForOffer(offer, vehicle, input.userId).catch(() => undefined);
 
   return {
     offer,

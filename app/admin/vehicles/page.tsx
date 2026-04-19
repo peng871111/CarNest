@@ -2,7 +2,7 @@ import Link from "next/link";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { getVehiclesData } from "@/lib/data";
 import { getListingLabel } from "@/lib/permissions";
-import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { formatCurrency, getVehicleDisplayReference, getVehicleLiveTimingLabel } from "@/lib/utils";
 import { VehicleStatusBadge } from "@/components/vehicles/vehicle-status-badge";
 import { AdminVehicleActions } from "@/components/vehicles/admin-vehicle-actions";
 
@@ -85,6 +85,7 @@ export default async function AdminVehiclesPage({
                     {getVehicleDisplayReference(vehicle)}
                   </p>
                   <p className="mt-1 text-ink/55">{vehicle.description}</p>
+                  <p className="mt-2 text-xs uppercase tracking-[0.18em] text-ink/45">{getVehicleLiveTimingLabel(vehicle)}</p>
                   <Link href={`/admin/vehicles/${vehicle.id}`} className="mt-2 inline-block text-sm font-medium text-ink underline">
                     View details
                   </Link>

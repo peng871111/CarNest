@@ -17,6 +17,32 @@ export function formatLocation(suburb?: string, postcode?: string, state?: strin
   return [suburb, postcode, state].filter(Boolean).join(", ") || "Location withheld";
 }
 
+function parseIsoDate(value?: string) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function getVehicleLiveTimingLabel(vehicle: { approvedAt?: string; soldAt?: string; status?: string; sellerStatus?: string }) {
+  const approvedAt = parseIsoDate(vehicle.approvedAt);
+  if (!approvedAt) return "Timing unavailable";
+
+  const endDate =
+    vehicle.sellerStatus === "SOLD"
+      ? parseIsoDate(vehicle.soldAt)
+      : vehicle.status === "approved"
+        ? new Date()
+        : null;
+
+  if (!endDate) return "Timing unavailable";
+
+  const diff = endDate.getTime() - approvedAt.getTime();
+  if (diff < 0) return "Timing unavailable";
+
+  const dayCount = Math.max(1, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  return vehicle.sellerStatus === "SOLD" ? `Sold after ${dayCount} day${dayCount === 1 ? "" : "s"}` : `Live for ${dayCount} day${dayCount === 1 ? "" : "s"}`;
+}
+
 export function formatAdminDateTime(value?: string) {
   if (!value) return "Just now";
 

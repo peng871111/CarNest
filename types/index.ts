@@ -56,6 +56,7 @@ export interface Vehicle {
   sellerStatus: SellerVehicleStatus;
   ownershipVerified: boolean;
   publishAuthorized: boolean;
+  approvedAt?: string;
   storedInWarehouse: boolean;
   warehouseAddress?: string;
   sellerLocationSuburb?: string;
@@ -215,6 +216,16 @@ export interface SavedVehicle {
   userId: string;
   vehicleId: string;
   createdAt?: string;
+  lastViewedActivityAt?: string;
+}
+
+export interface VehicleActivityEvent {
+  id: string;
+  vehicleId: string;
+  type: "offer_created";
+  message: string;
+  createdAt?: string;
+  actorUid?: string;
 }
 
 export interface VehicleViewEvent {

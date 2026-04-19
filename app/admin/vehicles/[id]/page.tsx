@@ -12,6 +12,7 @@ import { getListingLabel, getVehicleGallery } from "@/lib/permissions";
 import {
   formatAdminDateTime,
   formatCurrency,
+  getVehicleLiveTimingLabel,
   formatLocation,
   formatMonthYear,
   getAccountDisplayReference,
@@ -58,6 +59,7 @@ export default async function AdminVehicleDetailPage({
               ["Price", formatCurrency(vehicle.price)],
               ["Listing type", getListingLabel(vehicle.listingType)],
               ["Approval status", vehicle.status],
+              ["Live timing", getVehicleLiveTimingLabel(vehicle)],
               ["Location", formatLocation(vehicle.sellerLocationSuburb, vehicle.sellerLocationPostcode, vehicle.sellerLocationState)],
               ["Seller account", owner?.displayName || "Seller account on file"],
               ["Created at", formatAdminDateTime(vehicle.createdAt)]

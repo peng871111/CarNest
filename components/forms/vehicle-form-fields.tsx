@@ -431,7 +431,6 @@ export function VehicleFormFields({
               value={resolvedState || (!hasFullPostcode ? value.sellerLocationState : "")}
               readOnly
               className={`${classes.input} uppercase`}
-              placeholder="Auto-filled from postcode and suburb"
               required={Boolean(resolvedState)}
             />
             <p className={classes.hint}>Seller state stays aligned with the selected postcode and suburb.</p>

@@ -5,30 +5,69 @@ import { useEffect, useState } from "react";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { useAuth } from "@/lib/auth";
-import { getSavedVehiclesWithDetails } from "@/lib/data";
-import { Vehicle } from "@/types";
+import { getSavedVehiclesWithDetails, markSavedVehicleActivityViewed } from "@/lib/data";
+import { Vehicle, VehicleActivityEvent } from "@/types";
+
+interface SavedVehicleWithActivity {
+  vehicle: Vehicle;
+  latestActivity?: VehicleActivityEvent;
+  hasUnreadActivity: boolean;
+}
 
 export default function SavedVehiclesPage() {
   const { appUser, loading, authError } = useAuth();
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicleWithActivity[]>([]);
   const [pageLoading, setPageLoading] = useState(true);
 
   useEffect(() => {
     async function loadSavedVehicles() {
       if (!appUser || appUser.role === "admin" || appUser.role === "super_admin") {
-        setVehicles([]);
+        setSavedVehicles([]);
         setPageLoading(false);
         return;
       }
 
       setPageLoading(true);
       const result = await getSavedVehiclesWithDetails(appUser.id);
-      setVehicles(result.items.map((item) => item.vehicle));
+      const nextItems = result.items.map((item) => {
+        const latestActivity = item.latestActivity;
+        const shouldSuppressActivity = latestActivity?.actorUid === appUser.id || item.vehicle.ownerUid === appUser.id;
+        const hasUnreadActivity = Boolean(
+          latestActivity
+            && latestActivity.type === "offer_created"
+            && !shouldSuppressActivity
+            && (item.savedVehicle.lastViewedActivityAt ?? "") < (latestActivity.createdAt ?? "")
+        );
+
+        return {
+          vehicle: item.vehicle,
+          latestActivity: shouldSuppressActivity ? undefined : latestActivity,
+          hasUnreadActivity
+        };
+      });
+      setSavedVehicles(nextItems);
+      await Promise.all(
+        result.items
+          .filter(
+            (item) =>
+              item.latestActivity
+              && item.latestActivity.type === "offer_created"
+              && item.latestActivity.actorUid !== appUser.id
+              && item.vehicle.ownerUid !== appUser.id
+              && (item.savedVehicle.lastViewedActivityAt ?? "") < (item.latestActivity.createdAt ?? "")
+              && item.latestActivity.createdAt
+          )
+          .map((item) =>
+            markSavedVehicleActivityViewed(appUser.id, item.vehicle.id, item.latestActivity!.createdAt!).catch(() => undefined)
+          )
+      );
       setPageLoading(false);
     }
 
     void loadSavedVehicles();
   }, [appUser]);
+
+  const unreadActivityCount = savedVehicles.filter((item) => item.hasUnreadActivity).length;
 
   return (
     <div>
@@ -71,7 +110,7 @@ export default function SavedVehiclesPage() {
                 Standard CarNest accounts can save listings and revisit them here.
               </p>
             </>
-          ) : vehicles.length ? (
+          ) : savedVehicles.length ? (
             <>
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
@@ -85,9 +124,23 @@ export default function SavedVehiclesPage() {
                   Browse more vehicles
                 </Link>
               </div>
+              {unreadActivityCount > 0 ? (
+                <div className="mt-6 rounded-[24px] border border-[#F5D7B2] bg-[#FFF7ED] px-5 py-4 text-sm text-[#9A3412]">
+                  {unreadActivityCount === 1
+                    ? "Activity update: a new offer has been made on a vehicle you saved."
+                    : `Activity updates: new offers have been made on ${unreadActivityCount} vehicles you saved.`}
+                </div>
+              ) : null}
               <div className="mt-10 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {vehicles.map((vehicle) => (
-                  <VehicleCard key={vehicle.id} vehicle={vehicle} />
+                {savedVehicles.map((item) => (
+                  <div key={item.vehicle.id} className="space-y-3">
+                    {item.hasUnreadActivity ? (
+                      <div className="rounded-[20px] border border-[#F5D7B2] bg-[#FFF7ED] px-4 py-3 text-sm text-[#9A3412]">
+                        Activity update: a new offer has been made on this vehicle.
+                      </div>
+                    ) : null}
+                    <VehicleCard vehicle={item.vehicle} />
+                  </div>
                 ))}
               </div>
             </>

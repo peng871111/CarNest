@@ -161,7 +161,11 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <Link href="/inventory" className="inline-flex text-sm font-medium text-ink/55 transition hover:text-bronze">
             ← Back to inventory
           </Link>
-          <VehicleGallery images={getVehicleGallery(vehicle)} altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
+          <VehicleGallery
+            images={getVehicleGallery(vehicle)}
+            altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+            showMainImageArrows
+          />
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {summaryFields.map(([label, value]) => (

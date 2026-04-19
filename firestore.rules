@@ -184,6 +184,10 @@ service cloud.firestore {
         && request.resource.data.contactUnlockedBy == resource.data.contactUnlockedBy;
     }
 
+    function offerActivityNotificationOffer(offerId) {
+      return get(/databases/$(database)/documents/offers/$(offerId));
+    }
+
     function quoteFieldsUnchanged() {
       return request.resource.data.ownerId == resource.data.ownerId
         && request.resource.data.sellerUid == resource.data.sellerUid
@@ -835,7 +839,94 @@ service cloud.firestore {
         && request.resource.data.vehicleId is string
         && request.resource.data.createdAt is timestamp;
       allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
-      allow update: if false;
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "lastViewedActivityAt"
+        ])
+        && request.resource.data.lastViewedActivityAt is timestamp;
+    }
+
+    match /offerActivityNotifications/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "offerId",
+          "relatedOfferId",
+          "recipientUserId",
+          "recipientEmail",
+          "actorUid",
+          "subject",
+          "message",
+          "vehicleLink",
+          "deliveryChannel",
+          "createdAt"
+        ])
+        && request.resource.data.vehicleId is string
+        && request.resource.data.offerId is string
+        && request.resource.data.relatedOfferId is string
+        && request.resource.data.recipientUserId is string
+        && request.resource.data.recipientEmail is string
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.subject == "Update on your offer activity"
+        && request.resource.data.message is string
+        && request.resource.data.vehicleLink is string
+        && request.resource.data.deliveryChannel == "email"
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.recipientUserId != request.auth.uid
+        && offerActivityNotificationOffer(request.resource.data.offerId).data.buyerUid == request.auth.uid
+        && offerActivityNotificationOffer(request.resource.data.offerId).data.vehicleId == request.resource.data.vehicleId
+        && offerActivityNotificationOffer(request.resource.data.relatedOfferId).data.vehicleId == request.resource.data.vehicleId
+        && offerActivityNotificationOffer(request.resource.data.relatedOfferId).data.buyerUid == request.resource.data.recipientUserId;
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && (
+            resource.data.recipientUserId == request.auth.uid
+            || resource.data.actorUid == request.auth.uid
+          )
+        );
+      allow update, delete: if false;
+    }
+
+    match /mail/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "to",
+          "message",
+          "offerActivityNotificationId",
+          "type",
+          "createdAt"
+        ])
+        && request.resource.data.to is string
+        && request.resource.data.message is map
+        && request.resource.data.offerActivityNotificationId is string
+        && request.resource.data.type == "offer_activity"
+        && request.resource.data.createdAt is timestamp
+        && get(/databases/$(database)/documents/offerActivityNotifications/$(request.resource.data.offerActivityNotificationId)).data.actorUid == request.auth.uid
+        && get(/databases/$(database)/documents/offerActivityNotifications/$(request.resource.data.offerActivityNotificationId)).data.recipientEmail == request.resource.data.to;
+      allow read, update, delete: if false;
+    }
+
+    match /vehicleActivityEvents/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "type",
+          "message",
+          "actorUid",
+          "createdAt"
+        ])
+        && request.resource.data.vehicleId is string
+        && request.resource.data.type == "offer_created"
+        && request.resource.data.message is string
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.createdAt is timestamp;
+      allow read: if signedIn();
+      allow update, delete: if false;
     }
 
     match /vehicleViewEvents/{id} {
