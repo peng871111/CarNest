@@ -1,4 +1,6 @@
-export type UserRole = "buyer" | "seller" | "admin" | "super_admin";
+export type UserRole = "buyer" | "seller" | "dealer" | "admin" | "super_admin";
+export type ComplianceStatus = "clear" | "possible_unlicensed_trader" | "verified_dealer";
+export type DealerStatus = "none" | "pending" | "info_requested" | "approved" | "rejected";
 export type AdminPermissionKey =
   | "manageVehicles"
   | "manageOffers"
@@ -43,6 +45,12 @@ export interface AppUser {
   accountReference?: string;
   role: UserRole;
   adminPermissions?: AdminPermissions;
+  complianceStatus?: ComplianceStatus;
+  complianceFlaggedAt?: string;
+  dealerStatus?: DealerStatus;
+  dealerVerified?: boolean;
+  dealerApplicationId?: string;
+  listingRestricted?: boolean;
   createdAt?: string;
 }
 
@@ -78,6 +86,7 @@ export interface Vehicle {
   regoExpiry?: string;
   description: string;
   pendingDescription?: string;
+  manualReviewReason?: "possible_unlicensed_trader";
   features: string[];
   conditionNotes: string;
   serviceHistory: string;
@@ -226,6 +235,55 @@ export interface VehicleActivityEvent {
   message: string;
   createdAt?: string;
   actorUid?: string;
+}
+
+export interface ComplianceVehicleActivity {
+  vehicleId: string;
+  eventType: "listing_created" | "listing_published" | "listing_sold";
+  qualifyingAt: string;
+}
+
+export interface ComplianceAlert {
+  id: string;
+  userId: string;
+  alertType: "possible_unlicensed_trader";
+  status: "open" | "resolved";
+  activityCount: number;
+  activities: ComplianceVehicleActivity[];
+  triggeredByVehicleId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  resolvedAt?: string;
+}
+
+export interface UserComplianceAssessment {
+  userId: string;
+  rolling12MonthCount: number;
+  activities: ComplianceVehicleActivity[];
+  status: ComplianceStatus;
+  thresholdReached: boolean;
+}
+
+export interface DealerApplication {
+  id: string;
+  userId: string;
+  legalBusinessName: string;
+  tradingName: string;
+  acnOrAbn: string;
+  lmctNumber: string;
+  licenceState: string;
+  licenceExpiry: string;
+  businessAddress: string;
+  phone: string;
+  email: string;
+  contactPerson: string;
+  lmctCertificateUrl: string;
+  lmctCertificateName?: string;
+  status: Exclude<DealerStatus, "none">;
+  requestedAt?: string;
+  updatedAt?: string;
+  reviewedAt?: string;
+  reviewedByUid?: string;
 }
 
 export interface VehicleViewEvent {

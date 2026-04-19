@@ -3,15 +3,29 @@ import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
-import { createAdminPermissions, createSuperAdminPermissions, hasAdminPermission, isAdminLikeRole, isSuperAdminUser, resolveManagedUserAccess } from "@/lib/permissions";
+import {
+  createAdminPermissions,
+  createSuperAdminPermissions,
+  hasAdminPermission,
+  isAdminLikeRole,
+  isSellerLikeRole,
+  isSellerWorkspaceRole,
+  isSuperAdminUser,
+  resolveManagedUserAccess
+} from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
 import { deleteVehicleImageFile } from "@/lib/storage";
 import {
   AdminPermissions,
   AppUser,
+  ComplianceAlert,
+  ComplianceStatus,
+  ComplianceVehicleActivity,
   ContactMessage,
   ContactMessageCategory,
   ContactMessageStatus,
+  DealerApplication,
+  DealerStatus,
   InspectionRequest,
   InspectionRequestStatus,
   Offer,
@@ -32,6 +46,7 @@ import {
   SellerVehicleStatus,
   SellerTrustInfo,
   UserRole,
+  UserComplianceAssessment,
   Vehicle,
   VehicleActivityEvent,
   VehicleActor,
@@ -53,6 +68,8 @@ type CollectionName =
   | "pricingRequests"
   | "inspectionRequests"
   | "savedVehicles"
+  | "complianceAlerts"
+  | "dealerApplications"
   | "vehicleActivityEvents"
   | "vehicleViewEvents"
   | "vehicleAnalytics";
@@ -87,6 +104,27 @@ export interface OfferWriteInput {
 
 interface OfferWriteResult {
   offer: Offer;
+  source: VehicleDataSource;
+  writeSucceeded: boolean;
+}
+
+export interface DealerApplicationWriteInput {
+  legalBusinessName: string;
+  tradingName: string;
+  acnOrAbn: string;
+  lmctNumber: string;
+  licenceState: string;
+  licenceExpiry: string;
+  businessAddress: string;
+  phone: string;
+  email: string;
+  contactPerson: string;
+  lmctCertificateUrl: string;
+  lmctCertificateName?: string;
+}
+
+export interface DealerApplicationWriteResult {
+  application: DealerApplication;
   source: VehicleDataSource;
   writeSucceeded: boolean;
 }
@@ -320,6 +358,21 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     accountReference: typeof data.accountReference === "string" ? data.accountReference : undefined,
     role: managedAccess.role,
     adminPermissions: normalizeAdminPermissions(data.adminPermissions, managedAccess.role, email),
+    complianceStatus:
+      data.complianceStatus === "possible_unlicensed_trader" || data.complianceStatus === "verified_dealer"
+        ? data.complianceStatus
+        : "clear",
+    complianceFlaggedAt: serializeDate(data.complianceFlaggedAt),
+    dealerStatus:
+      data.dealerStatus === "pending"
+      || data.dealerStatus === "info_requested"
+      || data.dealerStatus === "approved"
+      || data.dealerStatus === "rejected"
+        ? data.dealerStatus
+        : "none",
+    dealerVerified: Boolean(data.dealerVerified),
+    dealerApplicationId: typeof data.dealerApplicationId === "string" ? data.dealerApplicationId : undefined,
+    listingRestricted: Boolean(data.listingRestricted),
     createdAt: serializeDate(data.createdAt)
   };
 }
@@ -348,6 +401,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     approvedAt: serializeDate(data.approvedAt),
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
+    manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     coverImage,
     coverImageUrl,
     imageUrls,
@@ -393,6 +447,63 @@ function serializeOfferActivityNotificationDoc(id: string, data: Record<string, 
     vehicleLink: typeof data.vehicleLink === "string" ? data.vehicleLink : "",
     deliveryChannel: data.deliveryChannel === "email" ? "email" : "email",
     createdAt: serializeDate(data.createdAt)
+  };
+}
+
+function serializeComplianceAlertDoc(id: string, data: Record<string, unknown>): ComplianceAlert {
+  const activities = Array.isArray(data.activities)
+    ? (data.activities as Record<string, unknown>[])
+        .map((item) => {
+          const eventType: ComplianceVehicleActivity["eventType"] =
+            item.eventType === "listing_published" || item.eventType === "listing_sold" ? item.eventType : "listing_created";
+
+          return {
+            vehicleId: typeof item.vehicleId === "string" ? item.vehicleId : "",
+            eventType,
+            qualifyingAt: serializeDate(item.qualifyingAt) ?? ""
+          };
+        })
+        .filter((item) => item.vehicleId && item.qualifyingAt)
+    : [];
+
+  return {
+    id,
+    userId: typeof data.userId === "string" ? data.userId : "",
+    alertType: data.alertType === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : "possible_unlicensed_trader",
+    status: data.status === "resolved" ? "resolved" : "open",
+    activityCount: Number(data.activityCount ?? activities.length),
+    activities,
+    triggeredByVehicleId: typeof data.triggeredByVehicleId === "string" ? data.triggeredByVehicleId : undefined,
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt),
+    resolvedAt: serializeDate(data.resolvedAt)
+  };
+}
+
+function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>): DealerApplication {
+  return {
+    id,
+    userId: typeof data.userId === "string" ? data.userId : "",
+    legalBusinessName: typeof data.legalBusinessName === "string" ? data.legalBusinessName : "",
+    tradingName: typeof data.tradingName === "string" ? data.tradingName : "",
+    acnOrAbn: typeof data.acnOrAbn === "string" ? data.acnOrAbn : "",
+    lmctNumber: typeof data.lmctNumber === "string" ? data.lmctNumber : "",
+    licenceState: typeof data.licenceState === "string" ? data.licenceState : "",
+    licenceExpiry: typeof data.licenceExpiry === "string" ? data.licenceExpiry : "",
+    businessAddress: typeof data.businessAddress === "string" ? data.businessAddress : "",
+    phone: typeof data.phone === "string" ? data.phone : "",
+    email: typeof data.email === "string" ? data.email : "",
+    contactPerson: typeof data.contactPerson === "string" ? data.contactPerson : "",
+    lmctCertificateUrl: typeof data.lmctCertificateUrl === "string" ? data.lmctCertificateUrl : "",
+    lmctCertificateName: typeof data.lmctCertificateName === "string" ? data.lmctCertificateName : undefined,
+    status:
+      data.status === "approved" || data.status === "rejected" || data.status === "info_requested"
+        ? data.status
+        : "pending",
+    requestedAt: serializeDate(data.requestedAt ?? data.createdAt),
+    updatedAt: serializeDate(data.updatedAt),
+    reviewedAt: serializeDate(data.reviewedAt),
+    reviewedByUid: typeof data.reviewedByUid === "string" ? data.reviewedByUid : undefined
   };
 }
 
@@ -446,6 +557,50 @@ function validateVehicleLocation(input: VehicleFormInput) {
   if (state !== suburbMatch.state) {
     throw new Error("Seller state must match the selected suburb and postcode.");
   }
+}
+
+function normalizeDealerApplicationInput(input: DealerApplicationWriteInput) {
+  return {
+    legalBusinessName: sanitizeSingleLineText(input.legalBusinessName),
+    tradingName: sanitizeSingleLineText(input.tradingName),
+    acnOrAbn: sanitizeSingleLineText(input.acnOrAbn).replace(/\s+/g, ""),
+    lmctNumber: sanitizeSingleLineText(input.lmctNumber).replace(/\s+/g, ""),
+    licenceState: toUppercaseValue(input.licenceState),
+    licenceExpiry: typeof input.licenceExpiry === "string" ? input.licenceExpiry.trim() : "",
+    businessAddress: sanitizeMultilineText(input.businessAddress),
+    phone: sanitizeSingleLineText(input.phone),
+    email: sanitizeSingleLineText(input.email).toLowerCase(),
+    contactPerson: sanitizeSingleLineText(input.contactPerson),
+    lmctCertificateUrl: sanitizeSingleLineText(input.lmctCertificateUrl),
+    lmctCertificateName: sanitizeSingleLineText(input.lmctCertificateName ?? "")
+  };
+}
+
+function validateDealerApplicationInput(input: DealerApplicationWriteInput) {
+  const normalized = normalizeDealerApplicationInput(input);
+
+  requireTrimmedValue(normalized.legalBusinessName, "Enter the legal business name.");
+  requireTrimmedValue(normalized.tradingName, "Enter the trading name.");
+  requireTrimmedValue(normalized.acnOrAbn, "Enter the ACN or ABN.");
+  requireTrimmedValue(normalized.lmctNumber, "Enter the LMCT number.");
+  requireTrimmedValue(normalized.licenceState, "Enter the licence state.");
+  requireTrimmedValue(normalized.licenceExpiry, "Enter the licence expiry.");
+  requireTrimmedValue(normalized.businessAddress, "Enter the business address.");
+  requireTrimmedValue(normalized.contactPerson, "Enter the contact person.");
+
+  if (!isValidAustralianMobileNumber(normalized.phone)) {
+    throw new Error("Please enter a valid Australian mobile number (e.g. 0412345678)");
+  }
+
+  if (!isValidEmailAddress(normalized.email)) {
+    throw new Error("Please enter a valid email address.");
+  }
+
+  if (!normalized.lmctCertificateUrl) {
+    throw new Error("Upload the LMCT certificate before submitting.");
+  }
+
+  return normalized;
 }
 
 function serializeVehicleViewEventDoc(id: string, data: Record<string, unknown>): VehicleViewEvent {
@@ -676,6 +831,129 @@ function countItemsCreatedSince(items: Array<{ createdAt?: string }>, since: num
   }).length;
 }
 
+function getComplianceWindowStart(now = new Date()) {
+  const start = new Date(now);
+  start.setFullYear(start.getFullYear() - 1);
+  return start;
+}
+
+function pickLatestComplianceEvent(vehicle: Pick<Vehicle, "id" | "createdAt" | "approvedAt" | "soldAt">, now = new Date()) {
+  const windowStart = getComplianceWindowStart(now).getTime();
+  const candidates = [
+    vehicle.createdAt ? { eventType: "listing_created" as const, timestamp: vehicle.createdAt } : null,
+    vehicle.approvedAt ? { eventType: "listing_published" as const, timestamp: vehicle.approvedAt } : null,
+    vehicle.soldAt ? { eventType: "listing_sold" as const, timestamp: vehicle.soldAt } : null
+  ]
+    .filter((item): item is { eventType: ComplianceVehicleActivity["eventType"]; timestamp: string } => Boolean(item))
+    .map((item) => ({ ...item, time: new Date(item.timestamp).getTime() }))
+    .filter((item) => Number.isFinite(item.time) && item.time >= windowStart)
+    .sort((left, right) => right.time - left.time);
+
+  if (!candidates.length) return null;
+
+  return {
+    vehicleId: vehicle.id,
+    eventType: candidates[0].eventType,
+    qualifyingAt: candidates[0].timestamp
+  } satisfies ComplianceVehicleActivity;
+}
+
+function buildComplianceAssessment(
+  ownerUid: string,
+  vehicles: Vehicle[],
+  currentStatus: ComplianceStatus = "clear"
+): UserComplianceAssessment {
+  const uniqueVehicles = new Map<string, Vehicle>();
+  for (const vehicle of vehicles) {
+    uniqueVehicles.set(vehicle.id, vehicle);
+  }
+
+  const activities = Array.from(uniqueVehicles.values())
+    .map((vehicle) => pickLatestComplianceEvent(vehicle))
+    .filter((activity): activity is ComplianceVehicleActivity => Boolean(activity))
+    .sort((left, right) => right.qualifyingAt.localeCompare(left.qualifyingAt));
+
+  const thresholdReached = currentStatus !== "verified_dealer" && activities.length >= 4;
+
+  return {
+    userId: ownerUid,
+    rolling12MonthCount: activities.length,
+    activities,
+    status: currentStatus === "verified_dealer" ? "verified_dealer" : thresholdReached ? "possible_unlicensed_trader" : "clear",
+    thresholdReached
+  };
+}
+
+async function getComplianceAlertByUserId(userId: string) {
+  if (!isFirebaseConfigured) return null;
+
+  const snapshot = await getDoc(doc(db, "complianceAlerts", userId));
+  if (!snapshot.exists()) return null;
+  return serializeComplianceAlertDoc(snapshot.id, snapshot.data());
+}
+
+export async function getComplianceAlertsData() {
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as ComplianceAlert[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(collection(db, "complianceAlerts"));
+    const items = snapshot.docs
+      .map((item) => serializeComplianceAlertDoc(item.id, item.data()))
+      .sort((left, right) => (right.updatedAt ?? "").localeCompare(left.updatedAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as ComplianceAlert[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function getDealerApplicationByUserId(userId: string) {
+  if (!isFirebaseConfigured) return null;
+
+  const snapshot = await getDoc(doc(db, "dealerApplications", userId));
+  if (!snapshot.exists()) return null;
+  return serializeDealerApplicationDoc(snapshot.id, snapshot.data());
+}
+
+export async function getDealerApplicationsData() {
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as DealerApplication[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(collection(db, "dealerApplications"));
+    const items = snapshot.docs
+      .map((item) => serializeDealerApplicationDoc(item.id, item.data()))
+      .sort((left, right) => (right.requestedAt ?? "").localeCompare(left.requestedAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as DealerApplication[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
 export async function listVehicles() {
   const result = await getCollection<Vehicle>("vehicles", sampleVehicles, serializeVehicleDoc);
   return result.items;
@@ -799,6 +1077,92 @@ export async function listUsers() {
   ];
   const result = await getCollection<AppUser>("users", fallback, serializeUserDoc);
   return result.items;
+}
+
+export async function getUserComplianceAssessment(
+  userId: string,
+  existingUser?: Pick<AppUser, "id" | "complianceStatus"> | null,
+  extraVehicles: Vehicle[] = []
+) {
+  const currentStatus = existingUser?.complianceStatus ?? (await getAppUserById(userId))?.complianceStatus ?? "clear";
+
+  const ownedVehicles = isFirebaseConfigured
+    ? await findRecentVehiclesForOwner(userId)
+    : sampleVehicles.filter((vehicle) => vehicle.ownerUid === userId);
+
+  return buildComplianceAssessment(userId, [...ownedVehicles, ...extraVehicles], currentStatus);
+}
+
+async function syncUserComplianceState(
+  userId: string,
+  extraVehicles: Vehicle[] = [],
+  triggeredByVehicleId?: string
+) {
+  const existingUser = await getAppUserById(userId);
+  if (!existingUser) return null;
+
+  const assessment = await getUserComplianceAssessment(userId, existingUser, extraVehicles);
+  const nextStatus = assessment.status;
+  const wasFlagged = existingUser.complianceStatus === "possible_unlicensed_trader";
+  const isFlagged = nextStatus === "possible_unlicensed_trader";
+
+  if (!isFirebaseConfigured) {
+    return assessment;
+  }
+
+  if (existingUser.complianceStatus !== nextStatus || (isFlagged && !existingUser.complianceFlaggedAt)) {
+    await setDoc(
+      doc(db, "users", userId),
+      {
+        complianceStatus: nextStatus,
+        complianceFlaggedAt: isFlagged ? (existingUser.complianceFlaggedAt ? Timestamp.fromDate(new Date(existingUser.complianceFlaggedAt)) : serverTimestamp()) : deleteField(),
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+  }
+
+  if (isFlagged) {
+    const existingAlert = await getComplianceAlertByUserId(userId);
+    const basePayload = {
+      userId,
+      alertType: "possible_unlicensed_trader" as const,
+      status: "open" as const,
+      activityCount: assessment.rolling12MonthCount,
+      activities: assessment.activities.map((activity) => ({
+        vehicleId: activity.vehicleId,
+        eventType: activity.eventType,
+        qualifyingAt: Timestamp.fromDate(new Date(activity.qualifyingAt))
+      })),
+      triggeredByVehicleId: triggeredByVehicleId ?? assessment.activities[0]?.vehicleId ?? ""
+    };
+
+    await setDoc(
+      doc(db, "complianceAlerts", userId),
+      {
+        ...basePayload,
+        ...(existingAlert?.createdAt ? { createdAt: Timestamp.fromDate(new Date(existingAlert.createdAt)) } : { createdAt: serverTimestamp() }),
+        updatedAt: serverTimestamp(),
+        resolvedAt: deleteField()
+      },
+      { merge: true }
+    );
+  } else {
+    const existingAlert = await getComplianceAlertByUserId(userId);
+    if (existingAlert && existingAlert.status !== "resolved") {
+      await setDoc(
+        doc(db, "complianceAlerts", userId),
+        {
+          status: "resolved",
+          updatedAt: serverTimestamp(),
+          resolvedAt: serverTimestamp()
+        },
+        { merge: true }
+      );
+    }
+  }
+
+  return assessment;
 }
 
 export async function getOffersData() {
@@ -1212,7 +1576,10 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
   }
 
   const finalRole = managedTarget.role;
-  const finalPermissions = finalRole === "buyer" || finalRole === "seller" ? buildManagedPermissions(finalRole, input.adminPermissions) : managedTarget.adminPermissions;
+  const finalPermissions =
+    finalRole === "buyer" || finalRole === "seller" || finalRole === "dealer"
+      ? buildManagedPermissions(finalRole, input.adminPermissions)
+      : managedTarget.adminPermissions;
 
   if (!isFirebaseConfigured) {
     return {
@@ -1245,6 +1612,240 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
     source: "firestore" as const,
     writeSucceeded: true
   };
+}
+
+export async function submitDealerApplication(input: DealerApplicationWriteInput, actor: VehicleActor) {
+  if (!actor.id) {
+    throw new Error("Sign in to apply for a dealer account.");
+  }
+  if (isAdminLikeRole(actor.role)) {
+    throw new Error("Admin accounts do not need a dealer application.");
+  }
+  if (actor.role === "dealer" || actor.dealerVerified) {
+    throw new Error("This account is already approved as a dealer.");
+  }
+
+  const normalized = validateDealerApplicationInput(input);
+  const requestedAt = new Date().toISOString();
+  const application = {
+    id: actor.id,
+    userId: actor.id,
+    ...normalized,
+    lmctCertificateName: normalized.lmctCertificateName || undefined,
+    status: "pending" as const,
+    requestedAt,
+    updatedAt: requestedAt
+  } satisfies DealerApplication;
+
+  if (!isFirebaseConfigured) {
+    return {
+      application,
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies DealerApplicationWriteResult;
+  }
+
+  await setDoc(
+    doc(db, "dealerApplications", actor.id),
+    {
+      userId: actor.id,
+      ...normalized,
+      ...(normalized.lmctCertificateName ? { lmctCertificateName: normalized.lmctCertificateName } : {}),
+      status: "pending",
+      requestedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      reviewedAt: deleteField(),
+      reviewedByUid: deleteField()
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "users", actor.id),
+    {
+      dealerStatus: "pending",
+      dealerVerified: false,
+      dealerApplicationId: actor.id,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    application,
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies DealerApplicationWriteResult;
+}
+
+export async function reviewFlaggedUser(
+  userId: string,
+  action: "approve_dealer" | "allow_private" | "restrict_user",
+  actor: VehicleActor,
+  existingUser?: AppUser
+) {
+  assertAdminPermissionForActor(actor, "manageUsers", "Only authorized admins can review flagged users.");
+
+  const targetUser = existingUser ?? (await getAppUserById(userId));
+  if (!targetUser) {
+    throw new Error("User not found.");
+  }
+
+  const isApproveDealer = action === "approve_dealer";
+  const isAllowPrivate = action === "allow_private";
+  const isRestrict = action === "restrict_user";
+
+  if (!isFirebaseConfigured) {
+    return {
+      ...targetUser,
+      role: isApproveDealer ? "dealer" : targetUser.role,
+      dealerVerified: isApproveDealer ? true : targetUser.dealerVerified ?? false,
+      dealerStatus: isApproveDealer ? "approved" : targetUser.dealerStatus ?? "none",
+      listingRestricted: isRestrict,
+      complianceStatus: isApproveDealer ? "verified_dealer" : isAllowPrivate ? "clear" : "possible_unlicensed_trader"
+    } satisfies AppUser;
+  }
+
+  await setDoc(
+    doc(db, "users", userId),
+    {
+      ...(isApproveDealer
+        ? {
+            role: "dealer",
+            dealerVerified: true,
+            dealerStatus: "approved",
+            listingRestricted: false,
+            complianceStatus: "verified_dealer",
+            complianceFlaggedAt: deleteField()
+          }
+        : isAllowPrivate
+          ? {
+              dealerVerified: targetUser.dealerVerified ?? false,
+              dealerStatus: targetUser.dealerStatus ?? "none",
+              listingRestricted: false,
+              complianceStatus: "clear",
+              complianceFlaggedAt: deleteField()
+            }
+          : {
+              listingRestricted: true,
+              complianceStatus: "possible_unlicensed_trader",
+              complianceFlaggedAt: targetUser.complianceFlaggedAt ? Timestamp.fromDate(new Date(targetUser.complianceFlaggedAt)) : serverTimestamp()
+            }),
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "complianceAlerts", userId),
+    {
+      status: isRestrict ? "open" : "resolved",
+      updatedAt: serverTimestamp(),
+      resolvedAt: isRestrict ? deleteField() : serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    ...targetUser,
+    role: isApproveDealer ? "dealer" : targetUser.role,
+    dealerVerified: isApproveDealer ? true : targetUser.dealerVerified ?? false,
+    dealerStatus: isApproveDealer ? "approved" : targetUser.dealerStatus ?? "none",
+    listingRestricted: isRestrict,
+    complianceStatus: isApproveDealer ? "verified_dealer" : isAllowPrivate ? "clear" : "possible_unlicensed_trader"
+  } satisfies AppUser;
+}
+
+export async function reviewDealerApplication(
+  applicationId: string,
+  action: "approve" | "reject" | "request_info",
+  actor: VehicleActor,
+  existingApplication?: DealerApplication
+) {
+  assertAdminPermissionForActor(actor, "manageUsers", "Only authorized admins can review dealer applications.");
+
+  const application = existingApplication ?? (await getDealerApplicationByUserId(applicationId));
+  if (!application) {
+    throw new Error("Dealer application not found.");
+  }
+
+  const status: DealerApplication["status"] = action === "approve" ? "approved" : action === "reject" ? "rejected" : "info_requested";
+
+  if (!isFirebaseConfigured) {
+    return {
+      application: {
+        ...application,
+        status,
+        reviewedByUid: actor.id,
+        reviewedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies DealerApplicationWriteResult;
+  }
+
+  await setDoc(
+    doc(db, "dealerApplications", applicationId),
+    {
+      status,
+      reviewedByUid: actor.id,
+      reviewedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "users", application.userId),
+    {
+      ...(action === "approve"
+        ? {
+            role: "dealer",
+            dealerStatus: "approved",
+            dealerVerified: true,
+            listingRestricted: false,
+            complianceStatus: "verified_dealer",
+            complianceFlaggedAt: deleteField()
+          }
+        : action === "reject"
+          ? {
+              dealerStatus: "rejected",
+              dealerVerified: false
+            }
+          : {
+              dealerStatus: "info_requested",
+              dealerVerified: false
+            }),
+      dealerApplicationId: applicationId,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  if (action === "approve") {
+    await setDoc(
+      doc(db, "complianceAlerts", application.userId),
+      {
+        status: "resolved",
+        updatedAt: serverTimestamp(),
+        resolvedAt: serverTimestamp()
+      },
+      { merge: true }
+    ).catch(() => undefined);
+  }
+
+  return {
+    application: {
+      ...application,
+      status,
+      reviewedByUid: actor.id,
+      reviewedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    },
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies DealerApplicationWriteResult;
 }
 
 export async function getSellerTrustInfo(ownerUid: string): Promise<SellerTrustInfo> {
@@ -1432,13 +2033,23 @@ export async function getStoredVehicleAnalytics(vehicleId: string) {
 }
 
 function assertVehicleManager(actor: VehicleActor) {
-  if (!isAdminLikeRole(actor.role) && actor.role !== "seller") {
-    throw new Error("Only admins and sellers can manage vehicles.");
+  if (!isAdminLikeRole(actor.role) && !isSellerLikeRole(actor.role)) {
+    throw new Error("Only admins and seller accounts can manage vehicles.");
   }
 }
 
 function isSellerWorkspaceActor(actor: VehicleActor) {
-  return actor.role === "seller" || actor.role === "buyer";
+  return isSellerWorkspaceRole(actor.role);
+}
+
+function assertListingEligibility(actor: VehicleActor) {
+  if (actor.listingRestricted) {
+    throw new Error("Your account is currently restricted from creating new listings. Please contact CarNest support.");
+  }
+
+  if (actor.dealerStatus === "pending" || actor.dealerStatus === "info_requested") {
+    throw new Error("Your dealer application is still under review, so new listings are temporarily unavailable.");
+  }
 }
 
 function assertAdminPermissionForActor(actor: VehicleActor, permission: keyof AdminPermissions, message: string) {
@@ -1763,11 +2374,16 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
   }
 
   if (isSellerWorkspaceActor(actor) && isFirebaseConfigured) {
+    assertListingEligibility(actor);
     const recentVehicles = await findRecentVehiclesForOwner(actor.id);
     const submissionsInDay = recentVehicles.filter((vehicle) => isWithinWindow(vehicle.createdAt, 24 * 60 * 60 * 1000));
     if (submissionsInDay.length >= 3) {
       throw new Error("Too many requests. Please try again later.");
     }
+  }
+
+  if (isSellerWorkspaceActor(actor) && !isFirebaseConfigured) {
+    assertListingEligibility(actor);
   }
 
   if (isSellerWorkspaceActor(actor)) {
@@ -1777,12 +2393,23 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
 
   if (!isFirebaseConfigured) {
     const createdAt = new Date().toISOString();
-    const vehicle = {
+    const baseVehicle = {
       id: `${actor.role}-sample-${Date.now()}`,
       ...buildVehiclePayload(input, actor),
       approvedAt: resolveVehicleStatus(actor) === "approved" ? createdAt : "",
       createdAt,
       updatedAt: createdAt
+    } satisfies Vehicle;
+    const assessment =
+      isSellerWorkspaceActor(actor)
+        ? await getUserComplianceAssessment(actor.id, {
+            id: actor.id,
+            complianceStatus: "clear"
+          }, [baseVehicle])
+        : null;
+    const vehicle = {
+      ...baseVehicle,
+      manualReviewReason: assessment?.status === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined
     } satisfies Vehicle;
 
     return {
@@ -1801,13 +2428,31 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
 
   const createdAt = new Date().toISOString();
   const ref = await addDoc(collection(db, "vehicles"), payload);
-  const vehicle = {
+  let vehicle: Vehicle = {
     id: ref.id,
     ...buildVehiclePayload(input, actor),
     approvedAt: resolveVehicleStatus(actor) === "approved" ? createdAt : "",
     createdAt,
     updatedAt: createdAt
-  } satisfies Vehicle;
+  };
+
+  if (isSellerWorkspaceActor(actor)) {
+    const assessment = await syncUserComplianceState(actor.id, [vehicle], vehicle.id);
+    if (assessment?.status === "possible_unlicensed_trader") {
+      await updateDoc(doc(db, "vehicles", ref.id), {
+        status: "pending",
+        manualReviewReason: "possible_unlicensed_trader",
+        updatedAt: serverTimestamp()
+      });
+
+      vehicle = {
+        ...vehicle,
+        status: "pending",
+        manualReviewReason: "possible_unlicensed_trader",
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
 
   return {
     vehicle,
@@ -1827,7 +2472,7 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
 
   const normalizedInput = normalizeVehicleInput(input);
   validateVehicleLocation(normalizedInput);
-  if (actor.role === "seller") {
+  if (isSellerLikeRole(actor.role)) {
     validateSellerVehicleDescription(normalizedInput.description);
   }
 
@@ -1879,7 +2524,7 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
 
     const nextPayload = buildVehiclePayload(normalizedInput, actor, baseVehicle);
     const pendingDescription =
-      actor.role === "seller"
+      isSellerLikeRole(actor.role)
         ? normalizedInput.description === baseVehicle.description
           ? ""
           : normalizedInput.description
@@ -1888,10 +2533,10 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
       isAdminLikeRole(actor.role) &&
       normalizedInput.description !== baseVehicle.description;
     const sellerDescriptionChanged =
-      actor.role === "seller"
+      isSellerLikeRole(actor.role)
       && normalizedInput.description !== (baseVehicle.pendingDescription || baseVehicle.description);
     const moderatedPayload =
-      actor.role === "seller"
+      isSellerLikeRole(actor.role)
         ? {
             ...nextPayload,
             description: baseVehicle.description
@@ -1928,18 +2573,18 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     isAdminLikeRole(actor.role) &&
     normalizedInput.description !== baseVehicle.description;
   const sellerDescriptionChanged =
-    actor.role === "seller" &&
+    isSellerLikeRole(actor.role) &&
     normalizedInput.description !== (baseVehicle.pendingDescription || baseVehicle.description);
 
   const pendingDescription =
-    actor.role === "seller"
+    isSellerLikeRole(actor.role)
       ? normalizedInput.description === baseVehicle.description
         ? ""
         : normalizedInput.description
       : "";
 
   const moderatedPayload =
-    actor.role === "seller"
+    isSellerLikeRole(actor.role)
       ? {
           ...nextPayload,
           description: baseVehicle.description
@@ -2182,6 +2827,8 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
     updatedAt: serverTimestamp()
   });
 
+  await syncUserComplianceState(baseVehicle.ownerUid, [], baseVehicle.id);
+
   const approvedAt = status === "approved" ? baseVehicle.approvedAt || new Date().toISOString() : "";
   const vehicle = {
     ...baseVehicle,
@@ -2203,7 +2850,7 @@ export async function updateSellerVehicleStatus(
   actor: VehicleActor,
   existingVehicle?: Vehicle
 ) {
-  if (actor.role !== "seller" && !isAdminLikeRole(actor.role)) {
+  if (!isSellerLikeRole(actor.role) && !isAdminLikeRole(actor.role)) {
     throw new Error("Only sellers and admins can update seller listing status.");
   }
   if (isAdminLikeRole(actor.role)) {
@@ -2241,6 +2888,8 @@ export async function updateSellerVehicleStatus(
     soldAt: sellerStatus === "SOLD" ? serverTimestamp() : deleteField(),
     updatedAt: serverTimestamp()
   });
+
+  await syncUserComplianceState(baseVehicle.ownerUid, [], baseVehicle.id);
 
   const vehicle = {
     ...baseVehicle,
@@ -2665,7 +3314,7 @@ export async function updateInspectionRequestStatus(
   actor: VehicleActor,
   existingInspectionRequest?: InspectionRequest
 ) {
-  if (!isAdminLikeRole(actor.role) && actor.role !== "seller") {
+  if (!isAdminLikeRole(actor.role) && !isSellerLikeRole(actor.role)) {
     throw new Error("Only admins and sellers can update inspection requests.");
   }
   if (isAdminLikeRole(actor.role)) {
@@ -2677,7 +3326,7 @@ export async function updateInspectionRequestStatus(
     throw new Error("Inspection request not found.");
   }
 
-  if (actor.role === "seller" && inspectionRequest.sellerOwnerUid !== actor.id) {
+  if (isSellerLikeRole(actor.role) && inspectionRequest.sellerOwnerUid !== actor.id) {
     throw new Error("You can only manage inspection requests for your own vehicles.");
   }
 

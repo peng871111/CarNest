@@ -364,6 +364,21 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
     phone: typeof existingData?.phone === "string" ? existingData.phone : "",
     role: managedAccess.role,
     adminPermissions: managedAccess.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS,
+    complianceStatus:
+      existingData?.complianceStatus === "possible_unlicensed_trader" || existingData?.complianceStatus === "verified_dealer"
+        ? existingData.complianceStatus
+        : "clear",
+    complianceFlaggedAt: typeof existingData?.complianceFlaggedAt === "string" ? existingData.complianceFlaggedAt : undefined,
+    dealerStatus:
+      existingData?.dealerStatus === "pending"
+      || existingData?.dealerStatus === "info_requested"
+      || existingData?.dealerStatus === "approved"
+      || existingData?.dealerStatus === "rejected"
+        ? existingData.dealerStatus
+        : "none",
+    dealerVerified: Boolean(existingData?.dealerVerified),
+    dealerApplicationId: typeof existingData?.dealerApplicationId === "string" ? existingData.dealerApplicationId : undefined,
+    listingRestricted: Boolean(existingData?.listingRestricted),
     createdAt: typeof existingData?.createdAt === "string" ? existingData.createdAt : undefined
   } satisfies AppUser;
 }
@@ -378,6 +393,10 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     displayName: user.displayName,
     phone: user.phone ?? "",
     role: user.role,
+    complianceStatus: "clear",
+    dealerStatus: "none",
+    dealerVerified: false,
+    listingRestricted: false,
     createdAt: Timestamp.now(),
     failedLoginAttempts: 0,
     mustResetPassword: false
@@ -440,6 +459,10 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
         !data.uid ||
         !data.name ||
         !("phone" in data) ||
+        !("complianceStatus" in data) ||
+        !("dealerStatus" in data) ||
+        !("dealerVerified" in data) ||
+        !("listingRestricted" in data) ||
         !("failedLoginAttempts" in data) ||
         !("mustResetPassword" in data) ||
         data.role !== user.role ||
@@ -452,6 +475,11 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
           email: user.email,
           phone: user.phone ?? "",
           role: user.role,
+          complianceStatus: user.complianceStatus ?? "clear",
+          dealerStatus: user.dealerStatus ?? "none",
+          dealerVerified: user.dealerVerified ?? false,
+          listingRestricted: user.listingRestricted ?? false,
+          ...(user.dealerApplicationId ? { dealerApplicationId: user.dealerApplicationId } : {}),
           failedLoginAttempts: getUserSecurityState(data).failedLoginAttempts,
           mustResetPassword: getUserSecurityState(data).mustResetPassword
         };

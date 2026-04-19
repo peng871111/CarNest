@@ -240,6 +240,8 @@ service cloud.firestore {
           "phone",
           "accountReference",
           "adminPermissions",
+          "complianceStatus",
+          "complianceFlaggedAt",
           "failedLoginAttempts",
           "mustResetPassword"
         ])
@@ -247,6 +249,14 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && isAllowedProfileRole(request.resource.data.role, request.resource.data.email)
         && request.resource.data.createdAt is timestamp
+        && (
+          !("complianceStatus" in request.resource.data)
+          || request.resource.data.complianceStatus == "clear"
+        )
+        && (
+          !("complianceFlaggedAt" in request.resource.data)
+          || request.resource.data.complianceFlaggedAt is timestamp
+        )
         && request.resource.data.failedLoginAttempts is int
         && request.resource.data.mustResetPassword is bool;
       allow update: if isSuperAdmin()
@@ -258,6 +268,15 @@ service cloud.firestore {
           && request.resource.data.role == resource.data.role
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.adminPermissions == resource.data.adminPermissions
+          && (
+            !("complianceStatus" in request.resource.data)
+            || request.resource.data.complianceStatus == "clear"
+            || request.resource.data.complianceStatus == "possible_unlicensed_trader"
+          )
+          && (
+            !("complianceFlaggedAt" in request.resource.data)
+            || request.resource.data.complianceFlaggedAt is timestamp
+          )
         );
       allow delete: if isSuperAdmin();
     }
@@ -324,6 +343,48 @@ service cloud.firestore {
           signedIn()
           && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         );
+    }
+
+    match /complianceAlerts/{userId} {
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+      allow create, update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            "userId",
+            "alertType",
+            "status",
+            "activityCount",
+            "activities",
+            "triggeredByVehicleId",
+            "createdAt",
+            "updatedAt",
+            "resolvedAt"
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.alertType == "possible_unlicensed_trader"
+          && (
+            request.resource.data.status == "open"
+            || request.resource.data.status == "resolved"
+          )
+          && request.resource.data.activityCount is int
+          && request.resource.data.activities is list
+          && request.resource.data.updatedAt is timestamp
+          && (
+            !("createdAt" in request.resource.data)
+            || request.resource.data.createdAt is timestamp
+          )
+          && (
+            !("resolvedAt" in request.resource.data)
+            || request.resource.data.resolvedAt is timestamp
+          )
+        );
+      allow delete: if isAdmin();
     }
 
     match /enquiries/{id} {

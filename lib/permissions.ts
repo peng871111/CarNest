@@ -63,7 +63,7 @@ export function isSeededAdminEmail(email?: string | null) {
 }
 
 export function resolveStoredUserRole(input?: string | null): UserRole {
-  if (input === "super_admin" || input === "admin" || input === "seller" || input === "buyer") {
+  if (input === "super_admin" || input === "admin" || input === "seller" || input === "dealer" || input === "buyer") {
     return input;
   }
   return "seller";
@@ -140,6 +140,14 @@ export function isAdminLikeRole(role?: UserRole) {
   return role === "admin" || role === "super_admin";
 }
 
+export function isSellerLikeRole(role?: UserRole) {
+  return role === "seller" || role === "dealer";
+}
+
+export function isSellerWorkspaceRole(role?: UserRole) {
+  return role === "seller" || role === "buyer" || role === "dealer";
+}
+
 export function isSuperAdminUser(user?: Pick<AppUser, "role" | "email"> | null) {
   return user?.role === "super_admin" || isCraigSuperAdminEmail(user?.email);
 }
@@ -174,6 +182,7 @@ export function canAccessRole(required: UserRole | UserRole[], actual?: UserRole
   if (!actual) return false;
   const requiredRoles = Array.isArray(required) ? required : [required];
   if (requiredRoles.includes(actual)) return true;
+  if (actual === "dealer" && requiredRoles.includes("seller")) return true;
   if (actual === "super_admin" && requiredRoles.includes("admin")) return true;
   return false;
 }

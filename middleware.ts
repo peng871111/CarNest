@@ -2,13 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 const protectedRoutes = [
   { prefix: "/dashboard" },
-  { prefix: "/seller/vehicles", roles: ["seller", "buyer"] },
-  { prefix: "/seller", roles: ["seller"] },
+  { prefix: "/seller/vehicles", roles: ["seller", "buyer", "dealer"] },
+  { prefix: "/seller", roles: ["seller", "dealer"] },
   { prefix: "/admin", roles: ["admin", "super_admin"] }
 ];
 
 const adminPermissionRoutes = [
   { prefix: "/admin/users", permission: "manageAdmins" },
+  { prefix: "/admin/compliance", permission: "manageUsers" },
+  { prefix: "/admin/dealer-applications", permission: "manageUsers" },
   { prefix: "/admin/vehicles", permission: "manageVehicles" },
   { prefix: "/admin/offers", permission: "manageOffers" },
   { prefix: "/admin/enquiries", permission: "manageEnquiries" },
@@ -19,7 +21,7 @@ const adminPermissionRoutes = [
 
 function getRoleHome(role?: string) {
   if (role === "admin" || role === "super_admin") return "/admin/vehicles";
-  if (role === "seller") return "/seller/vehicles";
+  if (role === "seller" || role === "dealer") return "/seller/vehicles";
   return "/seller/vehicles";
 }
 

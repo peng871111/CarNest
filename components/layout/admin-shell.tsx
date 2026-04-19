@@ -7,6 +7,7 @@ import { ADMIN_LINKS } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
 import { canAccessRole, hasAdminPermission } from "@/lib/permissions";
 import {
+  getComplianceAlertsData,
   getContactMessagesData,
   getInspectionRequestsData,
   getOffersData,
@@ -53,13 +54,14 @@ export function AdminShell({
     async function loadBadgeCounts() {
       if (loading || !hasWorkspaceAccess) return;
 
-      const [vehiclesResult, enquiriesResult, offersResult, inspectionsResult, quotesResult, pricingResult] = await Promise.all([
+      const [vehiclesResult, enquiriesResult, offersResult, inspectionsResult, quotesResult, pricingResult, complianceResult] = await Promise.all([
         getVehiclesData(),
         getContactMessagesData(),
         getOffersData(),
         getInspectionRequestsData(),
         getQuotesData(),
-        getPricingRequestsData()
+        getPricingRequestsData(),
+        getComplianceAlertsData()
       ]);
 
       if (cancelled) return;
@@ -71,7 +73,7 @@ export function AdminShell({
         "/admin/inspections": inspectionsResult.items.filter((item) => item.status === "NEW").length,
         "/admin/quotes": quotesResult.items.filter((item) => item.status === "NEW").length,
         "/admin/pricing": pricingResult.items.filter((item) => item.status === "NEW").length,
-        "/admin/users": 0
+        "/admin/users": complianceResult.items.filter((item) => item.status === "open").length
       });
     }
 

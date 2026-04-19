@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { startTransition, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { AppUser, UserRole } from "@/types";
+import { AppUser, ComplianceAlert, ComplianceVehicleActivity, UserRole } from "@/types";
 import { updateUserAccess } from "@/lib/data";
 import { ADMIN_PERMISSION_KEYS, createAdminPermissions } from "@/lib/permissions";
 import { formatMonthYear, getAccountDisplayReference } from "@/lib/utils";
@@ -20,7 +21,24 @@ function createDraft(user: AppUser) {
   };
 }
 
-export function AdminAccessManager({ users }: { users: AppUser[] }) {
+function formatComplianceEventType(eventType: ComplianceVehicleActivity["eventType"]) {
+  if (eventType === "listing_published") return "Listing published";
+  if (eventType === "listing_sold") return "Listing sold";
+  return "Listing created";
+}
+
+function formatComplianceDate(value?: string) {
+  if (!value) return "Unknown date";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Unknown date";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(date);
+}
+
+export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser[]; complianceAlerts: ComplianceAlert[] }) {
   const router = useRouter();
   const { appUser } = useAuth();
   const [drafts, setDrafts] = useState<Record<string, ReturnType<typeof createDraft>>>(
@@ -31,12 +49,28 @@ export function AdminAccessManager({ users }: { users: AppUser[] }) {
   const [success, setSuccess] = useState("");
 
   const orderedUsers = useMemo(() => {
+    const complianceAlertsByUserId = new Map(complianceAlerts.map((alert) => [alert.userId, alert]));
     return [...users].sort((left, right) => {
+      const leftAlertScore = Number(
+        complianceAlertsByUserId.get(left.id)?.status === "open" || left.complianceStatus === "possible_unlicensed_trader"
+      );
+      const rightAlertScore = Number(
+        complianceAlertsByUserId.get(right.id)?.status === "open" || right.complianceStatus === "possible_unlicensed_trader"
+      );
       const leftScore = Number(left.role === "super_admin") * 2 + Number(left.role === "admin");
       const rightScore = Number(right.role === "super_admin") * 2 + Number(right.role === "admin");
-      return rightScore - leftScore || (left.displayName || left.email).localeCompare(right.displayName || right.email);
+      return (
+        rightAlertScore - leftAlertScore
+        || rightScore - leftScore
+        || (left.displayName || left.email).localeCompare(right.displayName || right.email)
+      );
     });
-  }, [users]);
+  }, [complianceAlerts, users]);
+
+  const complianceAlertsByUserId = useMemo(
+    () => new Map(complianceAlerts.map((alert) => [alert.userId, alert])),
+    [complianceAlerts]
+  );
 
   function updateDraft(userId: string, next: Partial<ReturnType<typeof createDraft>>) {
     setDrafts((current) => ({
@@ -110,6 +144,9 @@ export function AdminAccessManager({ users }: { users: AppUser[] }) {
             const draft = drafts[user.id] ?? createDraft(user);
             const isSuperAdmin = user.role === "super_admin";
             const isAdminLike = draft.role === "admin" || draft.role === "super_admin";
+            const complianceAlert = complianceAlertsByUserId.get(user.id);
+            const hasOpenComplianceAlert =
+              complianceAlert?.status === "open" || user.complianceStatus === "possible_unlicensed_trader";
 
             return (
               <div key={user.id} className="border-b border-black/5 px-6 py-6 last:border-b-0">
@@ -126,6 +163,11 @@ export function AdminAccessManager({ users }: { users: AppUser[] }) {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
+                    {hasOpenComplianceAlert ? (
+                      <span className="rounded-full border border-[#B42318]/15 bg-[#FEF3F2] px-3 py-2 text-xs font-semibold text-[#B42318]">
+                        Possible Unlicensed Trader
+                      </span>
+                    ) : null}
                     <span className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72">
                       {user.role === "super_admin" ? "Super admin" : user.role}
                     </span>
@@ -134,6 +176,45 @@ export function AdminAccessManager({ users }: { users: AppUser[] }) {
                     </span>
                   </div>
                 </div>
+
+                {complianceAlert ? (
+                  <div className="mt-5 rounded-[24px] border border-[#B42318]/10 bg-[#FEF3F2] px-5 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.18em] text-[#B42318]">Compliance alert</p>
+                        <p className="mt-2 text-sm text-ink/75">
+                          Rolling 12-month activity count: <span className="font-semibold text-ink">{complianceAlert.activityCount}</span>
+                        </p>
+                      </div>
+                      <Link
+                        href="/admin/vehicles"
+                        className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15 hover:bg-shell"
+                      >
+                        Review pending listings
+                      </Link>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      {complianceAlert.activities.length ? (
+                        complianceAlert.activities.map((activity) => (
+                          <div
+                            key={`${complianceAlert.id}-${activity.vehicleId}-${activity.qualifyingAt}`}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/5 bg-white/80 px-4 py-3 text-sm text-ink/75"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-medium text-ink">{formatComplianceEventType(activity.eventType)}</span>
+                              <Link href={`/admin/vehicles/${activity.vehicleId}`} className="text-ink underline-offset-4 hover:underline">
+                                {activity.vehicleId}
+                              </Link>
+                            </div>
+                            <span>{formatComplianceDate(activity.qualifyingAt)}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-ink/65">No qualifying listing activity has been logged yet.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-5 grid gap-6 lg:grid-cols-[220px,1fr]">
                   <div className="space-y-3">
