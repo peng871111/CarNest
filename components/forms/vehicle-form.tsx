@@ -113,14 +113,17 @@ export function VehicleForm({
             keyCount: currentVehicle.keyCount?.toUpperCase?.() ?? "",
             sellerLocationSuburb: currentVehicle.sellerLocationSuburb?.toUpperCase() ?? "",
             sellerLocationState: currentVehicle.sellerLocationState?.toUpperCase() ?? "",
-            description: currentVehicle.description,
+            description:
+              appUser?.role === "seller" && currentVehicle.pendingDescription
+                ? currentVehicle.pendingDescription
+                : currentVehicle.description,
             coverImage: currentVehicle.coverImage ?? currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
             coverImageUrl: currentVehicle.coverImageUrl ?? currentVehicle.imageUrls[0] ?? currentVehicle.images[0] ?? "",
             imageUrls: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images,
             images: currentVehicle.imageUrls?.length ? currentVehicle.imageUrls : currentVehicle.images
           }
         : initialState,
-    [currentVehicle]
+    [appUser?.role, currentVehicle]
   );
 
   useEffect(() => {
@@ -249,24 +252,35 @@ export function VehicleForm({
       const result = currentVehicle
         ? await updateVehicle(currentVehicle.id, payload, appUser, currentVehicle)
         : await createVehicle(payload, appUser);
+      const descriptionReviewPending =
+        "descriptionReviewPending" in result ? Boolean(result.descriptionReviewPending) : false;
 
       if (currentVehicle) {
         setActiveVehicle(result.vehicle);
       }
 
       if (currentVehicle) {
-        setMessage(result.writeSucceeded ? "Vehicle updated successfully." : "Vehicle updated successfully.");
+        setMessage(
+          appUser.role === "seller" && descriptionReviewPending
+            ? "Your description update is under review and will go live once approved."
+            : "Vehicle updated successfully."
+        );
       } else {
         setMessage(result.writeSucceeded ? "Vehicle created successfully." : "Vehicle created successfully.");
       }
 
-      const basePath = appUser.role === "seller" ? "/seller/vehicles" : "/admin/vehicles";
+      const basePath =
+        appUser.role === "seller" && currentVehicle
+          ? `/seller/vehicles/${result.vehicle.id}/edit`
+          : appUser.role === "seller"
+            ? "/seller/vehicles"
+            : "/admin/vehicles";
       router.replace(
-        `${basePath}?write=${result.writeSucceeded ? "success" : "mock"}&action=${vehicle ? "update" : "create"}&loadedHint=refresh&vehicleId=${result.vehicle.id}`
+        `${basePath}?write=${result.writeSucceeded ? "success" : "mock"}&action=${vehicle ? "update" : "create"}&loadedHint=refresh&vehicleId=${result.vehicle.id}${appUser.role === "seller" && descriptionReviewPending ? "&descriptionReview=pending" : ""}`
       );
       router.refresh();
     } catch (error) {
-      setMessage("Something went wrong. Please try again.");
+      setMessage(error instanceof Error ? error.message : "Something went wrong. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -287,6 +301,11 @@ export function VehicleForm({
       {appUser?.role === "admin" && !isFirebaseStorageConfigured ? (
         <div className="rounded-[24px] border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
           Image upload will be available once storage is ready in this environment.
+        </div>
+      ) : null}
+      {appUser?.role === "seller" && currentVehicle?.pendingDescription ? (
+        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+          Your description update is under review and will go live once approved.
         </div>
       ) : null}
 
@@ -461,7 +480,20 @@ export function VehicleForm({
 
       <label className="block space-y-2">
         <span className="text-sm font-medium text-ink">Description</span>
+        {appUser?.role === "seller" && currentVehicle?.pendingDescription ? (
+          <div className="rounded-[20px] border border-black/5 bg-shell px-4 py-3 text-sm leading-6 text-ink/70">
+            <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Current live description</p>
+            <p className="mt-2 whitespace-pre-wrap">{currentVehicle.description}</p>
+          </div>
+        ) : null}
         <Textarea name="description" defaultValue={defaultValues.description} required />
+        {appUser?.role === "seller" ? (
+          <p className="text-xs leading-5 text-ink/55">
+            {currentVehicle?.pendingDescription
+              ? "This textarea is your pending description under review. Do not include phone numbers, email addresses, or instructions to contact outside CarNest."
+              : "Description changes are reviewed before publishing. Do not include phone numbers, email addresses, or instructions to contact outside CarNest."}
+          </p>
+        ) : null}
       </label>
 
       <div className="space-y-3">

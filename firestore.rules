@@ -277,10 +277,7 @@ service cloud.firestore {
           && request.resource.data.ownerRole == resource.data.ownerRole
           && isValidVehicleStatus(request.resource.data.status)
           && isValidSellerVehicleStatus(request.resource.data.sellerStatus)
-          && (
-            request.resource.data.status == resource.data.status
-            || (resource.data.status == "approved" && request.resource.data.status == "pending")
-          )
+          && request.resource.data.status == resource.data.status
         )
         || (
           signedIn()
@@ -296,6 +293,25 @@ service cloud.firestore {
           && vehicleStatusFieldsOnlyChanged()
         );
       allow delete: if isAdmin();
+    }
+
+    match /vehicle_private/{vehicleId} {
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
+        );
+      allow create, update: if isAdmin()
+        || (
+          isSeller()
+          && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
+          && request.resource.data.ownerUid == request.auth.uid
+        );
+      allow delete: if isAdmin()
+        || (
+          signedIn()
+          && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
+        );
     }
 
     match /enquiries/{id} {

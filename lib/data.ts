@@ -1,4 +1,4 @@
-import { Timestamp, addDoc, collection, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { Timestamp, addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
@@ -64,6 +64,7 @@ interface VehicleWriteResult {
   vehicle: Vehicle;
   source: VehicleDataSource;
   writeSucceeded: boolean;
+  descriptionReviewPending?: boolean;
 }
 
 export interface OfferWriteInput {
@@ -336,6 +337,28 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
   } as Vehicle;
 }
 
+function serializePendingDescriptionDoc(data: Record<string, unknown>) {
+  return {
+    ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : "",
+    pendingDescription: typeof data.pendingDescription === "string" ? data.pendingDescription : ""
+  };
+}
+
+function containsContactDetails(text: string) {
+  const emailPattern = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i;
+  const phonePattern = /(?:\+?\d[\d\s()/-]{7,}\d)/;
+  const contactInstructionPattern =
+    /\b(call|text|email|contact|reach|message|whatsapp|sms|telegram|wechat|instagram|facebook|dm|direct message|outside the platform|off[- ]platform)\b/i;
+
+  return emailPattern.test(text) || phonePattern.test(text) || contactInstructionPattern.test(text);
+}
+
+function validateSellerVehicleDescription(description: string) {
+  if (containsContactDetails(description)) {
+    throw new Error("Description cannot include phone numbers, email addresses, or instructions to contact outside CarNest.");
+  }
+}
+
 function serializeVehicleViewEventDoc(id: string, data: Record<string, unknown>): VehicleViewEvent {
   return {
     id,
@@ -582,9 +605,18 @@ export async function getOwnedVehiclesData(ownerUid: string) {
   }
 
   try {
-    const snapshot = await getDocs(query(collection(db, "vehicles"), where("ownerUid", "==", ownerUid)));
-    const items = snapshot.docs
-      .map((item) => serializeVehicleDoc(item.id, item.data()))
+    const [vehicleSnapshot, privateSnapshot] = await Promise.all([
+      getDocs(query(collection(db, "vehicles"), where("ownerUid", "==", ownerUid))),
+      getDocs(query(collection(db, "vehicle_private"), where("ownerUid", "==", ownerUid))).catch(() => null)
+    ]);
+    const pendingByVehicleId = new Map(
+      (privateSnapshot?.docs ?? []).map((item) => [item.id, serializePendingDescriptionDoc(item.data()).pendingDescription])
+    );
+    const items = vehicleSnapshot.docs
+      .map((item) => ({
+        ...serializeVehicleDoc(item.id, item.data()),
+        pendingDescription: pendingByVehicleId.get(item.id) ?? ""
+      }))
       .sort((a, b) => {
         const aCreatedAt = a.createdAt ?? "";
         const bCreatedAt = b.createdAt ?? "";
@@ -632,6 +664,29 @@ export async function getVehicleById(id: string) {
   const snapshot = await getDoc(doc(db, "vehicles", id));
   if (!snapshot.exists()) return null;
   return serializeVehicleDoc(snapshot.id, snapshot.data());
+}
+
+export async function getVehiclePendingDescription(
+  vehicleId: string,
+  actor: VehicleActor,
+  existingVehicle?: Pick<Vehicle, "id" | "ownerUid">
+) {
+  const ownerUid = existingVehicle?.ownerUid ?? (await getVehicleById(vehicleId))?.ownerUid ?? "";
+
+  if (!ownerUid) {
+    throw new Error("Vehicle not found.");
+  }
+
+  if (!isAdminLikeRole(actor.role) && actor.id !== ownerUid) {
+    throw new Error("You do not have access to this pending description.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return "";
+  }
+
+  const record = await getVehiclePendingDescriptionRecord(vehicleId);
+  return record?.pendingDescription ?? "";
 }
 
 export async function listUsers() {
@@ -1184,10 +1239,6 @@ function resolveVehicleStatus(actor: VehicleActor, existingVehicle?: Vehicle): V
     return isAdminLikeRole(actor.role) ? "approved" : "pending";
   }
 
-  if (actor.role === "seller" && existingVehicle.status === "approved") {
-    return "pending";
-  }
-
   return existingVehicle.status;
 }
 
@@ -1382,6 +1433,35 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
   };
 }
 
+async function getVehiclePendingDescriptionRecord(vehicleId: string) {
+  if (!isFirebaseConfigured) return null;
+
+  const snapshot = await getDoc(doc(db, "vehicle_private", vehicleId));
+  if (!snapshot.exists()) return null;
+
+  return serializePendingDescriptionDoc(snapshot.data());
+}
+
+async function syncVehiclePendingDescription(vehicleId: string, ownerUid: string, pendingDescription: string) {
+  if (!isFirebaseConfigured) return;
+
+  const privateRef = doc(db, "vehicle_private", vehicleId);
+  if (!pendingDescription) {
+    await deleteDoc(privateRef).catch(() => undefined);
+    return;
+  }
+
+  await setDoc(
+    privateRef,
+    {
+      ownerUid,
+      pendingDescription,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+}
+
 function removeVehicleImageUrl(imageUrls: string[], imageUrl: string) {
   const imageIndex = imageUrls.indexOf(imageUrl);
   if (imageIndex < 0) return imageUrls;
@@ -1401,6 +1481,10 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
     if (submissionsInDay.length >= 3) {
       throw new Error("Too many requests. Please try again later.");
     }
+  }
+
+  if (actor.role === "seller") {
+    validateSellerVehicleDescription(normalizeVehicleInput(input).description);
   }
 
   if (!isFirebaseConfigured) {
@@ -1448,6 +1532,11 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     assertVehicleOwnership(actor, existingVehicle);
   }
 
+  const normalizedInput = normalizeVehicleInput(input);
+  if (actor.role === "seller") {
+    validateSellerVehicleDescription(normalizedInput.description);
+  }
+
   if (!isFirebaseConfigured) {
     const baseVehicle =
       existingVehicle ??
@@ -1493,10 +1582,123 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
         updatedAt: new Date().toISOString()
       } satisfies Vehicle);
 
+    const nextPayload = buildVehiclePayload(normalizedInput, actor, baseVehicle);
+    const pendingDescription =
+      actor.role === "seller"
+        ? normalizedInput.description === baseVehicle.description
+          ? ""
+          : normalizedInput.description
+        : "";
+    const adminDescriptionChanged =
+      isAdminLikeRole(actor.role) &&
+      normalizedInput.description !== baseVehicle.description;
+    const sellerDescriptionChanged =
+      actor.role === "seller"
+      && normalizedInput.description !== (baseVehicle.pendingDescription || baseVehicle.description);
+    const moderatedPayload =
+      actor.role === "seller"
+        ? {
+            ...nextPayload,
+            description: baseVehicle.description
+          }
+        : {
+            ...nextPayload,
+            description: normalizedInput.description
+          };
+
     const vehicle = {
       id,
-      ...buildVehiclePayload(input, actor, baseVehicle),
+      ...moderatedPayload,
+      pendingDescription: adminDescriptionChanged ? "" : pendingDescription,
       createdAt: baseVehicle.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    } satisfies Vehicle;
+
+    return {
+      vehicle,
+      source: "mock" as const,
+      writeSucceeded: false,
+      descriptionReviewPending: sellerDescriptionChanged || Boolean(pendingDescription)
+    } satisfies VehicleWriteResult;
+  }
+
+  const baseVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!baseVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+  assertVehicleOwnership(actor, baseVehicle);
+
+  const nextPayload = buildVehiclePayload(normalizedInput, actor, baseVehicle);
+  const adminDescriptionChanged =
+    isAdminLikeRole(actor.role) &&
+    normalizedInput.description !== baseVehicle.description;
+  const sellerDescriptionChanged =
+    actor.role === "seller" &&
+    normalizedInput.description !== (baseVehicle.pendingDescription || baseVehicle.description);
+
+  const pendingDescription =
+    actor.role === "seller"
+      ? normalizedInput.description === baseVehicle.description
+        ? ""
+        : normalizedInput.description
+      : "";
+
+  const moderatedPayload =
+    actor.role === "seller"
+      ? {
+          ...nextPayload,
+          description: baseVehicle.description
+        }
+      : {
+          ...nextPayload,
+          description: normalizedInput.description
+        };
+
+  await updateDoc(doc(db, "vehicles", id), {
+    ...moderatedPayload,
+    updatedAt: serverTimestamp()
+  });
+  await syncVehiclePendingDescription(id, baseVehicle.ownerUid, adminDescriptionChanged ? "" : pendingDescription);
+
+  const vehicle = {
+    id,
+    ...moderatedPayload,
+    pendingDescription: adminDescriptionChanged ? "" : pendingDescription,
+    createdAt: baseVehicle.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  } satisfies Vehicle;
+
+  return {
+    vehicle,
+    source: "firestore" as const,
+    writeSucceeded: true,
+    descriptionReviewPending: sellerDescriptionChanged || Boolean(pendingDescription)
+  } satisfies VehicleWriteResult;
+}
+
+export async function approveVehiclePendingDescription(
+  id: string,
+  actor: VehicleActor,
+  existingVehicle?: Pick<Vehicle, "id" | "ownerUid">
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can approve pending vehicle descriptions.");
+
+  const baseVehicle = await getVehicleById(id);
+  if (!baseVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  const pendingDescription = await getVehiclePendingDescription(id, actor, existingVehicle ?? baseVehicle);
+
+  if (!pendingDescription) {
+    throw new Error("No pending description is awaiting review.");
+  }
+
+  if (!isFirebaseConfigured) {
+    const vehicle = {
+      ...baseVehicle,
+      description: pendingDescription,
+      pendingDescription: "",
       updatedAt: new Date().toISOString()
     } satisfies Vehicle;
 
@@ -1507,21 +1709,69 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     } satisfies VehicleWriteResult;
   }
 
-  const baseVehicle = existingVehicle ?? (await getVehicleById(id));
+  const batch = writeBatch(db);
+  batch.update(doc(db, "vehicles", id), {
+    description: pendingDescription,
+    updatedAt: serverTimestamp()
+  });
+  batch.delete(doc(db, "vehicle_private", id));
+  await batch.commit();
+
+  const vehicle = {
+    ...baseVehicle,
+    description: pendingDescription,
+    pendingDescription: "",
+    updatedAt: new Date().toISOString()
+  } satisfies Vehicle;
+
+  return {
+    vehicle,
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies VehicleWriteResult;
+}
+
+export async function rejectVehiclePendingDescription(
+  id: string,
+  actor: VehicleActor,
+  existingVehicle?: Pick<Vehicle, "id" | "ownerUid">
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can reject pending vehicle descriptions.");
+
+  const baseVehicle = await getVehicleById(id);
   if (!baseVehicle) {
     throw new Error("Vehicle not found.");
   }
-  assertVehicleOwnership(actor, baseVehicle);
 
-  await updateDoc(doc(db, "vehicles", id), {
-    ...buildVehiclePayload(input, actor, baseVehicle),
+  const pendingDescription = await getVehiclePendingDescription(id, actor, existingVehicle ?? baseVehicle);
+  if (!pendingDescription) {
+    throw new Error("No pending description is awaiting review.");
+  }
+
+  if (!isFirebaseConfigured) {
+    const vehicle = {
+      ...baseVehicle,
+      pendingDescription: "",
+      updatedAt: new Date().toISOString()
+    } satisfies Vehicle;
+
+    return {
+      vehicle,
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies VehicleWriteResult;
+  }
+
+  const batch = writeBatch(db);
+  batch.update(doc(db, "vehicles", id), {
     updatedAt: serverTimestamp()
   });
+  batch.delete(doc(db, "vehicle_private", id));
+  await batch.commit();
 
   const vehicle = {
-    id,
-    ...buildVehiclePayload(input, actor, baseVehicle),
-    createdAt: baseVehicle.createdAt ?? new Date().toISOString(),
+    ...baseVehicle,
+    pendingDescription: "",
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
 

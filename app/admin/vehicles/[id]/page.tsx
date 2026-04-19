@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { VehicleInsightsPanel } from "@/components/analytics/vehicle-insights-panel";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { AdminVehicleActions } from "@/components/vehicles/admin-vehicle-actions";
+import { AdminPendingDescriptionActions } from "@/components/vehicles/admin-pending-description-actions";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { VehicleStatusBadge } from "@/components/vehicles/vehicle-status-badge";
 import { getVehicleById, getVehicleOwnerInfo } from "@/lib/data";
@@ -71,6 +72,7 @@ export default async function AdminVehicleDetailPage({
             <h2 className="text-xl font-semibold text-ink">Full description</h2>
             <p className="mt-4 whitespace-pre-wrap text-ink/70">{vehicle.description}</p>
           </div>
+          <AdminPendingDescriptionActions vehicle={vehicle} />
           <VehicleInsightsPanel vehicleId={vehicle.id} sellerOwnerUid={vehicle.ownerUid} audience="admin" />
         </section>
 

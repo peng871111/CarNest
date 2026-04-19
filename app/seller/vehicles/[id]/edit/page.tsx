@@ -8,7 +8,7 @@ import { SellerShell } from "@/components/layout/seller-shell";
 import { SellerVehicleActions } from "@/components/vehicles/seller-vehicle-actions";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { useAuth } from "@/lib/auth";
-import { createQuoteRequest, getVehicleById, getVehicleWarehouseQuoteRequest } from "@/lib/data";
+import { createQuoteRequest, getVehicleById, getVehiclePendingDescription, getVehicleWarehouseQuoteRequest } from "@/lib/data";
 import { Vehicle } from "@/types";
 
 function SellerEditVehiclePageContent() {
@@ -24,9 +24,11 @@ function SellerEditVehiclePageContent() {
   const [quoteRequested, setQuoteRequested] = useState(false);
   const writeStatus =
     searchParams.get("write") === "success"
-      ? searchParams.get("sellerStatus")
-        ? `Listing updated to ${searchParams.get("sellerStatus")?.replaceAll("_", " ").toLowerCase()}.`
-        : "Vehicle updated successfully."
+      ? searchParams.get("descriptionReview") === "pending"
+        ? "Your description update is under review and will go live once approved."
+        : searchParams.get("sellerStatus")
+          ? `Listing updated to ${searchParams.get("sellerStatus")?.replaceAll("_", " ").toLowerCase()}.`
+          : "Vehicle updated successfully."
       : "";
 
   useEffect(() => {
@@ -50,7 +52,11 @@ function SellerEditVehiclePageContent() {
         return;
       }
 
-      setVehicle(item);
+      const pendingDescription = await getVehiclePendingDescription(item.id, appUser, item).catch(() => "");
+      setVehicle({
+        ...item,
+        pendingDescription
+      });
       const existingQuote = await getVehicleWarehouseQuoteRequest(item.id, appUser.id);
       if (!cancelled && existingQuote) {
         setQuoteRequested(true);

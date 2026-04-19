@@ -75,6 +75,7 @@ export interface Vehicle {
   rego: string;
   regoExpiry?: string;
   description: string;
+  pendingDescription?: string;
   features: string[];
   conditionNotes: string;
   serviceHistory: string;
