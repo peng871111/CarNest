@@ -349,7 +349,7 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
   const email = String(existingData?.email ?? firebaseUser.email ?? "");
   const managedAccess = resolveManagedUserAccess({
     email,
-    storedRole: typeof existingData?.role === "string" ? existingData.role : pendingSeed?.role ?? "buyer",
+    storedRole: typeof existingData?.role === "string" ? existingData.role : pendingSeed?.role ?? "seller",
     storedPermissions:
       existingData?.adminPermissions && typeof existingData.adminPermissions === "object"
         ? (existingData.adminPermissions as Record<string, boolean>)

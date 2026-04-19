@@ -288,7 +288,7 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
   const email = typeof data.email === "string" ? data.email : "";
   const managedAccess = resolveManagedUserAccess({
     email,
-    storedRole: typeof data.role === "string" ? data.role : "buyer",
+    storedRole: typeof data.role === "string" ? data.role : "seller",
     storedPermissions: data.adminPermissions && typeof data.adminPermissions === "object" ? (data.adminPermissions as Record<string, boolean>) : undefined
   });
 

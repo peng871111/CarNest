@@ -66,7 +66,7 @@ export function resolveStoredUserRole(input?: string | null): UserRole {
   if (input === "super_admin" || input === "admin" || input === "seller" || input === "buyer") {
     return input;
   }
-  return "buyer";
+  return "seller";
 }
 
 export function createAdminPermissions(overrides?: Partial<AdminPermissions>): AdminPermissions {

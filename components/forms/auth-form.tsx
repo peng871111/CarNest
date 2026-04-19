@@ -9,7 +9,7 @@ import { clearAllLoginProtectionBrowserState, useAuth } from "@/lib/auth";
 import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
 import { UserRole } from "@/types";
 
-const DEFAULT_PUBLIC_SIGNUP_ROLE = "buyer" as const;
+const DEFAULT_PUBLIC_SIGNUP_ROLE = "seller" as const;
 const REGISTER_PASSWORD_HELPER_TEXT = "Password must be at least 8 characters and include uppercase, lowercase, and a number.";
 
 function getRegisterPasswordError(password: string) {
