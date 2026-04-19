@@ -59,6 +59,7 @@ export interface Vehicle {
   storedInWarehouse: boolean;
   warehouseAddress?: string;
   sellerLocationSuburb?: string;
+  sellerLocationPostcode?: string;
   sellerLocationState?: string;
   make: string;
   model: string;
@@ -109,6 +110,7 @@ export interface VehicleFormInput {
   serviceHistory: string;
   keyCount: string;
   sellerLocationSuburb?: string;
+  sellerLocationPostcode?: string;
   sellerLocationState?: string;
   description: string;
   coverImage?: string;
@@ -134,6 +136,7 @@ export interface VehicleFormFieldsValue {
   serviceHistory: string;
   keyCount: string;
   sellerLocationSuburb: string;
+  sellerLocationPostcode: string;
   sellerLocationState: string;
   description: string;
 }

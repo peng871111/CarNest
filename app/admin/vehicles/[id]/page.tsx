@@ -58,7 +58,7 @@ export default async function AdminVehicleDetailPage({
               ["Price", formatCurrency(vehicle.price)],
               ["Listing type", getListingLabel(vehicle.listingType)],
               ["Approval status", vehicle.status],
-              ["Location", formatLocation(vehicle.sellerLocationSuburb, vehicle.sellerLocationState)],
+              ["Location", formatLocation(vehicle.sellerLocationSuburb, vehicle.sellerLocationPostcode, vehicle.sellerLocationState)],
               ["Seller account", owner?.displayName || "Seller account on file"],
               ["Created at", formatAdminDateTime(vehicle.createdAt)]
             ].map(([label, value]) => (

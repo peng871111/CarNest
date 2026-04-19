@@ -153,6 +153,7 @@ function TrendMetric({
 export function ListingTrendsPanel({ ownerUid, vehicles }: ListingTrendsPanelProps) {
   const [analyticsByVehicleId, setAnalyticsByVehicleId] = useState<Record<string, VehicleAnalytics>>({});
   const [loading, setLoading] = useState(true);
+  const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -203,44 +204,62 @@ export function ListingTrendsPanel({ ownerUid, vehicles }: ListingTrendsPanelPro
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         {vehicles.map((vehicle) => {
           const analytics = analyticsByVehicleId[vehicle.id] ?? buildFallbackAnalytics(vehicle.id, ownerUid);
+          const isExpanded = expandedVehicleId === vehicle.id;
 
           return (
             <article key={vehicle.id} className="rounded-[28px] border border-black/5 bg-white p-5">
-              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                <div>
+              <button
+                type="button"
+                onClick={() => setExpandedVehicleId((current) => (current === vehicle.id ? null : vehicle.id))}
+                className="flex w-full items-center justify-between gap-4 text-left"
+                aria-expanded={isExpanded}
+              >
+                <div className="min-w-0 flex-1">
                   <p className="text-lg font-semibold text-ink">
                     {vehicle.year} {vehicle.make} {vehicle.model}
                   </p>
-                  <p className="mt-2 text-sm text-ink/55">{getListingLabel(vehicle.listingType)}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <p className="text-sm text-ink/55">{getListingLabel(vehicle.listingType)}</p>
+                    <SellerListingStatusBadge vehicle={vehicle} />
+                  </div>
                 </div>
-                <SellerListingStatusBadge vehicle={vehicle} />
-              </div>
+                <span
+                  className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-black/5 bg-shell text-ink/55 transition duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                  aria-hidden="true"
+                >
+                  ↓
+                </span>
+              </button>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <TrendMetric
-                  label="Views trend"
-                  recent={analytics.views7d}
-                  trailing30d={analytics.views30d}
-                  total={analytics.totalViews}
-                />
-                <TrendMetric
-                  label="Enquiry trend"
-                  recent={analytics.inspections7d}
-                  trailing30d={analytics.inspections30d}
-                  total={analytics.inspections}
-                />
-                <TrendMetric
-                  label="Offer activity"
-                  recent={analytics.offers7d}
-                  trailing30d={analytics.offers30d}
-                  total={analytics.offers}
-                />
-                <TrendMetric
-                  label="Saved activity"
-                  recent={analytics.saves7d}
-                  trailing30d={analytics.saves30d}
-                  total={analytics.saves}
-                />
+              <div className={`grid overflow-hidden transition-all duration-200 ${isExpanded ? "mt-5 grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"}`}>
+                <div className="min-h-0">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <TrendMetric
+                      label="Views trend"
+                      recent={analytics.views7d}
+                      trailing30d={analytics.views30d}
+                      total={analytics.totalViews}
+                    />
+                    <TrendMetric
+                      label="Enquiry trend"
+                      recent={analytics.inspections7d}
+                      trailing30d={analytics.inspections30d}
+                      total={analytics.inspections}
+                    />
+                    <TrendMetric
+                      label="Offer activity"
+                      recent={analytics.offers7d}
+                      trailing30d={analytics.offers30d}
+                      total={analytics.offers}
+                    />
+                    <TrendMetric
+                      label="Saved activity"
+                      recent={analytics.saves7d}
+                      trailing30d={analytics.saves30d}
+                      total={analytics.saves}
+                    />
+                  </div>
+                </div>
               </div>
             </article>
           );

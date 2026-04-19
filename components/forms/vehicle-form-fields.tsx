@@ -1,8 +1,14 @@
 "use client";
 
-import { FormEvent, ReactNode } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  findAustralianPostcodeLocation,
+  getAustralianPostcodeLocations,
+  isAustralianPostcode,
+  normalizeAustralianPostcode
+} from "@/lib/australian-postcodes";
 import { formatCalendarDate } from "@/lib/utils";
 import { Vehicle, VehicleFormFieldsValue } from "@/types";
 
@@ -12,7 +18,6 @@ export const DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD", "OTHER"];
 export const BODY_TYPE_OPTIONS = ["SUV", "SEDAN", "COUPE", "HATCH", "UTE", "WAGON", "CONVERTIBLE", "VAN", "OTHER"];
 export const SERVICE_HISTORY_OPTIONS = ["FULL DEALER SERVICE HISTORY", "PARTIAL DEALER SERVICE HISTORY", "NO SERVICE HISTORY"];
 export const KEY_COUNT_OPTIONS = ["1 KEY", "2 KEYS", "3 KEYS"];
-export const STATE_OPTIONS = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
 
 type VehicleFormTheme = "light" | "dark";
 
@@ -60,12 +65,17 @@ export function buildVehicleFormFieldsValue(vehicle?: Vehicle, descriptionOverri
     serviceHistory: vehicle?.serviceHistory ?? "",
     keyCount: vehicle?.keyCount ?? "",
     sellerLocationSuburb: vehicle?.sellerLocationSuburb ?? "",
+    sellerLocationPostcode: vehicle?.sellerLocationPostcode ?? "",
     sellerLocationState: vehicle?.sellerLocationState ?? "",
     description: descriptionOverride ?? vehicle?.description ?? ""
   };
 }
 
 export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
+  const postcode = normalizeAustralianPostcode(values.sellerLocationPostcode.trim());
+  const postcodeMatches = getAustralianPostcodeLocations(postcode);
+  const suburbMatch = findAustralianPostcodeLocation(postcode, values.sellerLocationSuburb);
+
   if (!values.year.trim()) return "Please enter the vehicle year.";
   if (!values.make.trim()) return "Please enter the vehicle make.";
   if (!values.model.trim()) return "Please enter the vehicle model.";
@@ -78,8 +88,13 @@ export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
   if (!values.colour.trim()) return "Please enter the vehicle colour.";
   if (!values.serviceHistory.trim()) return "Please select the service history.";
   if (!values.keyCount.trim()) return "Please select the key count.";
-  if (!values.sellerLocationSuburb.trim()) return "Please enter the seller suburb.";
-  if (!values.sellerLocationState.trim()) return "Please select the seller state.";
+  if (!isAustralianPostcode(postcode)) return "Please enter a valid 4-digit Australian postcode";
+  if (!postcodeMatches.length) return "Please enter a valid 4-digit Australian postcode";
+  if (!values.sellerLocationSuburb.trim()) {
+    return postcodeMatches.length > 1 ? "Please select the seller suburb for this postcode." : "Please enter the seller suburb.";
+  }
+  if (!suburbMatch) return "Please select a seller suburb that matches the postcode.";
+  if (values.sellerLocationState.trim().toUpperCase() !== suburbMatch.state) return "Seller state must match the selected suburb and postcode.";
   if (!values.description.trim()) return "Please enter the vehicle description.";
   return "";
 }
@@ -98,6 +113,81 @@ export function VehicleFormFields({
   descriptionHint?: ReactNode;
 }) {
   const classes = getThemeClasses(theme);
+  const normalizedPostcode = useMemo(
+    () => normalizeAustralianPostcode(value.sellerLocationPostcode),
+    [value.sellerLocationPostcode]
+  );
+  const postcodeMatches = useMemo(
+    () => getAustralianPostcodeLocations(normalizedPostcode),
+    [normalizedPostcode]
+  );
+  const selectedLocation = useMemo(
+    () => findAustralianPostcodeLocation(normalizedPostcode, value.sellerLocationSuburb),
+    [normalizedPostcode, value.sellerLocationSuburb]
+  );
+  const hasFullPostcode = normalizedPostcode.length === 4;
+  const hasPostcodeLookupFailure = hasFullPostcode && postcodeMatches.length === 0;
+  const hasMultipleSuburbMatches = postcodeMatches.length > 1;
+  const singlePostcodeLocation = postcodeMatches.length === 1 ? postcodeMatches[0] : undefined;
+  const resolvedState = singlePostcodeLocation?.state ?? selectedLocation?.state ?? "";
+  const postcodeHint =
+    !normalizedPostcode
+      ? "Enter a 4-digit Australian postcode to match suburb and state."
+      : !hasFullPostcode
+        ? "Please enter a valid 4-digit Australian postcode"
+        : hasPostcodeLookupFailure
+          ? "Please enter a valid 4-digit Australian postcode"
+          : hasMultipleSuburbMatches
+            ? selectedLocation
+              ? `${postcodeMatches.length} matching suburbs found. Seller state is filled automatically.`
+              : `Select the correct suburb for postcode ${normalizedPostcode}.`
+            : `Matched to ${singlePostcodeLocation?.suburb}, ${singlePostcodeLocation?.state}`;
+  const postcodeHintClass =
+    !normalizedPostcode
+      ? classes.hint
+      : !hasFullPostcode || hasPostcodeLookupFailure
+        ? "text-xs leading-5 text-red-600"
+        : classes.hint;
+
+  useEffect(() => {
+    if (!hasFullPostcode) {
+      return;
+    }
+
+    if (!postcodeMatches.length) {
+      if (value.sellerLocationSuburb) onFieldChange("sellerLocationSuburb", "");
+      if (value.sellerLocationState) onFieldChange("sellerLocationState", "");
+      return;
+    }
+
+    if (singlePostcodeLocation) {
+      if (value.sellerLocationSuburb !== singlePostcodeLocation.suburb) {
+        onFieldChange("sellerLocationSuburb", singlePostcodeLocation.suburb);
+      }
+      if (value.sellerLocationState !== singlePostcodeLocation.state) {
+        onFieldChange("sellerLocationState", singlePostcodeLocation.state);
+      }
+      return;
+    }
+
+    if (!selectedLocation) {
+      if (value.sellerLocationSuburb) onFieldChange("sellerLocationSuburb", "");
+      if (value.sellerLocationState) onFieldChange("sellerLocationState", "");
+      return;
+    }
+
+    if (value.sellerLocationState !== selectedLocation.state) {
+      onFieldChange("sellerLocationState", selectedLocation.state);
+    }
+  }, [
+    hasFullPostcode,
+    onFieldChange,
+    postcodeMatches,
+    selectedLocation,
+    singlePostcodeLocation,
+    value.sellerLocationState,
+    value.sellerLocationSuburb
+  ]);
 
   return (
     <div className="space-y-4">
@@ -194,12 +284,49 @@ export function VehicleFormFields({
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Seller suburb</span>
+            {hasMultipleSuburbMatches ? (
+              <select
+                value={selectedLocation?.suburb ?? ""}
+                onChange={(event) => onFieldChange("sellerLocationSuburb", event.target.value)}
+                className={`${classes.select} uppercase`}
+                required
+              >
+                <option value="">SELECT SUBURB</option>
+                {postcodeMatches.map((location) => (
+                  <option key={`${normalizedPostcode}-${location.suburb}-${location.state}`} value={location.suburb}>
+                    {location.suburb}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <Input
+                value={singlePostcodeLocation?.suburb ?? (!hasFullPostcode ? value.sellerLocationSuburb : "")}
+                readOnly
+                className={`${classes.input} uppercase`}
+                placeholder={hasPostcodeLookupFailure ? "No suburb found" : "Enter postcode first"}
+                required={Boolean(singlePostcodeLocation)}
+              />
+            )}
+            <p className={classes.hint}>
+              {hasMultipleSuburbMatches
+                ? "Choose the matching suburb for this postcode."
+                : singlePostcodeLocation
+                  ? "Seller suburb is filled automatically from the postcode."
+                  : "Seller suburb is matched from the postcode dataset."}
+            </p>
+          </label>
+          <label className="space-y-2">
+            <span className={classes.label}>Postcode</span>
             <Input
-              value={value.sellerLocationSuburb}
-              onChange={(event) => onFieldChange("sellerLocationSuburb", normalizeUppercase(event.target.value))}
-              className={`${classes.input} uppercase`}
+              inputMode="numeric"
+              maxLength={4}
+              value={value.sellerLocationPostcode}
+              onChange={(event) => onFieldChange("sellerLocationPostcode", normalizeAustralianPostcode(event.target.value))}
+              className={classes.input}
+              placeholder="3000"
               required
             />
+            <p className={postcodeHintClass}>{postcodeHint}</p>
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Description</span>
@@ -300,19 +427,14 @@ export function VehicleFormFields({
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Seller state</span>
-            <select
-              value={value.sellerLocationState}
-              onChange={(event) => onFieldChange("sellerLocationState", event.target.value)}
-              className={`${classes.select} uppercase`}
-              required
-            >
-              <option value="">SELECT STATE</option>
-              {STATE_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            <Input
+              value={resolvedState || (!hasFullPostcode ? value.sellerLocationState : "")}
+              readOnly
+              className={`${classes.input} uppercase`}
+              placeholder="Auto-filled from postcode and suburb"
+              required={Boolean(resolvedState)}
+            />
+            <p className={classes.hint}>Seller state stays aligned with the selected postcode and suburb.</p>
           </label>
         </div>
       </div>

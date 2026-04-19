@@ -1,5 +1,6 @@
 import { Timestamp, addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
+import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
 import { sampleVehicles } from "@/lib/constants";
 import { createAdminPermissions, createSuperAdminPermissions, hasAdminPermission, isAdminLikeRole, isSuperAdminUser, resolveManagedUserAccess } from "@/lib/permissions";
@@ -327,6 +328,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     status: normalizedVehicleStatus,
     sellerStatus: normalizedSellerStatus,
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
+    sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     coverImage,
     coverImageUrl,
     imageUrls,
@@ -356,6 +358,36 @@ function containsContactDetails(text: string) {
 function validateSellerVehicleDescription(description: string) {
   if (containsContactDetails(description)) {
     throw new Error("Description cannot include phone numbers, email addresses, or instructions to contact outside CarNest.");
+  }
+}
+
+function validateVehicleLocation(input: VehicleFormInput) {
+  if (input.listingType !== "private") return;
+
+  const postcode = input.sellerLocationPostcode ?? "";
+  const suburb = input.sellerLocationSuburb ?? "";
+  const state = toUppercaseValue(input.sellerLocationState);
+
+  if (!isAustralianPostcode(postcode)) {
+    throw new Error("Please enter a valid 4-digit Australian postcode");
+  }
+
+  const postcodeMatches = getAustralianPostcodeLocations(postcode);
+  if (!postcodeMatches.length) {
+    throw new Error("Please enter a valid 4-digit Australian postcode");
+  }
+
+  const suburbMatch = findAustralianPostcodeLocation(postcode, suburb);
+  if (!suburbMatch) {
+    throw new Error(
+      postcodeMatches.length > 1
+        ? "Please select a seller suburb that matches the postcode."
+        : "Seller suburb must match the selected postcode."
+    );
+  }
+
+  if (state !== suburbMatch.state) {
+    throw new Error("Seller state must match the selected suburb and postcode.");
   }
 }
 
@@ -1377,6 +1409,7 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     serviceHistory: toUppercaseValue(input.serviceHistory),
     keyCount: toUppercaseValue(input.keyCount),
     sellerLocationSuburb: toUppercaseValue(input.sellerLocationSuburb),
+    sellerLocationPostcode: typeof input.sellerLocationPostcode === "string" ? input.sellerLocationPostcode.replace(/\D/g, "").slice(0, 4) : "",
     sellerLocationState: toUppercaseValue(input.sellerLocationState),
     description: sanitizeMultilineText(input.description),
     serviceQuoteNotes: sanitizeMultilineText(input.serviceQuoteNotes ?? "")
@@ -1406,6 +1439,7 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
     storedInWarehouse: normalizedInput.listingType === "warehouse",
     warehouseAddress: normalizedInput.listingType === "warehouse" ? "CarNest Warehouse" : "",
     sellerLocationSuburb: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationSuburb ?? "" : "",
+    sellerLocationPostcode: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationPostcode ?? "" : "",
     sellerLocationState: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationState ?? "" : "",
     make: normalizedInput.make,
     model: normalizedInput.model,
@@ -1492,6 +1526,7 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
   if (isSellerWorkspaceActor(actor)) {
     validateSellerVehicleDescription(normalizeVehicleInput(input).description);
   }
+  validateVehicleLocation(normalizeVehicleInput(input));
 
   if (!isFirebaseConfigured) {
     const vehicle = {
@@ -1539,6 +1574,7 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
   }
 
   const normalizedInput = normalizeVehicleInput(input);
+  validateVehicleLocation(normalizedInput);
   if (actor.role === "seller") {
     validateSellerVehicleDescription(normalizedInput.description);
   }
@@ -1559,6 +1595,7 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
         storedInWarehouse: input.listingType === "warehouse",
         warehouseAddress: "",
         sellerLocationSuburb: "",
+        sellerLocationPostcode: "",
         sellerLocationState: "",
         make: "",
         model: "",

@@ -31,6 +31,7 @@ function buildVehicleFormInput(vehicle: Vehicle, price: number): VehicleFormInpu
     serviceHistory: vehicle.serviceHistory ?? "",
     keyCount: vehicle.keyCount ?? "",
     sellerLocationSuburb: vehicle.sellerLocationSuburb ?? "",
+    sellerLocationPostcode: vehicle.sellerLocationPostcode ?? "",
     sellerLocationState: vehicle.sellerLocationState ?? "",
     description: vehicle.description,
     coverImage: vehicle.coverImage ?? vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",

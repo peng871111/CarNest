@@ -272,6 +272,7 @@ export function VehicleForm({
         serviceHistory: formValues.serviceHistory,
         keyCount: formValues.keyCount,
         sellerLocationSuburb: formValues.sellerLocationSuburb,
+        sellerLocationPostcode: formValues.sellerLocationPostcode,
         sellerLocationState: formValues.sellerLocationState,
         description: formValues.description,
         coverImage: imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",

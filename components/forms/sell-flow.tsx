@@ -37,7 +37,6 @@ interface SellFlowState extends VehicleFormFieldsValue {
 
 const initialState: SellFlowState = {
   ...buildVehicleFormFieldsValue(),
-  sellerLocationState: "VIC",
   listingChoice: "basic",
   serviceQuoteNotes: ""
 };
@@ -154,6 +153,7 @@ export function SellFlow() {
         serviceHistory: form.serviceHistory,
         keyCount: form.keyCount,
         sellerLocationSuburb: form.sellerLocationSuburb,
+        sellerLocationPostcode: form.sellerLocationPostcode,
         sellerLocationState: form.sellerLocationState,
         description: form.description,
         coverImageUrl: imageUrls[0] || "",
@@ -194,6 +194,7 @@ export function SellFlow() {
             price: Number(form.price || 0),
             colour: form.colour,
             suburb: form.sellerLocationSuburb,
+            postcode: form.sellerLocationPostcode,
             state: form.sellerLocationState,
             description: form.description,
             imageCount: selectedFiles.length
@@ -457,7 +458,7 @@ export function SellFlow() {
                   <div>
                     <p className="text-[#F5F5F5]/42">Location</p>
                     <p className="mt-1">
-                      {[form.sellerLocationSuburb, form.sellerLocationState].filter(Boolean).join(", ") || "Not provided"}
+                      {[form.sellerLocationSuburb, form.sellerLocationPostcode, form.sellerLocationState].filter(Boolean).join(", ") || "Not provided"}
                     </p>
                   </div>
                   <div>

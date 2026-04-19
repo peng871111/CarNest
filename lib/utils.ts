@@ -13,8 +13,8 @@ export function formatCurrency(value: number) {
   }).format(value);
 }
 
-export function formatLocation(suburb?: string, state?: string) {
-  return [suburb, state].filter(Boolean).join(", ") || "Location withheld";
+export function formatLocation(suburb?: string, postcode?: string, state?: string) {
+  return [suburb, postcode, state].filter(Boolean).join(", ") || "Location withheld";
 }
 
 export function formatAdminDateTime(value?: string) {

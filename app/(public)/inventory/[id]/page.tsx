@@ -118,6 +118,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     ["Keys", vehicle.keyCount],
     ["Rego expiry", vehicle.regoExpiry ? formatCalendarDate(vehicle.regoExpiry) : ""],
     ["Seller suburb", vehicle.sellerLocationSuburb ?? ""],
+    ["Postcode", vehicle.sellerLocationPostcode ?? ""],
     ["Seller state", vehicle.sellerLocationState ?? ""],
     ["Vehicle ID", getVehicleDisplayReference(vehicle)]
   ].filter(([, value]) => Boolean(value));
