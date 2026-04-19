@@ -617,7 +617,7 @@ export function VehicleForm({
           />
         </label>
         <p className="text-xs uppercase tracking-[0.22em] text-ink/45">
-          Maximum 21 images allowed. Images are compressed before upload and local previews still work even when cloud upload is disabled.
+          Maximum 21 images allowed. Images are automatically optimised for faster upload and local previews still work even when cloud upload is disabled.
         </p>
         {processingImages ? <p className="text-sm text-ink/60">Preparing images...</p> : null}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

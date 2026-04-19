@@ -1,7 +1,10 @@
 "use client";
 
 const MAX_IMAGE_DIMENSION = 1600;
-const OUTPUT_QUALITY = 0.76;
+const OUTPUT_QUALITY = 0.75;
+const MIN_OUTPUT_QUALITY = 0.6;
+const MAX_OUTPUT_BYTES = 800 * 1024;
+const QUALITY_STEP = 0.05;
 
 function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -35,8 +38,8 @@ function getScaledDimensions(width: number, height: number) {
   };
 }
 
-function canvasToJpegFile(canvas: HTMLCanvasElement, fileName: string) {
-  return new Promise<File>((resolve, reject) => {
+function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
         if (!blob) {
@@ -44,13 +47,31 @@ function canvasToJpegFile(canvas: HTMLCanvasElement, fileName: string) {
           return;
         }
 
-        const sanitizedName = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "-").toLowerCase();
-        resolve(new File([blob], `${sanitizedName}.jpg`, { type: "image/jpeg" }));
+        resolve(blob);
       },
       "image/jpeg",
-      OUTPUT_QUALITY
+      quality
     );
   });
+}
+
+function jpegBlobToFile(blob: Blob, fileName: string) {
+  return new Promise<File>((resolve, reject) => {
+    const sanitizedName = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "-").toLowerCase();
+    resolve(new File([blob], `${sanitizedName}.jpg`, { type: "image/jpeg" }));
+  });
+}
+
+async function canvasToOptimizedJpegFile(canvas: HTMLCanvasElement, fileName: string) {
+  let quality = OUTPUT_QUALITY;
+  let blob = await canvasToJpegBlob(canvas, quality);
+
+  while (blob.size > MAX_OUTPUT_BYTES && quality > MIN_OUTPUT_QUALITY) {
+    quality = Math.max(MIN_OUTPUT_QUALITY, Number((quality - QUALITY_STEP).toFixed(2)));
+    blob = await canvasToJpegBlob(canvas, quality);
+  }
+
+  return jpegBlobToFile(blob, fileName);
 }
 
 export async function optimizeVehicleImage(file: File) {
@@ -74,7 +95,7 @@ export async function optimizeVehicleImage(file: File) {
   context.imageSmoothingQuality = "high";
   context.drawImage(image, 0, 0, width, height);
 
-  return canvasToJpegFile(canvas, file.name);
+  return canvasToOptimizedJpegFile(canvas, file.name);
 }
 
 export async function optimizeVehicleImages(files: File[]) {
@@ -84,3 +105,5 @@ export async function optimizeVehicleImages(files: File[]) {
 export const VEHICLE_IMAGE_UPLOAD_LIMIT = 21;
 export const VEHICLE_IMAGE_MAX_DIMENSION = MAX_IMAGE_DIMENSION;
 export const VEHICLE_IMAGE_OUTPUT_QUALITY = OUTPUT_QUALITY;
+export const VEHICLE_IMAGE_MIN_OUTPUT_QUALITY = MIN_OUTPUT_QUALITY;
+export const VEHICLE_IMAGE_MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES;

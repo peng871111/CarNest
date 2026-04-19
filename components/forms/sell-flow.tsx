@@ -507,7 +507,7 @@ export function SellFlow() {
                 Local previews stay available even before cloud upload is configured.
               </p>
               <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
-                Images are resized before upload for faster listing performance.
+                Images are automatically optimised for faster upload.
               </p>
               {processingImages ? <p className="mt-3 text-sm text-[#F5F5F5]/72">Preparing images...</p> : null}
             </div>
