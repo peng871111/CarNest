@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clearAllLoginProtectionBrowserState, useAuth } from "@/lib/auth";
 import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
-import { UserRole } from "@/types";
+import { AppUser, UserRole } from "@/types";
 
-const DEFAULT_PUBLIC_SIGNUP_ROLE = "seller" as const;
+const DEFAULT_PRIVATE_SIGNUP_ROLE = "seller" as const;
 const REGISTER_PASSWORD_HELPER_TEXT = "Password must be at least 8 characters and include uppercase, lowercase, and a number.";
+const DEALER_ACCOUNT_NOTE = "Dealer accounts require manual verification before activation.";
+const DEALER_ACCOUNT_TIMELINE_NOTE = "Verification usually takes 7–14 days after required documents are submitted.";
 
 function getRegisterPasswordError(password: string) {
   if (password.length < 8) {
@@ -40,12 +42,18 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [accountType, setAccountType] = useState<"private" | "dealer">("private");
 
   useEffect(() => {
     if (searchParams.get("reset") === "success") {
       clearAllLoginProtectionBrowserState();
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (mode !== "register") return;
+    setAccountType(searchParams.get("accountType") === "dealer" ? "dealer" : "private");
+  }, [mode, searchParams]);
 
   function navigateToDestination(destination: string) {
     if (typeof window !== "undefined") {
@@ -68,9 +76,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const password = String(form.get("password") ?? "");
     const name = String(form.get("name") ?? "").trim();
 
-    function resolveDestination(role: UserRole) {
+    function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus">, flow: "login" | "register") {
+      if (user.role === "admin" || user.role === "super_admin") return "/admin/vehicles";
+      if (user.role === "dealer") {
+        if (flow === "register") return "/dealer/apply";
+        if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
+        return user.dealerStatus === "approved" ? "/dealer" : "/dealer/application-status";
+      }
+
       if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-      if (role === "admin" || role === "super_admin") return "/admin/vehicles";
       return "/seller/vehicles";
     }
 
@@ -107,16 +121,17 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       if (mode === "login") {
         const user = await login(email, password);
         setSuccess("Signed in successfully. Redirecting...");
-        navigateToDestination(resolveDestination(user.role));
+        navigateToDestination(resolveDestination(user, "login"));
       } else {
+        const selectedRole: UserRole = accountType === "dealer" ? "dealer" : DEFAULT_PRIVATE_SIGNUP_ROLE;
         const user = await register({
           name,
           email,
           password,
-          role: DEFAULT_PUBLIC_SIGNUP_ROLE
+          role: selectedRole
         });
         setSuccess("Account created successfully. Redirecting...");
-        navigateToDestination(resolveDestination(user.role));
+        navigateToDestination(resolveDestination(user, "register"));
       }
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
@@ -127,6 +142,37 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
+      {mode === "register" ? (
+        <div className="space-y-3">
+          <p className="text-sm font-medium text-ink">Account type</p>
+          <div className="grid grid-cols-2 gap-2 rounded-[24px] bg-shell p-1">
+            <button
+              type="button"
+              onClick={() => setAccountType("private")}
+              className={`rounded-[20px] px-4 py-3 text-sm font-medium transition ${
+                accountType === "private" ? "bg-white text-ink shadow-sm" : "text-ink/65 hover:text-ink"
+              }`}
+            >
+              Private account
+            </button>
+            <button
+              type="button"
+              onClick={() => setAccountType("dealer")}
+              className={`rounded-[20px] px-4 py-3 text-sm font-medium transition ${
+                accountType === "dealer" ? "bg-white text-ink shadow-sm" : "text-ink/65 hover:text-ink"
+              }`}
+            >
+              Dealer account
+            </button>
+          </div>
+          {accountType === "dealer" ? (
+            <div className="rounded-[22px] border border-black/5 bg-shell px-4 py-3 text-sm leading-6 text-ink/65">
+              <p>{DEALER_ACCOUNT_NOTE}</p>
+              <p className="mt-1">{DEALER_ACCOUNT_TIMELINE_NOTE}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {mode === "register" && <Input name="name" placeholder="Full name" required />}
       <Input type="email" name="email" placeholder="Email address" required />
       <Input

@@ -28,7 +28,7 @@ interface AuthContextValue {
   loading: boolean;
   authError: string;
   login: (email: string, password: string) => Promise<AppUser>;
-  register: (input: { name: string; email: string; password: string; role: "buyer" | "seller" }) => Promise<AppUser>;
+  register: (input: { name: string; email: string; password: string; role: "buyer" | "seller" | "dealer" }) => Promise<AppUser>;
   requestPasswordReset: (email: string) => Promise<void>;
   changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -45,7 +45,7 @@ const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it f
 const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
 const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
 const LOGIN_PROTECTION_SESSION_KEY = "carnest_login_protection_session";
-const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" }>();
+const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" | "dealer" }>();
 const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageVehicles: false,
   manageOffers: false,
@@ -345,7 +345,7 @@ function getProfilePermissions(user: Pick<AppUser, "role" | "adminPermissions">)
   return user.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS;
 }
 
-function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" }, existingData?: Record<string, unknown>) {
+function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" | "dealer" }, existingData?: Record<string, unknown>) {
   const email = String(existingData?.email ?? firebaseUser.email ?? "");
   const managedAccess = resolveManagedUserAccess({
     email,
@@ -375,6 +375,8 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
       || existingData?.dealerStatus === "approved"
       || existingData?.dealerStatus === "rejected"
         ? existingData.dealerStatus
+        : pendingSeed?.role === "dealer"
+          ? "pending"
         : "none",
     dealerVerified: Boolean(existingData?.dealerVerified),
     dealerApplicationId: typeof existingData?.dealerApplicationId === "string" ? existingData.dealerApplicationId : undefined,
@@ -383,7 +385,7 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
   } satisfies AppUser;
 }
 
-async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" }) {
+async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" | "dealer" }) {
   const ref = doc(db, "users", firebaseUser.uid);
   const user = buildManagedUserProfile(firebaseUser, pendingSeed);
   const payload: Record<string, unknown> = {
@@ -394,7 +396,7 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     phone: user.phone ?? "",
     role: user.role,
     complianceStatus: "clear",
-    dealerStatus: "none",
+    dealerStatus: user.role === "dealer" ? "pending" : "none",
     dealerVerified: false,
     listingRestricted: false,
     createdAt: Timestamp.now(),

@@ -47,6 +47,12 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </Link>
           </p>
           <p>
+            Dealer?{" "}
+            <Link href="/register?accountType=dealer" className="text-ink transition hover:text-bronze">
+              Apply for a dealer account
+            </Link>
+          </p>
+          <p>
             <Link href="/inventory" className="text-ink transition hover:text-bronze">
               Continue without an account
             </Link>

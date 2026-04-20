@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const protectedRoutes = [
   { prefix: "/dashboard" },
+  { prefix: "/dealer", roles: ["dealer"] },
   { prefix: "/seller/vehicles", roles: ["seller", "buyer", "dealer"] },
   { prefix: "/seller", roles: ["seller", "dealer"] },
   { prefix: "/admin", roles: ["admin", "super_admin"] }
@@ -21,7 +22,8 @@ const adminPermissionRoutes = [
 
 function getRoleHome(role?: string) {
   if (role === "admin" || role === "super_admin") return "/admin/vehicles";
-  if (role === "seller" || role === "dealer") return "/seller/vehicles";
+  if (role === "dealer") return "/dealer";
+  if (role === "seller") return "/seller/vehicles";
   return "/seller/vehicles";
 }
 
@@ -65,5 +67,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/seller/:path*", "/admin/:path*"]
+  matcher: ["/dashboard/:path*", "/dealer/:path*", "/seller/:path*", "/admin/:path*"]
 };

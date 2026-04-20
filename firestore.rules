@@ -30,6 +30,7 @@ service cloud.firestore {
         && (
           userDoc().data.role == "seller"
           || userDoc().data.role == "buyer"
+          || userDoc().data.role == "dealer"
         );
     }
 
@@ -44,6 +45,7 @@ service cloud.firestore {
     function isAllowedProfileRole(role, email) {
       return role == "buyer"
         || role == "seller"
+        || role == "dealer"
         || (role == "admin" && isLeonEmail(email))
         || (role == "super_admin" && isCraigEmail(email));
     }
@@ -242,6 +244,10 @@ service cloud.firestore {
           "adminPermissions",
           "complianceStatus",
           "complianceFlaggedAt",
+          "dealerStatus",
+          "dealerVerified",
+          "dealerApplicationId",
+          "listingRestricted",
           "failedLoginAttempts",
           "mustResetPassword"
         ])
@@ -256,6 +262,26 @@ service cloud.firestore {
         && (
           !("complianceFlaggedAt" in request.resource.data)
           || request.resource.data.complianceFlaggedAt is timestamp
+        )
+        && (
+          !("dealerStatus" in request.resource.data)
+          || request.resource.data.dealerStatus == "none"
+          || request.resource.data.dealerStatus == "pending"
+          || request.resource.data.dealerStatus == "info_requested"
+          || request.resource.data.dealerStatus == "approved"
+          || request.resource.data.dealerStatus == "rejected"
+        )
+        && (
+          !("dealerVerified" in request.resource.data)
+          || request.resource.data.dealerVerified is bool
+        )
+        && (
+          !("dealerApplicationId" in request.resource.data)
+          || request.resource.data.dealerApplicationId is string
+        )
+        && (
+          !("listingRestricted" in request.resource.data)
+          || request.resource.data.listingRestricted is bool
         )
         && request.resource.data.failedLoginAttempts is int
         && request.resource.data.mustResetPassword is bool;
@@ -276,6 +302,26 @@ service cloud.firestore {
           && (
             !("complianceFlaggedAt" in request.resource.data)
             || request.resource.data.complianceFlaggedAt is timestamp
+          )
+          && (
+            !("dealerStatus" in request.resource.data)
+            || request.resource.data.dealerStatus == "none"
+            || request.resource.data.dealerStatus == "pending"
+            || request.resource.data.dealerStatus == "info_requested"
+            || request.resource.data.dealerStatus == "approved"
+            || request.resource.data.dealerStatus == "rejected"
+          )
+          && (
+            !("dealerVerified" in request.resource.data)
+            || request.resource.data.dealerVerified is bool
+          )
+          && (
+            !("dealerApplicationId" in request.resource.data)
+            || request.resource.data.dealerApplicationId is string
+          )
+          && (
+            !("listingRestricted" in request.resource.data)
+            || request.resource.data.listingRestricted is bool
           )
         );
       allow delete: if isSuperAdmin();
