@@ -29,11 +29,12 @@ export function SellerShell({
   const pathname = usePathname();
   const router = useRouter();
   const { appUser, loading } = useAuth();
+  const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
   const workspaceHomeHref = appUser?.role === "admin" || appUser?.role === "super_admin" ? "/admin/vehicles" : "/seller/vehicles";
-  const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role);
+  const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role) && !isBlockedDealer;
   const sidebarLinks = SELLER_LINKS.filter((link) => {
-    if (link.href === "/seller/offers") return appUser?.role === "seller";
-    if (link.href === "/seller/vehicles/new") return appUser?.role === "seller";
+    if (link.href === "/seller/offers") return appUser?.role === "seller" || appUser?.role === "dealer";
+    if (link.href === "/seller/vehicles/new") return appUser?.role === "seller" || appUser?.role === "dealer";
     return true;
   });
   const [offersBadgeCount, setOffersBadgeCount] = useState(0);
@@ -41,9 +42,15 @@ export function SellerShell({
 
   useEffect(() => {
     if (!loading && !hasWorkspaceAccess) {
-      router.replace(appUser ? workspaceHomeHref : `/login?redirect=${encodeURIComponent(pathname)}`);
+      router.replace(
+        appUser
+          ? isBlockedDealer
+            ? "/dealer/application-status"
+            : workspaceHomeHref
+          : `/login?redirect=${encodeURIComponent(pathname)}`
+      );
     }
-  }, [appUser, hasWorkspaceAccess, loading, pathname, router, workspaceHomeHref]);
+  }, [appUser, hasWorkspaceAccess, isBlockedDealer, loading, pathname, router, workspaceHomeHref]);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,7 +63,7 @@ export function SellerShell({
       }
 
       const [sellerOffersResult, buyerOffersResult] = await Promise.all([
-        appUser.role === "seller" ? getSellerOffersData(appUser.id) : Promise.resolve({ items: [] }),
+        appUser.role === "seller" || appUser.role === "dealer" ? getSellerOffersData(appUser.id) : Promise.resolve({ items: [] }),
         getBuyerOffersData(appUser.id)
       ]);
       if (cancelled) return;

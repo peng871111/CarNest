@@ -9,6 +9,13 @@ import { useAuth } from "@/lib/auth";
 import { reviewDealerApplication } from "@/lib/data";
 import { DealerApplication } from "@/types";
 
+type ReviewAction = "approve" | "reject" | "request_info";
+
+type PendingReviewAction = {
+  applicationId: string;
+  action: ReviewAction;
+} | null;
+
 function formatDate(value?: string) {
   if (!value) return "Not available";
   const date = new Date(value);
@@ -52,6 +59,7 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [pendingAction, setPendingAction] = useState<PendingReviewAction>(null);
 
   const summary = useMemo(() => ({
     pending: applications.filter((item) => item.status === "pending").length,
@@ -59,7 +67,26 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
     approved: applications.filter((item) => item.status === "approved").length
   }), [applications]);
 
-  async function handleReview(application: DealerApplication, action: "approve" | "reject" | "request_info") {
+  function getActionLabel(action: ReviewAction) {
+    if (action === "request_info") return "Request more info";
+    return action === "approve" ? "Approve" : "Reject";
+  }
+
+  function getConfirmMessage(action: ReviewAction) {
+    if (action === "approve") return "Approve this dealer application and unlock dealer access immediately?";
+    if (action === "reject") return "Reject this dealer application and keep dealer access disabled?";
+    return "Mark this application as info requested and keep dealer access disabled until the applicant responds?";
+  }
+
+  function canConfirmAction(application: DealerApplication, action: ReviewAction) {
+    const note = (notes[application.id] ?? "").trim();
+    if (action === "reject" || action === "request_info") {
+      return Boolean(note);
+    }
+    return true;
+  }
+
+  async function handleReview(application: DealerApplication, action: ReviewAction) {
     if (!appUser) {
       setError("Admin session not available.");
       return;
@@ -85,17 +112,28 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
       setApplications((current) => current.map((item) => (item.id === application.id ? result.application : item)));
       setNotice(
         action === "approve"
-          ? "Dealer application approved."
+          ? "Dealer application approved and dealer access unlocked."
           : action === "reject"
             ? "Dealer application rejected."
             : "Dealer application marked as info requested."
       );
       setNotes((current) => ({ ...current, [application.id]: "" }));
+      setPendingAction(null);
     } catch (reviewError) {
       setError(reviewError instanceof Error ? reviewError.message : "Unable to update the dealer application.");
     } finally {
       setBusyId("");
     }
+  }
+
+  function openConfirm(applicationId: string, action: ReviewAction) {
+    setPendingAction({ applicationId, action });
+    setError("");
+    setNotice("");
+  }
+
+  function cancelConfirm() {
+    setPendingAction(null);
   }
 
   if (!applications.length) {
@@ -174,10 +212,19 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
               </div>
               <div className="space-y-1 text-sm text-ink/70">
                 <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Proof</p>
-                {application.lmctProofUploadUrl ? (
-                  <Link href={application.lmctProofUploadUrl} target="_blank" className="font-medium text-ink underline">
-                    {application.lmctProofUploadName || "Open uploaded proof"}
-                  </Link>
+                {application.proofFiles.length ? (
+                  <div className="space-y-2">
+                    {application.proofFiles.map((file, index) => (
+                      <Link
+                        key={`${application.id}-proof-${file.url}-${index}`}
+                        href={file.url}
+                        target="_blank"
+                        className="block font-medium text-ink underline"
+                      >
+                        {file.name || `Open uploaded proof ${application.proofFiles.length > 1 ? index + 1 : ""}`.trim()}
+                      </Link>
+                    ))}
+                  </div>
                 ) : (
                   <p>No proof uploaded</p>
                 )}
@@ -221,26 +268,53 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
                 />
               </label>
               <div className="flex flex-wrap gap-3">
-                <Button type="button" disabled={busyId === application.id} onClick={() => void handleReview(application, "approve")}>
-                  {busyId === application.id ? "Saving..." : "Approve"}
+                <Button type="button" disabled={busyId === application.id} onClick={() => openConfirm(application.id, "approve")}>
+                  {busyId === application.id && pendingAction?.action === "approve" ? "Saving..." : "Approve"}
                 </Button>
                 <Button
                   type="button"
                   disabled={busyId === application.id}
                   className="bg-white text-ink border border-black/10 hover:bg-shell"
-                  onClick={() => void handleReview(application, "request_info")}
+                  onClick={() => openConfirm(application.id, "request_info")}
                 >
-                  {busyId === application.id ? "Saving..." : "Request more info"}
+                  {busyId === application.id && pendingAction?.action === "request_info" ? "Saving..." : "Request more info"}
                 </Button>
                 <Button
                   type="button"
                   disabled={busyId === application.id}
                   className="bg-red-600 text-white hover:bg-red-700"
-                  onClick={() => void handleReview(application, "reject")}
+                  onClick={() => openConfirm(application.id, "reject")}
                 >
-                  {busyId === application.id ? "Saving..." : "Reject"}
+                  {busyId === application.id && pendingAction?.action === "reject" ? "Saving..." : "Reject"}
                 </Button>
               </div>
+              {pendingAction?.applicationId === application.id ? (
+                <div className="rounded-[24px] border border-black/10 bg-shell px-4 py-4">
+                  <p className="text-sm font-medium text-ink">{getConfirmMessage(pendingAction.action)}</p>
+                  {(pendingAction.action === "reject" || pendingAction.action === "request_info") && !canConfirmAction(application, pendingAction.action) ? (
+                    <p className="mt-2 text-sm text-red-600">
+                      {pendingAction.action === "reject" ? "Add a reject reason before confirming." : "Add an info request note before confirming."}
+                    </p>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Button
+                      type="button"
+                      disabled={busyId === application.id || !canConfirmAction(application, pendingAction.action)}
+                      onClick={() => void handleReview(application, pendingAction.action)}
+                    >
+                      {busyId === application.id ? `${getActionLabel(pendingAction.action)}...` : `Confirm ${getActionLabel(pendingAction.action)}`}
+                    </Button>
+                    <Button
+                      type="button"
+                      className="border border-black/10 bg-white text-ink hover:bg-white"
+                      disabled={busyId === application.id}
+                      onClick={cancelConfirm}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           </article>
         ))}

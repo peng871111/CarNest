@@ -55,7 +55,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (
-    pathname.startsWith("/dealer")
+    (pathname.startsWith("/dealer") || pathname.startsWith("/seller"))
     && role === "dealer"
     && dealerStatus !== "approved"
     && !pathname.startsWith("/dealer/apply")

@@ -14,6 +14,7 @@ const AUSTRALIAN_STATE_OPTIONS = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC",
 const DEALER_ACCOUNT_NOTE = "Dealer accounts require manual verification before activation.";
 const DEALER_ACCOUNT_TIMELINE_NOTE = "Verification usually takes 7–14 days after required documents are submitted.";
 const DEALER_PROOF_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+const LICENCE_MANUAL_REVIEW_WARNING = "We could not complete automatic licence verification at this time. Your application will be reviewed manually.";
 
 type DealerApplicationFormValues = {
   legalBusinessName: string;
@@ -136,6 +137,7 @@ export function DealerApplicationForm() {
   const [values, setValues] = useState<DealerApplicationFormValues>(EMPTY_VALUES);
   const [errors, setErrors] = useState<Partial<Record<DealerApplicationFieldErrorKey, string>>>({});
   const [licenceVerificationResult, setLicenceVerificationResult] = useState<DealerLicenceVerificationResult | null>(null);
+  const [licenceVerificationWarning, setLicenceVerificationWarning] = useState("");
   const [verifyingLicence, setVerifyingLicence] = useState(false);
   const [selectedProofFile, setSelectedProofFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -167,6 +169,7 @@ export function DealerApplicationForm() {
     }));
     if (field === "legalBusinessName" || field === "licenceState" || field === "lmctNumber") {
       setLicenceVerificationResult(null);
+      setLicenceVerificationWarning("");
     }
     setSubmitError("");
   }
@@ -202,7 +205,7 @@ export function DealerApplicationForm() {
   function getUnsupportedStateHint(currentValues = values) {
     const normalizedState = currentValues.licenceState.trim().toUpperCase();
     if (!normalizedState || normalizedState === "VIC" || normalizedState === "NSW") return "";
-    return "Automatic licence verification is not yet available for this state. Your application will be manually reviewed.";
+    return LICENCE_MANUAL_REVIEW_WARNING;
   }
 
   async function runLicenceVerification(currentValues = values, options?: { force?: boolean }) {
@@ -221,9 +224,10 @@ export function DealerApplicationForm() {
     try {
       const result = await verifyDealerLicenceByState(normalized.licenceState, normalized.lmctNumber, normalized.legalBusinessName);
       setLicenceVerificationResult(result);
+      setLicenceVerificationWarning(result.ok ? (result.note ?? "") : LICENCE_MANUAL_REVIEW_WARNING);
       setErrors((current) => ({
         ...current,
-        lmctNumber: result.ok ? "" : "LMCT / dealer licence number could not be verified for the selected state."
+        lmctNumber: ""
       }));
       return result;
     } finally {
@@ -256,7 +260,7 @@ export function DealerApplicationForm() {
     try {
       await firebaseUser.reload();
       if (!firebaseUser.emailVerified) {
-        throw new Error("Verify your email address before submitting a dealer application.");
+        throw new Error("Please verify your email address before submitting a dealer application.");
       }
 
       const verificationResult = await runLicenceVerification(normalized, { force: true });
@@ -275,14 +279,17 @@ export function DealerApplicationForm() {
       await submitDealerApplication(
         {
           ...normalized,
-          licenceVerificationStatus: verificationResult.ok ? verificationResult.status : "auto_failed",
-          licenceVerificationNote: verificationResult.note,
+          licenceVerificationStatus: verificationResult.ok ? verificationResult.status : "manual_review_required",
+          licenceVerificationNote: verificationResult.ok ? verificationResult.note : LICENCE_MANUAL_REVIEW_WARNING,
           licenceVerificationSource: verificationResult.source,
           lmctProofUploadUrl: proofUrl,
           lmctProofUploadName: proofFile.name,
           lmctProofUploadContentType: proofFile.type
         },
-        appUser
+        {
+          ...appUser,
+          emailVerified: firebaseUser.emailVerified
+        }
       );
 
       router.replace("/dealer/application-status?submitted=success");
@@ -303,7 +310,7 @@ export function DealerApplicationForm() {
       <div className="rounded-[24px] border border-black/5 bg-shell px-5 py-4 text-sm leading-6 text-ink/65">
         <p>{DEALER_ACCOUNT_NOTE}</p>
         <p className="mt-1">{DEALER_ACCOUNT_TIMELINE_NOTE}</p>
-        {!firebaseUser?.emailVerified ? <p className="mt-2 text-red-600">Verify your email address before submitting this application.</p> : null}
+        {!firebaseUser?.emailVerified ? <p className="mt-2 text-red-600">Please verify your email address before submitting a dealer application.</p> : null}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
@@ -369,9 +376,9 @@ export function DealerApplicationForm() {
           {!errors.lmctNumber && !verifyingLicence && licenceVerificationResult?.ok && licenceVerificationResult.status === "verified" ? (
             <p className="mt-2 text-sm text-emerald-700">Dealer licence verified for the selected state.</p>
           ) : null}
-          {!errors.lmctNumber && !verifyingLicence && (licenceVerificationResult?.note || getUnsupportedStateHint()) ? (
-            <p className={`mt-2 text-sm ${licenceVerificationResult?.ok ? "text-ink/65" : "text-red-600"}`}>
-              {licenceVerificationResult?.note ?? getUnsupportedStateHint()}
+          {!errors.lmctNumber && !verifyingLicence && (licenceVerificationWarning || getUnsupportedStateHint()) ? (
+            <p className={`mt-2 text-sm ${licenceVerificationResult?.ok ? "text-ink/65" : "text-amber-700"}`}>
+              {licenceVerificationWarning || getUnsupportedStateHint()}
             </p>
           ) : null}
         </div>

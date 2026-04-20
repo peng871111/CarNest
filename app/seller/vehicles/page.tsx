@@ -53,12 +53,13 @@ function SellerVehiclesPageContent() {
   const [editingPriceVehicleId, setEditingPriceVehicleId] = useState<string | null>(null);
   const [priceDraft, setPriceDraft] = useState("");
   const [savingPriceVehicleId, setSavingPriceVehicleId] = useState<string | null>(null);
+  const canManageListings = appUser?.role === "seller" || (appUser?.role === "dealer" && appUser.dealerStatus === "approved");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadVehicles() {
-      if (!appUser || (appUser.role !== "seller" && appUser.role !== "buyer")) return;
+      if (!appUser || (!canManageListings && appUser.role !== "buyer")) return;
       const result = await getOwnedVehiclesData(appUser.id);
       if (cancelled) return;
       setVehicles(result.items);
@@ -69,7 +70,7 @@ function SellerVehiclesPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [appUser, searchParamsKey]);
+  }, [appUser, canManageListings, searchParamsKey]);
 
   const writeStatus =
     searchParams.get("write") === "success"
@@ -79,7 +80,7 @@ function SellerVehiclesPageContent() {
       : "";
 
   function beginPriceEdit(vehicle: Vehicle) {
-    if (!appUser || appUser.role !== "seller") return;
+    if (!appUser || !canManageListings) return;
     setWorkspaceNotice("");
     setEditingPriceVehicleId(vehicle.id);
     setPriceDraft(String(vehicle.price));
@@ -91,7 +92,7 @@ function SellerVehiclesPageContent() {
   }
 
   async function savePrice(vehicle: Vehicle) {
-    if (!appUser || appUser.role !== "seller") return;
+    if (!appUser || !canManageListings) return;
 
     const normalizedPrice = Number(priceDraft.trim());
     if (!Number.isFinite(normalizedPrice) || normalizedPrice < 0) {
@@ -135,7 +136,7 @@ function SellerVehiclesPageContent() {
     <SellerShell
       title="My Vehicles"
       description="Manage your vehicles, revisit saved listings, and keep your CarNest activity in one place."
-      allowedRoles={["seller", "buyer"]}
+      allowedRoles={["seller", "buyer", "dealer"]}
     >
       <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -155,7 +156,7 @@ function SellerVehiclesPageContent() {
         <Link href="/dashboard/saved" className="rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink">
           Saved Vehicles
         </Link>
-        {appUser?.role === "seller" ? (
+        {canManageListings ? (
           <Link href="/seller/vehicles/new" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
             Add vehicle
           </Link>
@@ -193,7 +194,7 @@ function SellerVehiclesPageContent() {
                 </div>
                 <div className="text-ink/70">
                   {editingPriceVehicleId === vehicle.id ? (
-                    <Input
+                      <Input
                       type="number"
                       min="0"
                       step="1"
@@ -209,7 +210,7 @@ function SellerVehiclesPageContent() {
                     <button
                       type="button"
                       onClick={() => beginPriceEdit(vehicle)}
-                      disabled={appUser?.role !== "seller" || savingPriceVehicleId === vehicle.id}
+                      disabled={!canManageListings || savingPriceVehicleId === vehicle.id}
                       className="rounded-[18px] px-2 py-1 text-left text-sm font-medium text-ink transition hover:bg-shell disabled:cursor-default disabled:px-0 disabled:hover:bg-transparent"
                     >
                       {formatCurrency(vehicle.price)}
@@ -227,7 +228,7 @@ function SellerVehiclesPageContent() {
           ) : (
             <div className="px-6 py-12 text-sm text-ink/60">
               <p>No vehicles yet. Add your first listing.</p>
-              {appUser?.role === "seller" ? (
+              {canManageListings ? (
                 <Link href="/seller/vehicles/new" className="mt-4 inline-flex rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white">
                   Add vehicle
                 </Link>

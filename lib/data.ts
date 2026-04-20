@@ -224,6 +224,8 @@ interface QuoteWriteResult {
   writeSucceeded: boolean;
 }
 
+const DEALER_APPLICATION_RESUBMIT_COOLDOWN_MS = 15 * 60 * 1000;
+
 export interface ContactMessageWriteInput {
   name: string;
   email: string;
@@ -503,9 +505,41 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
   const duplicateMatchFlags = data.duplicateMatchFlags && typeof data.duplicateMatchFlags === "object"
     ? data.duplicateMatchFlags as Record<string, unknown>
     : {};
+  const duplicateFlags = data.duplicateFlags && typeof data.duplicateFlags === "object"
+    ? data.duplicateFlags as Record<string, unknown>
+    : duplicateMatchFlags;
   const trustIndicators = data.trustIndicators && typeof data.trustIndicators === "object"
     ? data.trustIndicators as Record<string, unknown>
     : {};
+  const proofFiles = Array.isArray(data.lmctProofUploads)
+    ? data.lmctProofUploads
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+        .map((entry) => ({
+          url: typeof entry.url === "string" ? entry.url : "",
+          name: typeof entry.name === "string" ? entry.name : undefined,
+          contentType: typeof entry.contentType === "string" ? entry.contentType : undefined
+        }))
+        .filter((entry) => Boolean(entry.url))
+    : [];
+  const singleProofFile =
+    typeof data.lmctProofUploadUrl === "string" && data.lmctProofUploadUrl
+      ? [{
+          url: data.lmctProofUploadUrl,
+          name: typeof data.lmctProofUploadName === "string"
+            ? data.lmctProofUploadName
+            : typeof data.lmctCertificateName === "string"
+              ? data.lmctCertificateName
+              : undefined,
+          contentType: typeof data.lmctProofUploadContentType === "string" ? data.lmctProofUploadContentType : undefined
+        }]
+      : typeof data.lmctCertificateUrl === "string" && data.lmctCertificateUrl
+        ? [{
+            url: data.lmctCertificateUrl,
+            name: typeof data.lmctCertificateName === "string" ? data.lmctCertificateName : undefined,
+            contentType: undefined
+          }]
+        : [];
+  const normalizedProofFiles = proofFiles.length ? proofFiles : singleProofFile;
 
   return {
     id,
@@ -517,7 +551,7 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
       || data.dealerStatus === "pending"
       || data.dealerStatus === "submitted_unverified"
         ? data.dealerStatus
-        : "submitted_unverified",
+        : "pending",
     legalBusinessName: typeof data.legalBusinessName === "string" ? data.legalBusinessName : "",
     tradingName: typeof data.tradingName === "string" ? data.tradingName : "",
     abn: serializedAbn || (legacyAcnOrAbn.length === 11 ? legacyAcnOrAbn : ""),
@@ -572,10 +606,25 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
           ? data.lmctCertificateName
           : undefined,
     lmctProofUploadContentType: typeof data.lmctProofUploadContentType === "string" ? data.lmctProofUploadContentType : undefined,
+    proofFiles: normalizedProofFiles,
     riskLevel:
       data.riskLevel === "high" || data.riskLevel === "medium"
         ? data.riskLevel
         : "low",
+    spamRiskLevel:
+      data.spamRiskLevel === "high" || data.spamRiskLevel === "medium"
+        ? data.spamRiskLevel
+        : data.riskLevel === "high" || data.riskLevel === "medium"
+          ? data.riskLevel
+          : "low",
+    duplicateFlags: {
+      hasAny: Boolean(duplicateFlags.hasAny),
+      lmctNumber: Boolean(duplicateFlags.lmctNumber),
+      abn: Boolean(duplicateFlags.abn),
+      acn: Boolean(duplicateFlags.acn),
+      contactPhone: Boolean(duplicateFlags.contactPhone),
+      contactEmail: Boolean(duplicateFlags.contactEmail)
+    },
     duplicateMatchFlags: {
       hasAny: Boolean(duplicateMatchFlags.hasAny),
       lmctNumber: Boolean(duplicateMatchFlags.lmctNumber),
@@ -601,6 +650,7 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
         ? data.status
         : "pending",
     requestedAt: serializeDate(data.requestedAt ?? data.createdAt),
+    lastSubmittedAt: serializeDate(data.lastSubmittedAt),
     updatedAt: serializeDate(data.updatedAt),
     reviewedAt: serializeDate(data.reviewedAt),
     reviewedByUid: typeof data.reviewedByUid === "string" ? data.reviewedByUid : undefined,
@@ -808,6 +858,28 @@ function computeDealerApplicationRiskLevel(input: {
   return "low" as DealerApplicationRiskLevel;
 }
 
+function isDealerApplicationActive(status?: DealerApplication["status"]) {
+  return status === "pending" || status === "info_requested";
+}
+
+function getDealerApplicationCooldownRemaining(lastSubmittedAt?: string) {
+  if (!lastSubmittedAt) return 0;
+
+  const submittedAt = new Date(lastSubmittedAt).getTime();
+  if (Number.isNaN(submittedAt)) return 0;
+
+  return Math.max(0, submittedAt + DEALER_APPLICATION_RESUBMIT_COOLDOWN_MS - Date.now());
+}
+
+function formatDealerApplicationCooldownMessage(remainingMs: number) {
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  if (totalMinutes <= 1) {
+    return "Please wait a minute before submitting another dealer application.";
+  }
+
+  return `Please wait ${totalMinutes} minutes before submitting another dealer application.`;
+}
+
 function normalizeDealerApplicationInput(input: DealerApplicationWriteInput) {
   return {
     legalBusinessName: sanitizeSingleLineText(input.legalBusinessName),
@@ -881,12 +953,12 @@ function validateDealerApplicationInput(input: DealerApplicationWriteInput) {
     throw new Error("Licence expiry must be a future date.");
   }
 
-  if (normalized.licenceState === "VIC" || normalized.licenceState === "NSW") {
-    if (normalized.licenceVerificationStatus !== "verified" && normalized.licenceVerificationStatus !== "auto_failed") {
-      throw new Error("LMCT / dealer licence number could not be verified for the selected state.");
-    }
-  } else if (normalized.licenceVerificationStatus !== "manual_review_required") {
-    throw new Error("Automatic licence verification is not yet available for this state. Your application will be manually reviewed.");
+  if (
+    normalized.licenceVerificationStatus !== "verified"
+    && normalized.licenceVerificationStatus !== "manual_review_required"
+    && normalized.licenceVerificationStatus !== "auto_failed"
+  ) {
+    throw new Error("Dealer licence verification status is invalid.");
   }
 
   if (!normalized.lmctProofUploadUrl) {
@@ -1372,8 +1444,31 @@ export async function listUsers() {
     { id: "seller-001", email: "seller@carnest.com", displayName: "Prestige Seller", role: "seller" },
     { id: "buyer-001", email: "buyer@carnest.com", displayName: "Qualified Buyer", role: "buyer" }
   ];
-  const result = await getCollection<AppUser>("users", fallback, serializeUserDoc);
+  const result = await getUsersData(fallback);
   return result.items;
+}
+
+export async function getUsersData(fallback?: AppUser[]) {
+  const defaultFallback = fallback ?? [
+    {
+      id: "super-admin-001",
+      email: "peng871111@gmail.com",
+      displayName: "Craig",
+      role: "super_admin",
+      adminPermissions: createSuperAdminPermissions()
+    },
+    {
+      id: "admin-001",
+      email: "dengue0111@gmail.com",
+      displayName: "Leon",
+      role: "admin",
+      adminPermissions: createAdminPermissions()
+    },
+    { id: "seller-001", email: "seller@carnest.com", displayName: "Prestige Seller", role: "seller" },
+    { id: "buyer-001", email: "buyer@carnest.com", displayName: "Qualified Buyer", role: "buyer" }
+  ] satisfies AppUser[];
+
+  return getCollection<AppUser>("users", defaultFallback, serializeUserDoc);
 }
 
 export async function getUserComplianceAssessment(
@@ -1647,6 +1742,14 @@ export async function getSavedVehiclesData(userId: string) {
   }
 }
 
+export async function getSavedVehiclesCollectionData() {
+  return getCollection<SavedVehicle>("savedVehicles", [], serializeSavedVehicleDoc);
+}
+
+export async function getVehicleViewEventsData() {
+  return getCollection<VehicleViewEvent>("vehicleViewEvents", [], serializeVehicleViewEventDoc);
+}
+
 async function getVehicleActivityEventsForVehicleIds(vehicleIds: string[]) {
   if (!vehicleIds.length) return [] as VehicleActivityEvent[];
   if (!isFirebaseConfigured) return [] as VehicleActivityEvent[];
@@ -1918,55 +2021,73 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
   if (isAdminLikeRole(actor.role)) {
     throw new Error("Admin accounts do not need a dealer application.");
   }
+  if (!actor.emailVerified) {
+    throw new Error("Please verify your email address before submitting a dealer application.");
+  }
   if (actor.dealerStatus === "approved" || actor.dealerVerified) {
     throw new Error("This account is already approved as a dealer.");
   }
 
   const serviceVerification = await verifyDealerLicenceByState(input.licenceState, input.lmctNumber, input.legalBusinessName);
   const existingApplication = await getDealerApplicationByUserId(actor.id);
-  if (existingApplication && (existingApplication.status === "pending" || existingApplication.status === "info_requested")) {
-    throw new Error("You already have an active dealer application under review.");
+  if (existingApplication && isDealerApplicationActive(existingApplication.status)) {
+    throw new Error("You already have an active dealer application. Please wait for review or respond to the current information request before submitting again.");
+  }
+
+  const cooldownRemaining = getDealerApplicationCooldownRemaining(existingApplication?.lastSubmittedAt);
+  if (cooldownRemaining > 0) {
+    throw new Error(formatDealerApplicationCooldownMessage(cooldownRemaining));
   }
 
   const normalized = validateDealerApplicationInput({
     ...input,
-    licenceVerificationStatus: serviceVerification.ok ? serviceVerification.status : "auto_failed",
-    licenceVerificationNote: serviceVerification.note ?? input.licenceVerificationNote,
+    licenceVerificationStatus: serviceVerification.ok ? serviceVerification.status : "manual_review_required",
+    licenceVerificationNote:
+      serviceVerification.ok
+        ? (serviceVerification.note ?? input.licenceVerificationNote)
+        : "We could not complete automatic licence verification at this time. Your application will be reviewed manually.",
     licenceVerificationSource: serviceVerification.source || input.licenceVerificationSource
   });
   const rejectionHistoryCount = existingApplication?.status === "rejected"
     ? Math.max((existingApplication.rejectionHistoryCount ?? 0) + 1, 1)
     : existingApplication?.rejectionHistoryCount ?? 0;
   const duplicateSignals = await getDealerApplicationDuplicateSignals(normalized, actor.id);
-  if (duplicateSignals.flags.hasAny) {
-    throw new Error("A similar dealer application is already on file. Please contact CarNest support if you believe this is an error.");
-  }
   const trustIndicators = buildDealerApplicationTrustIndicators(normalized, {
     rejectionHistoryCount
   });
-  const riskLevel = computeDealerApplicationRiskLevel({
+  const spamRiskLevel = computeDealerApplicationRiskLevel({
     licenceVerificationStatus: normalized.licenceVerificationStatus,
     duplicateMatchFlags: duplicateSignals.flags,
     trustIndicators
   });
-  const requestedAt = new Date().toISOString();
+  const lastSubmittedAt = new Date().toISOString();
   const application = {
     id: actor.id,
     userId: actor.id,
-    dealerStatus: "submitted_unverified" as const,
+    dealerStatus: "pending" as const,
     ...normalized,
     licenceVerificationNote: normalized.licenceVerificationNote || undefined,
     licenceVerificationSource: normalized.licenceVerificationSource || undefined,
     lmctProofUploadName: normalized.lmctProofUploadName || undefined,
     lmctProofUploadContentType: normalized.lmctProofUploadContentType || undefined,
-    riskLevel,
+    proofFiles: normalized.lmctProofUploadUrl
+      ? [{
+          url: normalized.lmctProofUploadUrl,
+          name: normalized.lmctProofUploadName || undefined,
+          contentType: normalized.lmctProofUploadContentType || undefined
+        }]
+      : [],
+    riskLevel: spamRiskLevel,
+    spamRiskLevel,
+    duplicateFlags: duplicateSignals.flags,
     duplicateMatchFlags: duplicateSignals.flags,
     duplicateMatchedApplicationIds: duplicateSignals.matchedApplicationIds,
     trustIndicators,
     rejectionHistoryCount,
     status: "pending" as const,
-    requestedAt,
-    updatedAt: requestedAt
+    requestedAt: existingApplication?.requestedAt ?? lastSubmittedAt,
+    lastSubmittedAt,
+    updatedAt: lastSubmittedAt
   } satisfies DealerApplication;
 
   if (!isFirebaseConfigured) {
@@ -1981,19 +2102,22 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     doc(db, "dealerApplications", actor.id),
     {
       userId: actor.id,
-      dealerStatus: "submitted_unverified",
+      dealerStatus: "pending",
       ...normalized,
       ...(normalized.licenceVerificationNote ? { licenceVerificationNote: normalized.licenceVerificationNote } : {}),
       ...(normalized.licenceVerificationSource ? { licenceVerificationSource: normalized.licenceVerificationSource } : {}),
       ...(normalized.lmctProofUploadName ? { lmctProofUploadName: normalized.lmctProofUploadName } : {}),
       ...(normalized.lmctProofUploadContentType ? { lmctProofUploadContentType: normalized.lmctProofUploadContentType } : {}),
-      riskLevel,
+      riskLevel: spamRiskLevel,
+      spamRiskLevel,
+      duplicateFlags: duplicateSignals.flags,
       duplicateMatchFlags: duplicateSignals.flags,
       duplicateMatchedApplicationIds: duplicateSignals.matchedApplicationIds,
       trustIndicators,
       rejectionHistoryCount,
       status: "pending",
-      requestedAt: serverTimestamp(),
+      ...(existingApplication?.requestedAt ? { requestedAt: Timestamp.fromDate(new Date(existingApplication.requestedAt)) } : { requestedAt: serverTimestamp() }),
+      lastSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       reviewedAt: deleteField(),
       reviewedByUid: deleteField()
@@ -2004,7 +2128,7 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
   await setDoc(
     doc(db, "users", actor.id),
     {
-      dealerStatus: "submitted_unverified",
+      dealerStatus: "pending",
       dealerVerified: false,
       dealerApplicationId: actor.id,
       updatedAt: serverTimestamp()

@@ -35,7 +35,7 @@ function SellerEditVehiclePageContent() {
     let cancelled = false;
 
     async function loadVehicle() {
-      if (!appUser || appUser.role !== "seller" || !params?.id) return;
+      if (!appUser || ((appUser.role !== "seller" && appUser.role !== "dealer") || !params?.id)) return;
 
       const item = await getVehicleById(params.id);
       if (cancelled) return;

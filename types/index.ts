@@ -158,6 +158,7 @@ export interface VehicleActor {
   id: string;
   role: UserRole;
   email?: string;
+  emailVerified?: boolean;
   adminPermissions?: AdminPermissions;
   dealerVerified?: boolean;
   listingRestricted?: boolean;
@@ -271,6 +272,12 @@ export interface UserComplianceAssessment {
   thresholdReached: boolean;
 }
 
+export interface DealerApplicationProofFile {
+  url: string;
+  name?: string;
+  contentType?: string;
+}
+
 export interface DealerApplication {
   id: string;
   userId: string;
@@ -295,7 +302,17 @@ export interface DealerApplication {
   lmctProofUploadUrl: string;
   lmctProofUploadName?: string;
   lmctProofUploadContentType?: string;
+  proofFiles: DealerApplicationProofFile[];
   riskLevel: DealerApplicationRiskLevel;
+  spamRiskLevel: DealerApplicationRiskLevel;
+  duplicateFlags: {
+    hasAny: boolean;
+    lmctNumber: boolean;
+    abn: boolean;
+    acn: boolean;
+    contactPhone: boolean;
+    contactEmail: boolean;
+  };
   duplicateMatchFlags: {
     hasAny: boolean;
     lmctNumber: boolean;
@@ -316,6 +333,7 @@ export interface DealerApplication {
   rejectionHistoryCount: number;
   status: Exclude<DealerStatus, "none">;
   requestedAt?: string;
+  lastSubmittedAt?: string;
   updatedAt?: string;
   reviewedAt?: string;
   reviewedByUid?: string;

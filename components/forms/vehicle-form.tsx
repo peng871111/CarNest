@@ -60,6 +60,7 @@ export function VehicleForm({
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const currentVehicle = activeVehicle ?? vehicle;
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
+  const isSellerManagedUser = appUser?.role === "seller" || appUser?.role === "dealer";
 
   useEffect(() => {
     setActiveVehicle(vehicle);
@@ -310,9 +311,9 @@ export function VehicleForm({
       }
 
       const basePath =
-        appUser.role === "seller" && currentVehicle
+        isSellerManagedUser && currentVehicle
           ? `/seller/vehicles/${result.vehicle.id}/edit`
-          : appUser.role === "seller"
+          : isSellerManagedUser
             ? "/seller/vehicles"
             : "/admin/vehicles";
       router.replace(
@@ -328,7 +329,7 @@ export function VehicleForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 rounded-[32px] border border-black/5 bg-white p-8 shadow-panel">
-      {currentVehicle && appUser?.role === "seller" && currentVehicle.ownerUid !== appUser.id ? (
+      {currentVehicle && isSellerManagedUser && currentVehicle.ownerUid !== appUser.id ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
           You cannot edit a vehicle you do not own.
         </div>
@@ -479,7 +480,7 @@ export function VehicleForm({
       {message ? <p className="rounded-[24px] bg-shell px-4 py-3 text-sm leading-6 text-ink/70">{message}</p> : null}
 
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={saving || deletingImageUrl !== "" || loading || !appUser || (currentVehicle ? appUser.role === "seller" && currentVehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
+        <Button type="submit" disabled={saving || deletingImageUrl !== "" || loading || !appUser || (currentVehicle ? isSellerManagedUser && currentVehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
           {saving && selectedImages.length && isFirebaseStorageConfigured
             ? "Uploading images..."
             : saving
@@ -491,7 +492,7 @@ export function VehicleForm({
         <Button
           type="button"
           className="bg-white text-ink ring-1 ring-black/10 hover:bg-shell"
-          onClick={() => router.push(appUser?.role === "seller" ? "/seller/vehicles" : "/admin/vehicles")}
+          onClick={() => router.push(isSellerManagedUser ? "/seller/vehicles" : "/admin/vehicles")}
         >
           Cancel
         </Button>

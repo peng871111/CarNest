@@ -62,7 +62,9 @@ export function SellFlow() {
     [selectedFiles]
   );
 
-  const canSubmit = appUser?.role === "seller" || appUser?.role === "buyer";
+  const isApprovedDealer = appUser?.role === "dealer" && appUser.dealerStatus === "approved";
+  const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
+  const canSubmit = appUser?.role === "seller" || appUser?.role === "buyer" || isApprovedDealer;
 
   function setField<K extends keyof SellFlowState>(key: K, value: SellFlowState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -248,10 +250,19 @@ export function SellFlow() {
     return (
       <div className="rounded-[32px] border border-white/10 bg-[#121212] p-8 text-[#F5F5F5] shadow-panel">
         <p className="text-xs uppercase tracking-[0.28em] text-[#C6A87D]">Seller access</p>
-        <h2 className="mt-4 font-display text-4xl">This submission flow is for seller accounts.</h2>
+        <h2 className="mt-4 font-display text-4xl">{isBlockedDealer ? "Dealer approval is still in progress." : "This submission flow is for seller accounts."}</h2>
         <p className="mt-4 max-w-2xl text-sm leading-6 text-[#F5F5F5]/72">
-          You are currently signed in as a {appUser.role}. Switch to a seller account to submit a vehicle through the guided sell flow.
+          {isBlockedDealer
+            ? "Your dealer application needs approval before you can create listings. Check your application status for the next step."
+            : `You are currently signed in as a ${appUser.role}. Switch to a seller account to submit a vehicle through the guided sell flow.`}
         </p>
+        {isBlockedDealer ? (
+          <div className="mt-8">
+            <Link href="/dealer/application-status" className="rounded-full bg-[#C6A87D] px-6 py-3 text-sm font-semibold text-[#111111] transition hover:opacity-90">
+              View application status
+            </Link>
+          </div>
+        ) : null}
       </div>
     );
   }
