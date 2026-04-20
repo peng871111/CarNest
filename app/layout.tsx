@@ -1,6 +1,7 @@
 import "./globals.css";
 import { Metadata } from "next";
 import { ReactNode } from "react";
+import { Analytics } from "@vercel/analytics/react";
 import { AppProviders } from "@/components/providers/app-providers";
 import { getSiteUrl } from "@/lib/seo";
 
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="min-h-screen bg-shell font-sans text-ink antialiased">
         <AppProviders>{children}</AppProviders>
+        {process.env.NODE_ENV === "production" ? <Analytics /> : null}
       </body>
     </html>
   );
