@@ -25,6 +25,12 @@ service cloud.firestore {
       return signedIn() && userDoc().data.role == "seller";
     }
 
+    function isApprovedDealer() {
+      return signedIn()
+        && userDoc().data.role == "dealer"
+        && userDoc().data.dealerStatus == "approved";
+    }
+
     function isSellerWorkspaceUser() {
       return signedIn()
         && (
@@ -266,6 +272,7 @@ service cloud.firestore {
         && (
           !("dealerStatus" in request.resource.data)
           || request.resource.data.dealerStatus == "none"
+          || request.resource.data.dealerStatus == "submitted_unverified"
           || request.resource.data.dealerStatus == "pending"
           || request.resource.data.dealerStatus == "info_requested"
           || request.resource.data.dealerStatus == "approved"
@@ -306,6 +313,7 @@ service cloud.firestore {
           && (
             !("dealerStatus" in request.resource.data)
             || request.resource.data.dealerStatus == "none"
+            || request.resource.data.dealerStatus == "submitted_unverified"
             || request.resource.data.dealerStatus == "pending"
             || request.resource.data.dealerStatus == "info_requested"
             || request.resource.data.dealerStatus == "approved"
@@ -327,6 +335,110 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    match /dealerApplications/{applicationId} {
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+      allow create, update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == applicationId
+          && request.resource.data.keys().hasOnly([
+            "userId",
+            "dealerStatus",
+            "legalBusinessName",
+            "tradingName",
+            "abn",
+            "acn",
+            "lmctNumber",
+            "contactPersonName",
+            "contactPhone",
+            "contactEmail",
+            "businessAddressLine1",
+            "businessSuburb",
+            "businessPostcode",
+            "businessState",
+            "licenceState",
+            "licenceExpiry",
+            "licenceVerificationStatus",
+            "licenceVerificationNote",
+            "licenceVerificationSource",
+            "lmctProofUploadUrl",
+            "lmctProofUploadName",
+            "lmctProofUploadContentType",
+            "riskLevel",
+            "duplicateMatchFlags",
+            "duplicateMatchedApplicationIds",
+            "trustIndicators",
+            "rejectionHistoryCount",
+            "status",
+            "requestedAt",
+            "updatedAt",
+            "reviewedAt",
+            "reviewedByUid"
+          ])
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.dealerStatus == "submitted_unverified"
+          && request.resource.data.status == "pending"
+          && request.resource.data.legalBusinessName is string
+          && request.resource.data.tradingName is string
+          && request.resource.data.abn is string
+          && request.resource.data.acn is string
+          && request.resource.data.lmctNumber is string
+          && request.resource.data.contactPersonName is string
+          && request.resource.data.contactPhone is string
+          && request.resource.data.contactEmail is string
+          && request.resource.data.businessAddressLine1 is string
+          && request.resource.data.businessSuburb is string
+          && request.resource.data.businessPostcode is string
+          && request.resource.data.businessState is string
+          && request.resource.data.licenceState is string
+          && request.resource.data.licenceExpiry is string
+          && (
+            request.resource.data.licenceVerificationStatus == "verified"
+            || request.resource.data.licenceVerificationStatus == "manual_review_required"
+            || request.resource.data.licenceVerificationStatus == "auto_failed"
+          )
+          && (
+            !("licenceVerificationNote" in request.resource.data)
+            || request.resource.data.licenceVerificationNote is string
+          )
+          && (
+            !("licenceVerificationSource" in request.resource.data)
+            || request.resource.data.licenceVerificationSource is string
+          )
+          && request.resource.data.lmctProofUploadUrl is string
+          && (
+            request.resource.data.riskLevel == "low"
+            || request.resource.data.riskLevel == "medium"
+            || request.resource.data.riskLevel == "high"
+          )
+          && request.resource.data.duplicateMatchFlags is map
+          && request.resource.data.duplicateMatchedApplicationIds is list
+          && request.resource.data.trustIndicators is map
+          && request.resource.data.rejectionHistoryCount is int
+          && (
+            !("lmctProofUploadName" in request.resource.data)
+            || request.resource.data.lmctProofUploadName is string
+          )
+          && (
+            !("lmctProofUploadContentType" in request.resource.data)
+            || request.resource.data.lmctProofUploadContentType is string
+          )
+          && (
+            !("reviewedAt" in request.resource.data)
+            || request.resource.data.reviewedAt == null
+          )
+          && (
+            !("reviewedByUid" in request.resource.data)
+            || request.resource.data.reviewedByUid == null
+          )
+        );
+      allow delete: if isAdmin();
+    }
+
     match /vehicles/{vehicleId} {
       allow read: if isAdmin()
         || (signedIn() && resource.data.ownerUid == request.auth.uid)
@@ -341,6 +453,7 @@ service cloud.firestore {
       allow create: if isAdmin()
         || (
           isSellerWorkspaceUser()
+          && (userDoc().data.role != "dealer" || isApprovedDealer())
           && request.resource.data.ownerUid == request.auth.uid
           && request.resource.data.ownerRole == "seller"
           && request.resource.data.status == "pending"
@@ -348,7 +461,7 @@ service cloud.firestore {
         );
       allow update: if isAdmin()
         || (
-          isSeller()
+          (isSeller() || isApprovedDealer())
           && resource.data.ownerUid == request.auth.uid
           && request.resource.data.ownerUid == resource.data.ownerUid
           && request.resource.data.ownerRole == resource.data.ownerRole
@@ -380,13 +493,13 @@ service cloud.firestore {
         );
       allow create, update: if isAdmin()
         || (
-          isSeller()
+          (isSeller() || isApprovedDealer())
           && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
           && request.resource.data.ownerUid == request.auth.uid
         );
       allow delete: if isAdmin()
         || (
-          signedIn()
+          (isSeller() || isApprovedDealer())
           && get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid == request.auth.uid
         );
     }

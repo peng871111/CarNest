@@ -1,7 +1,17 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
 
-export default function DealerDashboardPage() {
+export default async function DealerDashboardPage() {
+  const cookieStore = await cookies();
+  const role = cookieStore.get("carnest_role")?.value;
+  const dealerStatus = cookieStore.get("carnest_dealer_status")?.value;
+
+  if (role === "dealer" && dealerStatus !== "approved") {
+    redirect("/dealer/application-status");
+  }
+
   return (
     <div>
       <WorkspaceHeader workspaceLabel="ACCOUNT" />

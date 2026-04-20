@@ -1,0 +1,250 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { DealerApplicationStatusBadge } from "@/components/admin/dealer-application-status-badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/lib/auth";
+import { reviewDealerApplication } from "@/lib/data";
+import { DealerApplication } from "@/types";
+
+function formatDate(value?: string) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function getRiskTone(riskLevel: DealerApplication["riskLevel"]) {
+  if (riskLevel === "high") return "border-red-200 bg-red-50 text-red-700";
+  if (riskLevel === "medium") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
+function getVerificationTone(status: DealerApplication["licenceVerificationStatus"]) {
+  if (status === "verified") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "auto_failed") return "border-red-200 bg-red-50 text-red-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+export function DealerApplicationReviewBoard({ initialApplications }: { initialApplications: DealerApplication[] }) {
+  const { appUser } = useAuth();
+  const [applications, setApplications] = useState(initialApplications);
+  const [busyId, setBusyId] = useState("");
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [notes, setNotes] = useState<Record<string, string>>({});
+
+  const summary = useMemo(() => ({
+    pending: applications.filter((item) => item.status === "pending").length,
+    infoRequested: applications.filter((item) => item.status === "info_requested").length,
+    approved: applications.filter((item) => item.status === "approved").length
+  }), [applications]);
+
+  async function handleReview(application: DealerApplication, action: "approve" | "reject" | "request_info") {
+    if (!appUser) {
+      setError("Admin session not available.");
+      return;
+    }
+
+    setBusyId(application.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await reviewDealerApplication(
+        application.id,
+        action,
+        appUser,
+        application,
+        {
+          reviewedBy: appUser.displayName || appUser.name || appUser.email,
+          rejectReason: action === "reject" ? notes[application.id] ?? "" : undefined,
+          infoRequestNote: action === "request_info" ? notes[application.id] ?? "" : undefined
+        }
+      );
+
+      setApplications((current) => current.map((item) => (item.id === application.id ? result.application : item)));
+      setNotice(
+        action === "approve"
+          ? "Dealer application approved."
+          : action === "reject"
+            ? "Dealer application rejected."
+            : "Dealer application marked as info requested."
+      );
+      setNotes((current) => ({ ...current, [application.id]: "" }));
+    } catch (reviewError) {
+      setError(reviewError instanceof Error ? reviewError.message : "Unable to update the dealer application.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  if (!applications.length) {
+    return (
+      <section className="rounded-[32px] border border-black/5 bg-white p-10 shadow-panel">
+        <p className="text-xs uppercase tracking-[0.28em] text-bronze">Dealer applications</p>
+        <h2 className="mt-3 font-display text-3xl text-ink">No dealer applications yet</h2>
+        <p className="mt-4 max-w-2xl text-sm leading-6 text-ink/65">
+          New dealer submissions will appear here once applicants complete the verification form.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Pending applications: {summary.pending}</div>
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Info requested: {summary.infoRequested}</div>
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Approved dealers: {summary.approved}</div>
+      </div>
+
+      {notice ? <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div> : null}
+      {error ? <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div> : null}
+
+      <section className="space-y-4">
+        {applications.map((application) => (
+          <article key={application.id} className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-semibold text-ink">{application.contactPersonName || "Unnamed applicant"}</p>
+                <p className="mt-1 text-sm text-ink/60">{application.contactEmail || "No email"} · {application.contactPhone || "No phone"}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <DealerApplicationStatusBadge status={application.status} />
+                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getVerificationTone(application.licenceVerificationStatus)}`}>
+                  {application.licenceVerificationStatus.replaceAll("_", " ")}
+                </span>
+                <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getRiskTone(application.riskLevel)}`}>
+                  {application.riskLevel} risk
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Business</p>
+                <p>{application.legalBusinessName || "Not provided"}</p>
+                <p>{application.tradingName || "No trading name provided"}</p>
+              </div>
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Identifiers</p>
+                <p>ABN: {application.abn || "Not provided"}</p>
+                <p>ACN: {application.acn || "Not provided"}</p>
+                <p>LMCT: {application.lmctNumber || "Not provided"}</p>
+              </div>
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Licence</p>
+                <p>{application.licenceState || "Not provided"}</p>
+                <p>Expires {formatDate(application.licenceExpiry)}</p>
+                <p>Dealer status: {application.dealerStatus.replaceAll("_", " ")}</p>
+              </div>
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Submitted</p>
+                <p>{formatDateTime(application.requestedAt)}</p>
+                <p>Reviewed {formatDateTime(application.reviewedAt)}</p>
+                <p>{application.reviewedBy ? `By ${application.reviewedBy}` : "Not reviewed yet"}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="space-y-1 text-sm text-ink/70 xl:col-span-2">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Business address</p>
+                <p>{application.businessAddressLine1 || "Not provided"}</p>
+                <p>{[application.businessSuburb, application.businessPostcode, application.businessState].filter(Boolean).join(", ") || "Not provided"}</p>
+              </div>
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Proof</p>
+                {application.lmctProofUploadUrl ? (
+                  <Link href={application.lmctProofUploadUrl} target="_blank" className="font-medium text-ink underline">
+                    {application.lmctProofUploadName || "Open uploaded proof"}
+                  </Link>
+                ) : (
+                  <p>No proof uploaded</p>
+                )}
+              </div>
+              <div className="space-y-1 text-sm text-ink/70">
+                <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Duplicate flags</p>
+                <p>{application.duplicateMatchFlags.hasAny ? "Potential duplicate matches found" : "No duplicate matches detected"}</p>
+                {application.duplicateMatchedApplicationIds.length ? (
+                  <p className="text-xs text-ink/50">Related ids: {application.duplicateMatchedApplicationIds.join(", ")}</p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+                Free email domain: {application.trustIndicators.freeEmailDomain ? "Flagged" : "No"}
+              </div>
+              <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+                Rejection history: {application.rejectionHistoryCount}
+              </div>
+              <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+                Location consistency: {application.trustIndicators.businessLocationConsistent ? "Matched" : "Needs review"}
+              </div>
+            </div>
+
+            {application.rejectReason ? (
+              <p className="mt-4 text-sm text-red-700">Reject reason: {application.rejectReason}</p>
+            ) : null}
+            {application.infoRequestNote ? (
+              <p className="mt-2 text-sm text-amber-700">Info requested: {application.infoRequestNote}</p>
+            ) : null}
+
+            <div className="mt-6 space-y-3">
+              <label className="block text-sm font-medium text-ink">
+                Admin note
+                <Textarea
+                  value={notes[application.id] ?? ""}
+                  onChange={(event) => setNotes((current) => ({ ...current, [application.id]: event.target.value }))}
+                  placeholder="Add a rejection reason or request-for-info note when needed."
+                  className="mt-2 min-h-24"
+                />
+              </label>
+              <div className="flex flex-wrap gap-3">
+                <Button type="button" disabled={busyId === application.id} onClick={() => void handleReview(application, "approve")}>
+                  {busyId === application.id ? "Saving..." : "Approve"}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busyId === application.id}
+                  className="bg-white text-ink border border-black/10 hover:bg-shell"
+                  onClick={() => void handleReview(application, "request_info")}
+                >
+                  {busyId === application.id ? "Saving..." : "Request more info"}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={busyId === application.id}
+                  className="bg-red-600 text-white hover:bg-red-700"
+                  onClick={() => void handleReview(application, "reject")}
+                >
+                  {busyId === application.id ? "Saving..." : "Reject"}
+                </Button>
+              </div>
+            </div>
+          </article>
+        ))}
+      </section>
+    </div>
+  );
+}

@@ -3,6 +3,7 @@ import {
   AdminPermissions,
   AppUser,
   ContactMessageStatus,
+  DealerStatus,
   InspectionRequestStatus,
   ListingType,
   OfferStatus,
@@ -146,6 +147,15 @@ export function isSellerLikeRole(role?: UserRole) {
 
 export function isSellerWorkspaceRole(role?: UserRole) {
   return role === "seller" || role === "buyer" || role === "dealer";
+}
+
+export function assertApprovedDealer(
+  actor: Pick<AppUser, "role" | "dealerStatus"> | { role?: UserRole; dealerStatus?: DealerStatus },
+  message = "Your dealer application is still under review, so dealer features are temporarily unavailable."
+) {
+  if (actor.role !== "dealer" || actor.dealerStatus !== "approved") {
+    throw new Error(message);
+  }
 }
 
 export function isSuperAdminUser(user?: Pick<AppUser, "role" | "email"> | null) {

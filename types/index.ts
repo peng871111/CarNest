@@ -1,6 +1,8 @@
 export type UserRole = "buyer" | "seller" | "dealer" | "admin" | "super_admin";
 export type ComplianceStatus = "clear" | "possible_unlicensed_trader" | "verified_dealer";
-export type DealerStatus = "none" | "pending" | "info_requested" | "approved" | "rejected";
+export type DealerStatus = "none" | "submitted_unverified" | "pending" | "info_requested" | "approved" | "rejected";
+export type DealerLicenceVerificationStatus = "verified" | "manual_review_required" | "auto_failed";
+export type DealerApplicationRiskLevel = "low" | "medium" | "high";
 export type AdminPermissionKey =
   | "manageVehicles"
   | "manageOffers"
@@ -42,6 +44,7 @@ export interface AppUser {
   displayName: string;
   name?: string;
   phone?: string;
+  emailVerified?: boolean;
   accountReference?: string;
   role: UserRole;
   adminPermissions?: AdminPermissions;
@@ -271,23 +274,54 @@ export interface UserComplianceAssessment {
 export interface DealerApplication {
   id: string;
   userId: string;
+  dealerStatus: Exclude<DealerStatus, "none">;
   legalBusinessName: string;
   tradingName: string;
-  acnOrAbn: string;
+  abn: string;
+  acn: string;
   lmctNumber: string;
+  contactPersonName: string;
+  contactPhone: string;
+  contactEmail: string;
+  businessAddressLine1: string;
+  businessSuburb: string;
+  businessPostcode: string;
+  businessState: string;
   licenceState: string;
   licenceExpiry: string;
-  businessAddress: string;
-  phone: string;
-  email: string;
-  contactPerson: string;
-  lmctCertificateUrl: string;
-  lmctCertificateName?: string;
+  licenceVerificationStatus: DealerLicenceVerificationStatus;
+  licenceVerificationNote?: string;
+  licenceVerificationSource?: string;
+  lmctProofUploadUrl: string;
+  lmctProofUploadName?: string;
+  lmctProofUploadContentType?: string;
+  riskLevel: DealerApplicationRiskLevel;
+  duplicateMatchFlags: {
+    hasAny: boolean;
+    lmctNumber: boolean;
+    abn: boolean;
+    acn: boolean;
+    contactPhone: boolean;
+    contactEmail: boolean;
+  };
+  duplicateMatchedApplicationIds: string[];
+  trustIndicators: {
+    proofPresent: boolean;
+    validAbnOrAcnFormat: boolean;
+    lmctNumberPresent: boolean;
+    businessLocationConsistent: boolean;
+    freeEmailDomain: boolean;
+    repeatedRejectedApplications: boolean;
+  };
+  rejectionHistoryCount: number;
   status: Exclude<DealerStatus, "none">;
   requestedAt?: string;
   updatedAt?: string;
   reviewedAt?: string;
   reviewedByUid?: string;
+  reviewedBy?: string;
+  rejectReason?: string;
+  infoRequestNote?: string;
 }
 
 export interface VehicleViewEvent {

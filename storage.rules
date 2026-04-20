@@ -21,5 +21,9 @@ service firebase.storage {
       allow read: if true;
       allow write: if signedIn() && (request.auth.uid == ownerUid || isAdmin());
     }
+
+    match /dealer-proofs/{ownerUid}/{allPaths=**} {
+      allow read, write: if signedIn() && (request.auth.uid == ownerUid || isAdmin());
+    }
   }
 }

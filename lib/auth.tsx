@@ -8,6 +8,7 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   reauthenticateWithCredential,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
@@ -81,6 +82,7 @@ function setSessionCookies(user: AppUser | null) {
   const maxAge = user ? "max-age=604800" : "max-age=0";
   document.cookie = `carnest_session=${user ? "active" : ""}; path=/; ${maxAge}`;
   document.cookie = `carnest_role=${user?.role ?? ""}; path=/; ${maxAge}`;
+  document.cookie = `carnest_dealer_status=${user?.dealerStatus ?? ""}; path=/; ${maxAge}`;
   document.cookie = `carnest_permissions=${user?.adminPermissions ? encodeURIComponent(JSON.stringify(user.adminPermissions)) : ""}; path=/; ${maxAge}`;
 }
 
@@ -364,19 +366,19 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
     phone: typeof existingData?.phone === "string" ? existingData.phone : "",
     role: managedAccess.role,
     adminPermissions: managedAccess.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS,
+    emailVerified: firebaseUser.emailVerified,
     complianceStatus:
       existingData?.complianceStatus === "possible_unlicensed_trader" || existingData?.complianceStatus === "verified_dealer"
         ? existingData.complianceStatus
         : "clear",
     complianceFlaggedAt: typeof existingData?.complianceFlaggedAt === "string" ? existingData.complianceFlaggedAt : undefined,
     dealerStatus:
-      existingData?.dealerStatus === "pending"
+      existingData?.dealerStatus === "submitted_unverified"
+      || existingData?.dealerStatus === "pending"
       || existingData?.dealerStatus === "info_requested"
       || existingData?.dealerStatus === "approved"
       || existingData?.dealerStatus === "rejected"
         ? existingData.dealerStatus
-        : pendingSeed?.role === "dealer"
-          ? "pending"
         : "none",
     dealerVerified: Boolean(existingData?.dealerVerified),
     dealerApplicationId: typeof existingData?.dealerApplicationId === "string" ? existingData.dealerApplicationId : undefined,
@@ -396,7 +398,7 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     phone: user.phone ?? "",
     role: user.role,
     complianceStatus: "clear",
-    dealerStatus: user.role === "dealer" ? "pending" : "none",
+    dealerStatus: "none",
     dealerVerified: false,
     listingRestricted: false,
     createdAt: Timestamp.now(),
@@ -643,6 +645,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const credential: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
           pendingProfileSeeds.set(credential.user.uid, { name, role });
           await updateProfile(credential.user, { displayName: name });
+          if (role === "dealer") {
+            await sendEmailVerification(credential.user).catch(() => undefined);
+          }
           await credential.user.getIdToken(true);
 
           try {
