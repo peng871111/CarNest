@@ -18,7 +18,7 @@ export interface OfferEmailPayload {
 }
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? "";
+const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-AU", {
@@ -102,24 +102,37 @@ function renderOfferEmailText(payload: OfferEmailPayload) {
 }
 
 export async function sendOfferEmail(payload: OfferEmailPayload) {
-  if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
-    console.warn("[offer-email] Resend is not configured. Skipping email send.", {
+  if (!RESEND_API_KEY || !EMAIL_FROM) {
+    console.warn("[offer-email] Transactional email is not configured. Skipping email send.", {
       event: payload.event,
-      offerId: payload.offerId
+      offerId: payload.offerId,
+      recipientEmail: payload.to,
+      missingEnvVars: [
+        !RESEND_API_KEY ? "RESEND_API_KEY" : null,
+        !EMAIL_FROM ? "EMAIL_FROM" : null
+      ].filter(Boolean)
     });
-    return { sent: false, skipped: true as const };
+    return { sent: false as const, skipped: true as const, reason: "missing_env" as const };
   }
 
   const resend = new Resend(RESEND_API_KEY);
   const content = getOfferEmailContent(payload);
 
-  await resend.emails.send({
-    from: RESEND_FROM_EMAIL,
+  const { data, error } = await resend.emails.send({
+    from: EMAIL_FROM,
     to: payload.to,
     subject: content.subject,
     html: renderOfferEmailHtml(payload),
     text: renderOfferEmailText(payload)
   });
 
-  return { sent: true as const, skipped: false as const };
+  if (error) {
+    throw new Error(error.message || "Transactional email send failed.");
+  }
+
+  return {
+    sent: true as const,
+    skipped: false as const,
+    providerMessageId: data?.id ?? null
+  };
 }

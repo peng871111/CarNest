@@ -31,7 +31,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Invalid email payload" }, { status: 400 });
     }
 
+    console.info("[offer-email] Trigger received", {
+      event: body.event,
+      offerId: body.offerId,
+      recipientEmail: body.to
+    });
+
     const result = await sendOfferEmail(body);
+    if (result.sent) {
+      console.info("[offer-email] Email sent", {
+        event: body.event,
+        offerId: body.offerId,
+        recipientEmail: body.to,
+        providerMessageId: "providerMessageId" in result ? result.providerMessageId : null
+      });
+    } else {
+      console.warn("[offer-email] Email skipped", {
+        event: body.event,
+        offerId: body.offerId,
+        recipientEmail: body.to,
+        reason: "reason" in result ? result.reason : "skipped"
+      });
+    }
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("[offer-email] Failed to send offer email", error);

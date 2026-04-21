@@ -1857,6 +1857,12 @@ async function getUserById(userId: string) {
   return serializeUserDoc(snapshot.id, snapshot.data());
 }
 
+async function getUserNotificationEmail(userId: string, fallbackEmail = "") {
+  const user = await getUserById(userId).catch(() => null);
+  const resolvedEmail = (user?.email || fallbackEmail || "").trim().toLowerCase();
+  return isValidEmailAddress(resolvedEmail) ? resolvedEmail : "";
+}
+
 async function queueOfferActivityNotificationsForOffer(
   offer: Offer,
   vehicle: Vehicle,
@@ -2682,7 +2688,14 @@ async function queueOfferLifecycleEmailNotification(
   if (!isFirebaseConfigured) return;
 
   const normalizedRecipientEmail = recipientEmail.trim().toLowerCase();
-  if (!normalizedRecipientEmail || !isValidEmailAddress(normalizedRecipientEmail)) return;
+  if (!normalizedRecipientEmail || !isValidEmailAddress(normalizedRecipientEmail)) {
+    console.warn("[offer-email] No valid recipient email resolved for offer lifecycle email.", {
+      event: kind,
+      offerId: offer.id,
+      recipientEmail
+    });
+    return;
+  }
 
   const endpoint =
     typeof window !== "undefined"
@@ -2710,6 +2723,7 @@ async function queueOfferLifecycleEmailNotification(
         console.error("[offer-email] Failed to trigger transactional email", {
           event: kind,
           offerId: offer.id,
+          recipientEmail: normalizedRecipientEmail,
           status: response.status,
           body
         });
@@ -2719,6 +2733,7 @@ async function queueOfferLifecycleEmailNotification(
       console.error("[offer-email] Failed to reach transactional email endpoint", {
         event: kind,
         offerId: offer.id,
+        recipientEmail: normalizedRecipientEmail,
         error
       });
     });
@@ -3657,8 +3672,8 @@ export async function createOffer(input: OfferWriteInput) {
     createdAt: new Date().toISOString()
   } satisfies Offer;
 
-  const sellerUser = await getUserById(input.sellerOwnerUid).catch(() => null);
-  void queueOfferLifecycleEmailNotification("new_offer_to_seller", offer, sellerUser?.email ?? "");
+  const sellerNotificationEmail = await getUserNotificationEmail(input.sellerOwnerUid);
+  void queueOfferLifecycleEmailNotification("new_offer_to_seller", offer, sellerNotificationEmail);
   await queueOfferActivityNotificationsForOffer(offer, vehicle, input.userId).catch(() => undefined);
 
   return {
@@ -4113,6 +4128,7 @@ export async function updateOfferAmount(
   });
 
   if (sender === "seller") {
+    const buyerNotificationEmail = await getUserNotificationEmail(offer.buyerUid, offer.buyerEmail);
     void queueOfferLifecycleEmailNotification("seller_countered_offer", {
       ...offer,
       amount: nextAmount,
@@ -4124,7 +4140,7 @@ export async function updateOfferAmount(
       lastUpdatedBy: sender,
       respondedAt: nextRespondedAt,
       updatedAt: new Date().toISOString()
-    }, offer.buyerEmail);
+    }, buyerNotificationEmail);
   }
 
   return {
@@ -4422,7 +4438,7 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         nextContactVisibilityState = "shared_after_accept";
         nextLastUpdatedBy = "seller";
         emailKind = "seller_accepted_offer";
-        emailRecipient = offer.buyerEmail;
+        emailRecipient = await getUserNotificationEmail(offer.buyerUid, offer.buyerEmail);
       } else if (isOfferBuyer && offer.status === "countered") {
         nextRespondedAt = new Date().toISOString();
         nextBuyerViewed = true;
@@ -4432,9 +4448,8 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         nextContactUnlockedAt = new Date().toISOString();
         nextContactVisibilityState = "shared_after_counter_accept";
         nextLastUpdatedBy = "buyer";
-        const sellerUser = await getUserById(offer.listingOwnerUid).catch(() => null);
         emailKind = "buyer_accepted_counteroffer";
-        emailRecipient = sellerUser?.email ?? "";
+        emailRecipient = await getUserNotificationEmail(offer.listingOwnerUid);
       } else {
         throw new Error("This offer cannot be accepted right now.");
       }

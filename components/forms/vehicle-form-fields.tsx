@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, ReactNode, useEffect, useMemo } from "react";
+import { ReactNode, useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -9,7 +9,6 @@ import {
   isAustralianPostcode,
   normalizeAustralianPostcode
 } from "@/lib/australian-postcodes";
-import { formatCalendarDate } from "@/lib/utils";
 import { Vehicle, VehicleFormFieldsValue } from "@/types";
 
 export const TRANSMISSION_OPTIONS = ["AT", "MT", "DCT", "CVT", "PDK", "OTHER"];
@@ -18,8 +17,27 @@ export const DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD", "OTHER"];
 export const BODY_TYPE_OPTIONS = ["SUV", "SEDAN", "COUPE", "HATCH", "UTE", "WAGON", "CONVERTIBLE", "VAN", "OTHER"];
 export const SERVICE_HISTORY_OPTIONS = ["FULL DEALER SERVICE HISTORY", "PARTIAL DEALER SERVICE HISTORY", "NO SERVICE HISTORY"];
 export const KEY_COUNT_OPTIONS = ["1 KEY", "2 KEYS", "3 KEYS"];
+export const COMMON_AU_MAKE_OPTIONS = [
+  { label: "Toyota", value: "TOYOTA" },
+  { label: "Lexus", value: "LEXUS" },
+  { label: "BMW", value: "BMW" },
+  { label: "Mercedes-Benz", value: "MERCEDES-BENZ" },
+  { label: "Audi", value: "AUDI" },
+  { label: "Volkswagen", value: "VOLKSWAGEN" },
+  { label: "Honda", value: "HONDA" },
+  { label: "Hyundai", value: "HYUNDAI" },
+  { label: "Kia", value: "KIA" },
+  { label: "Mazda", value: "MAZDA" },
+  { label: "Nissan", value: "NISSAN" },
+  { label: "Ford", value: "FORD" },
+  { label: "Subaru", value: "SUBARU" },
+  { label: "Mitsubishi", value: "MITSUBISHI" },
+  { label: "Tesla", value: "TESLA" },
+  { label: "Porsche", value: "PORSCHE" }
+] as const;
 
 type VehicleFormTheme = "light" | "dark";
+type CalendarParts = { day: string; month: string; year: string };
 
 function normalizeUppercase(value: string) {
   return value.toUpperCase();
@@ -45,8 +63,153 @@ function getThemeClasses(theme: VehicleFormTheme) {
   };
 }
 
-function blockManualDateEntry(event: FormEvent<HTMLInputElement>) {
-  event.preventDefault();
+function parseCalendarParts(value?: string): CalendarParts {
+  const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return { day: "", month: "", year: "" };
+  }
+
+  return {
+    year: match[1],
+    month: match[2],
+    day: match[3]
+  };
+}
+
+function buildIsoDate(parts: CalendarParts) {
+  if (!parts.day || !parts.month || !parts.year) return "";
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getDaysInMonth(year: string, month: string) {
+  if (!year || !month) return 31;
+  return new Date(Number(year), Number(month), 0).getDate();
+}
+
+function AustralianDatePicker({
+  value,
+  onChange,
+  classes,
+  theme
+}: {
+  value: string;
+  onChange: (nextValue: string) => void;
+  classes: ReturnType<typeof getThemeClasses>;
+  theme: VehicleFormTheme;
+}) {
+  const [parts, setParts] = useState<CalendarParts>(() => parseCalendarParts(value));
+  const currentYear = new Date().getFullYear();
+  const yearOptions = useMemo(
+    () => Array.from({ length: 17 }, (_, index) => String(currentYear - 1 + index)),
+    [currentYear]
+  );
+  const dayOptions = useMemo(() => {
+    const totalDays = getDaysInMonth(parts.year, parts.month);
+    return Array.from({ length: totalDays }, (_, index) => String(index + 1).padStart(2, "0"));
+  }, [parts.month, parts.year]);
+
+  useEffect(() => {
+    setParts(parseCalendarParts(value));
+  }, [value]);
+
+  useEffect(() => {
+    if (!parts.day || !parts.month || !parts.year) return;
+
+    const maxDay = getDaysInMonth(parts.year, parts.month);
+    if (Number(parts.day) > maxDay) {
+      const clampedDay = String(maxDay).padStart(2, "0");
+      const nextParts = { ...parts, day: clampedDay };
+      setParts(nextParts);
+      onChange(buildIsoDate(nextParts));
+    }
+  }, [onChange, parts]);
+
+  function updatePart(field: keyof CalendarParts, nextValue: string) {
+    setParts((current) => {
+      const nextParts = { ...current, [field]: nextValue };
+      const nextIso = buildIsoDate(nextParts);
+
+      if (nextIso) {
+        onChange(nextIso);
+      } else if (!nextParts.day && !nextParts.month && !nextParts.year) {
+        onChange("");
+      }
+
+      return nextParts;
+    });
+  }
+
+  function clearValue() {
+    setParts({ day: "", month: "", year: "" });
+    onChange("");
+  }
+
+  const hasValue = Boolean(parts.day || parts.month || parts.year);
+  const displayValue = `${parts.day || "DD"}/${parts.month || "MM"}/${parts.year || "YYYY"}`;
+  const clearButtonClass =
+    theme === "dark"
+      ? "text-xs font-medium uppercase tracking-[0.18em] text-[#F5F5F5]/60 transition hover:text-[#C6A87D]"
+      : "text-xs font-medium uppercase tracking-[0.18em] text-ink/55 transition hover:text-bronze";
+
+  return (
+    <div className="space-y-2">
+      <div className={`${classes.input} flex items-center gap-2 rounded-2xl border px-3 py-2`}>
+        <select
+          value={parts.day}
+          onChange={(event) => updatePart("day", event.target.value)}
+          className="w-[28%] bg-transparent py-1 text-sm outline-none"
+          aria-label="Rego expiry day"
+        >
+          <option value="">DD</option>
+          {dayOptions.map((day) => (
+            <option key={day} value={day}>
+              {day}
+            </option>
+          ))}
+        </select>
+        <span className={classes.preview}>/</span>
+        <select
+          value={parts.month}
+          onChange={(event) => updatePart("month", event.target.value)}
+          className="w-[28%] bg-transparent py-1 text-sm outline-none"
+          aria-label="Rego expiry month"
+        >
+          <option value="">MM</option>
+          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((month) => (
+            <option key={month} value={month}>
+              {month}
+            </option>
+          ))}
+        </select>
+        <span className={classes.preview}>/</span>
+        <select
+          value={parts.year}
+          onChange={(event) => updatePart("year", event.target.value)}
+          className="min-w-0 flex-1 bg-transparent py-1 text-sm outline-none"
+          aria-label="Rego expiry year"
+        >
+          <option value="">YYYY</option>
+          {yearOptions.map((year) => (
+            <option key={year} value={year}>
+              {year}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className={classes.preview}>{displayValue}</p>
+        {hasValue ? (
+          <button
+            type="button"
+            onClick={clearValue}
+            className={clearButtonClass}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function buildVehicleFormFieldsValue(vehicle?: Vehicle, descriptionOverride?: string): VehicleFormFieldsValue {
@@ -77,7 +240,7 @@ export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
   const suburbMatch = findAustralianPostcodeLocation(postcode, values.sellerLocationSuburb);
 
   if (!values.year.trim()) return "Please enter the vehicle year.";
-  if (!values.make.trim()) return "Please enter the vehicle make.";
+  if (!values.make.trim()) return "Please select the vehicle make.";
   if (!values.model.trim()) return "Please enter the vehicle model.";
   if (!values.price.trim() || Number(values.price) < 0) return "Please enter a valid target asking price.";
   if (!values.mileage.trim() || Number(values.mileage) < 0) return "Please enter valid mileage.";
@@ -117,6 +280,14 @@ export function VehicleFormFields({
     () => normalizeAustralianPostcode(value.sellerLocationPostcode),
     [value.sellerLocationPostcode]
   );
+  const makeOptions = useMemo(() => {
+    const currentMake = value.make.trim();
+    if (!currentMake || COMMON_AU_MAKE_OPTIONS.some((option) => option.value === currentMake)) {
+      return COMMON_AU_MAKE_OPTIONS;
+    }
+
+    return [{ label: currentMake, value: currentMake }, ...COMMON_AU_MAKE_OPTIONS];
+  }, [value.make]);
   const postcodeMatches = useMemo(
     () => getAustralianPostcodeLocations(normalizedPostcode),
     [normalizedPostcode]
@@ -207,12 +378,19 @@ export function VehicleFormFields({
         <div className="space-y-4">
           <label className="space-y-2">
             <span className={classes.label}>Make</span>
-            <Input
+            <select
               value={value.make}
-              onChange={(event) => onFieldChange("make", normalizeUppercase(event.target.value))}
-              className={`${classes.input} uppercase`}
+              onChange={(event) => onFieldChange("make", event.target.value)}
+              className={classes.select}
               required
-            />
+            >
+              <option value="">SELECT MAKE</option>
+              {makeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Target asking price</span>
@@ -396,18 +574,12 @@ export function VehicleFormFields({
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Rego expiry</span>
-            <Input
-              type="date"
+            <AustralianDatePicker
               value={value.regoExpiry}
-              lang="en-AU"
-              onChange={(event) => onFieldChange("regoExpiry", event.target.value)}
-              onBeforeInput={blockManualDateEntry}
-              onPaste={(event) => event.preventDefault()}
-              className={classes.input}
+              onChange={(nextValue) => onFieldChange("regoExpiry", nextValue)}
+              classes={classes}
+              theme={theme}
             />
-            <p className={classes.preview}>
-              {value.regoExpiry ? `Displayed in CarNest as ${formatCalendarDate(value.regoExpiry)}` : "Display format: DD/MM/YYYY"}
-            </p>
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Keys</span>
