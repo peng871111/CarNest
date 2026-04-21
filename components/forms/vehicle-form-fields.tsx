@@ -17,24 +17,6 @@ export const DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD", "OTHER"];
 export const BODY_TYPE_OPTIONS = ["SUV", "SEDAN", "COUPE", "HATCH", "UTE", "WAGON", "CONVERTIBLE", "VAN", "OTHER"];
 export const SERVICE_HISTORY_OPTIONS = ["FULL DEALER SERVICE HISTORY", "PARTIAL DEALER SERVICE HISTORY", "NO SERVICE HISTORY"];
 export const KEY_COUNT_OPTIONS = ["1 KEY", "2 KEYS", "3 KEYS"];
-export const COMMON_AU_MAKE_OPTIONS = [
-  { label: "Toyota", value: "TOYOTA" },
-  { label: "Lexus", value: "LEXUS" },
-  { label: "BMW", value: "BMW" },
-  { label: "Mercedes-Benz", value: "MERCEDES-BENZ" },
-  { label: "Audi", value: "AUDI" },
-  { label: "Volkswagen", value: "VOLKSWAGEN" },
-  { label: "Honda", value: "HONDA" },
-  { label: "Hyundai", value: "HYUNDAI" },
-  { label: "Kia", value: "KIA" },
-  { label: "Mazda", value: "MAZDA" },
-  { label: "Nissan", value: "NISSAN" },
-  { label: "Ford", value: "FORD" },
-  { label: "Subaru", value: "SUBARU" },
-  { label: "Mitsubishi", value: "MITSUBISHI" },
-  { label: "Tesla", value: "TESLA" },
-  { label: "Porsche", value: "PORSCHE" }
-] as const;
 
 type VehicleFormTheme = "light" | "dark";
 type CalendarParts = { day: string; month: string; year: string };
@@ -240,7 +222,7 @@ export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
   const suburbMatch = findAustralianPostcodeLocation(postcode, values.sellerLocationSuburb);
 
   if (!values.year.trim()) return "Please enter the vehicle year.";
-  if (!values.make.trim()) return "Please select the vehicle make.";
+  if (!values.make.trim()) return "Please enter the vehicle make.";
   if (!values.model.trim()) return "Please enter the vehicle model.";
   if (!values.price.trim() || Number(values.price) < 0) return "Please enter a valid target asking price.";
   if (!values.mileage.trim() || Number(values.mileage) < 0) return "Please enter valid mileage.";
@@ -280,14 +262,6 @@ export function VehicleFormFields({
     () => normalizeAustralianPostcode(value.sellerLocationPostcode),
     [value.sellerLocationPostcode]
   );
-  const makeOptions = useMemo(() => {
-    const currentMake = value.make.trim();
-    if (!currentMake || COMMON_AU_MAKE_OPTIONS.some((option) => option.value === currentMake)) {
-      return COMMON_AU_MAKE_OPTIONS;
-    }
-
-    return [{ label: currentMake, value: currentMake }, ...COMMON_AU_MAKE_OPTIONS];
-  }, [value.make]);
   const postcodeMatches = useMemo(
     () => getAustralianPostcodeLocations(normalizedPostcode),
     [normalizedPostcode]
@@ -378,19 +352,12 @@ export function VehicleFormFields({
         <div className="space-y-4">
           <label className="space-y-2">
             <span className={classes.label}>Make</span>
-            <select
+            <Input
               value={value.make}
-              onChange={(event) => onFieldChange("make", event.target.value)}
-              className={classes.select}
+              onChange={(event) => onFieldChange("make", normalizeUppercase(event.target.value))}
+              className={`${classes.input} uppercase`}
               required
-            >
-              <option value="">SELECT MAKE</option>
-              {makeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            />
           </label>
           <label className="space-y-2">
             <span className={classes.label}>Target asking price</span>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { sendOfferEmail, type OfferEmailEvent, type OfferEmailPayload } from "@/lib/offer-email";
+import { getOfferEmailContent, sendOfferEmail, type OfferEmailEvent, type OfferEmailPayload } from "@/lib/offer-email";
 
 function isOfferEmailEvent(value: unknown): value is OfferEmailEvent {
   return value === "new_offer_to_seller"
@@ -31,10 +31,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Invalid email payload" }, { status: 400 });
     }
 
+    const content = getOfferEmailContent(body);
+    console.log("EMAIL_TRIGGERED");
+    console.log("TO:", body.to);
     console.info("[offer-email] Trigger received", {
       event: body.event,
       offerId: body.offerId,
-      recipientEmail: body.to
+      recipientEmail: body.to,
+      subject: content.subject
     });
 
     const result = await sendOfferEmail(body);
@@ -43,6 +47,7 @@ export async function POST(request: NextRequest) {
         event: body.event,
         offerId: body.offerId,
         recipientEmail: body.to,
+        subject: result.subject,
         providerMessageId: "providerMessageId" in result ? result.providerMessageId : null
       });
     } else {
@@ -50,12 +55,15 @@ export async function POST(request: NextRequest) {
         event: body.event,
         offerId: body.offerId,
         recipientEmail: body.to,
+        subject: content.subject,
         reason: "reason" in result ? result.reason : "skipped"
       });
     }
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
-    console.error("[offer-email] Failed to send offer email", error);
+    console.error("[offer-email] Failed to send offer email", {
+      reason: error instanceof Error ? error.message : String(error)
+    });
     return NextResponse.json({ success: false }, { status: 500 });
   }
 }

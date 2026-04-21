@@ -28,7 +28,7 @@ function formatCurrency(amount: number) {
   }).format(amount);
 }
 
-function getOfferEmailContent(payload: OfferEmailPayload) {
+export function getOfferEmailContent(payload: OfferEmailPayload) {
   const sellerOfferUrl = buildAbsoluteUrl(`/seller/offers/${payload.offerId}`);
   const buyerOfferUrl = buildAbsoluteUrl("/dashboard/offers");
 
@@ -102,11 +102,14 @@ function renderOfferEmailText(payload: OfferEmailPayload) {
 }
 
 export async function sendOfferEmail(payload: OfferEmailPayload) {
+  const content = getOfferEmailContent(payload);
+
   if (!RESEND_API_KEY || !EMAIL_FROM) {
     console.warn("[offer-email] Transactional email is not configured. Skipping email send.", {
       event: payload.event,
       offerId: payload.offerId,
       recipientEmail: payload.to,
+      subject: content.subject,
       missingEnvVars: [
         !RESEND_API_KEY ? "RESEND_API_KEY" : null,
         !EMAIL_FROM ? "EMAIL_FROM" : null
@@ -116,7 +119,12 @@ export async function sendOfferEmail(payload: OfferEmailPayload) {
   }
 
   const resend = new Resend(RESEND_API_KEY);
-  const content = getOfferEmailContent(payload);
+  console.log("[offer-email] Executing resend.emails.send()", {
+    event: payload.event,
+    offerId: payload.offerId,
+    recipientEmail: payload.to,
+    subject: content.subject
+  });
 
   const { data, error } = await resend.emails.send({
     from: EMAIL_FROM,
@@ -127,12 +135,21 @@ export async function sendOfferEmail(payload: OfferEmailPayload) {
   });
 
   if (error) {
+    console.error("[offer-email] Resend rejected email request.", {
+      event: payload.event,
+      offerId: payload.offerId,
+      recipientEmail: payload.to,
+      subject: content.subject,
+      errorName: error.name,
+      errorMessage: error.message
+    });
     throw new Error(error.message || "Transactional email send failed.");
   }
 
   return {
     sent: true as const,
     skipped: false as const,
+    subject: content.subject,
     providerMessageId: data?.id ?? null
   };
 }

@@ -2702,41 +2702,41 @@ async function queueOfferLifecycleEmailNotification(
       ? "/api/offer-notifications"
       : buildAbsoluteUrl("/api/offer-notifications");
 
-  fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      event: kind,
-      to: normalizedRecipientEmail,
-      vehicleTitle: offer.vehicleTitle,
-      amount: offer.amount,
-      offerId: offer.id
-    }),
-    keepalive: true,
-    cache: "no-store"
-  })
-    .then(async (response) => {
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        console.error("[offer-email] Failed to trigger transactional email", {
-          event: kind,
-          offerId: offer.id,
-          recipientEmail: normalizedRecipientEmail,
-          status: response.status,
-          body
-        });
-      }
-    })
-    .catch((error) => {
-      console.error("[offer-email] Failed to reach transactional email endpoint", {
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        event: kind,
+        to: normalizedRecipientEmail,
+        vehicleTitle: offer.vehicleTitle,
+        amount: offer.amount,
+        offerId: offer.id
+      }),
+      keepalive: true,
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error("[offer-email] Failed to trigger transactional email", {
         event: kind,
         offerId: offer.id,
         recipientEmail: normalizedRecipientEmail,
-        error
+        status: response.status,
+        body
       });
+    }
+  } catch (error) {
+    console.error("[offer-email] Failed to reach transactional email endpoint", {
+      event: kind,
+      offerId: offer.id,
+      recipientEmail: normalizedRecipientEmail,
+      error: error instanceof Error ? error.message : String(error)
     });
+  }
 }
 
 function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
@@ -3673,7 +3673,7 @@ export async function createOffer(input: OfferWriteInput) {
   } satisfies Offer;
 
   const sellerNotificationEmail = await getUserNotificationEmail(input.sellerOwnerUid);
-  void queueOfferLifecycleEmailNotification("new_offer_to_seller", offer, sellerNotificationEmail);
+  await queueOfferLifecycleEmailNotification("new_offer_to_seller", offer, sellerNotificationEmail);
   await queueOfferActivityNotificationsForOffer(offer, vehicle, input.userId).catch(() => undefined);
 
   return {
@@ -4129,7 +4129,7 @@ export async function updateOfferAmount(
 
   if (sender === "seller") {
     const buyerNotificationEmail = await getUserNotificationEmail(offer.buyerUid, offer.buyerEmail);
-    void queueOfferLifecycleEmailNotification("seller_countered_offer", {
+    await queueOfferLifecycleEmailNotification("seller_countered_offer", {
       ...offer,
       amount: nextAmount,
       offerAmount: nextAmount,
@@ -4622,7 +4622,7 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
   } satisfies Offer;
 
   if (emailKind && emailRecipient) {
-    void queueOfferLifecycleEmailNotification(emailKind, nextOffer, emailRecipient);
+    await queueOfferLifecycleEmailNotification(emailKind, nextOffer, emailRecipient);
   }
 
   return {
