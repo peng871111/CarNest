@@ -12,7 +12,7 @@ export default async function AdminUsersPage() {
   return (
     <AdminShell
       title="Admin Access"
-      description="Review internal admin accounts alongside seller compliance alerts that may indicate possible unlicensed trading activity."
+      description="Manage internal admin and super-admin accounts only. Use User Support for customer account lookups and operational support tasks."
       requiredPermission="manageAdmins"
     >
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -23,13 +23,13 @@ export default async function AdminUsersPage() {
           Super admins: {adminUsers.filter((user) => user.role === "super_admin").length}
         </div>
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
-          User accounts loaded: {users.length}
+          Standard accounts hidden here by default
         </div>
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
           Open compliance alerts: {openComplianceAlerts.length}
         </div>
       </div>
-      <AdminAccessManager users={users} complianceAlerts={complianceAlertsResult.items} />
+      <AdminAccessManager users={adminUsers} complianceAlerts={complianceAlertsResult.items} />
     </AdminShell>
   );
 }

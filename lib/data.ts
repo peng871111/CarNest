@@ -373,6 +373,8 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     displayName: String(data.displayName ?? data.name ?? "CarNest User"),
     name: typeof data.name === "string" ? data.name : String(data.displayName ?? "CarNest User"),
     phone: typeof data.phone === "string" ? data.phone : "",
+    emailVerified: typeof data.emailVerified === "boolean" ? data.emailVerified : undefined,
+    accountBanned: Boolean(data.accountBanned),
     accountReference: typeof data.accountReference === "string" ? data.accountReference : undefined,
     role: managedAccess.role,
     adminPermissions: normalizeAdminPermissions(data.adminPermissions, managedAccess.role, email),
@@ -2030,6 +2032,56 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
       role: finalRole,
       adminPermissions: finalPermissions
     },
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function updateUserSupportStatus(
+  userId: string,
+  action: "ban" | "unban" | "restrict" | "remove_restriction",
+  actor: VehicleActor,
+  existingUser?: AppUser
+) {
+  assertAdminPermissionForActor(actor, "manageUsers", "Only authorized admins can manage user support actions.");
+
+  const targetUser = existingUser ?? (await getAppUserById(userId));
+  if (!targetUser) {
+    throw new Error("User not found.");
+  }
+
+  const isBan = action === "ban";
+  const isUnban = action === "unban";
+  const isRestrict = action === "restrict";
+  const isRemoveRestriction = action === "remove_restriction";
+
+  const nextUser = {
+    ...targetUser,
+    accountBanned: isBan ? true : isUnban ? false : targetUser.accountBanned ?? false,
+    listingRestricted: isBan ? true : isRestrict ? true : isRemoveRestriction ? false : targetUser.listingRestricted ?? false
+  } satisfies AppUser;
+
+  if (!isFirebaseConfigured) {
+    return {
+      user: nextUser,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "users", userId),
+    {
+      accountBanned: nextUser.accountBanned,
+      listingRestricted: nextUser.listingRestricted,
+      ...(isBan ? { bannedAt: serverTimestamp() } : isUnban ? { bannedAt: deleteField() } : {}),
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    user: nextUser,
     source: "firestore" as const,
     writeSucceeded: true
   };

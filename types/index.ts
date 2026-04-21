@@ -53,6 +53,7 @@ export interface AppUser {
   name?: string;
   phone?: string;
   emailVerified?: boolean;
+  accountBanned?: boolean;
   accountReference?: string;
   role: UserRole;
   adminPermissions?: AdminPermissions;
@@ -167,6 +168,7 @@ export interface VehicleActor {
   role: UserRole;
   email?: string;
   emailVerified?: boolean;
+  accountBanned?: boolean;
   adminPermissions?: AdminPermissions;
   dealerVerified?: boolean;
   listingRestricted?: boolean;

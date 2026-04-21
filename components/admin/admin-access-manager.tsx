@@ -131,8 +131,8 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
         <p className="text-xs uppercase tracking-[0.24em] text-bronze">Internal access</p>
         <h2 className="mt-2 text-2xl font-semibold text-ink">User roles and admin permissions</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
-          Craig remains the only super admin. This screen lets the super admin review accounts, promote or revoke admin access, and update the
-          working permission set stored in Firestore.
+          Craig remains the only super admin. This screen is now focused on internal admin accounts, promotion and revocation of admin access,
+          and the working permission set stored in Firestore.
         </p>
         {success ? <p className="mt-4 text-sm text-emerald-700">{success}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}

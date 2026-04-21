@@ -44,6 +44,7 @@ const PROFILE_LOAD_MESSAGE = "We signed you in, but couldn’t load your account
 const PROFILE_CREATE_FAILED_MESSAGE = "Failed to create user profile. Please try signing in again.";
 const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it for you now.";
 const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
+const ACCOUNT_BANNED_MESSAGE = "This account has been banned. Please contact CarNest support.";
 const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
 const LOGIN_PROTECTION_SESSION_KEY = "carnest_login_protection_session";
 const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" | "dealer" }>();
@@ -367,6 +368,7 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
     role: managedAccess.role,
     adminPermissions: managedAccess.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS,
     emailVerified: firebaseUser.emailVerified,
+    accountBanned: Boolean(existingData?.accountBanned),
     complianceStatus:
       existingData?.complianceStatus === "possible_unlicensed_trader" || existingData?.complianceStatus === "verified_dealer"
         ? existingData.complianceStatus
@@ -396,10 +398,12 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     name: user.name,
     displayName: user.displayName,
     phone: user.phone ?? "",
+    emailVerified: firebaseUser.emailVerified,
     role: user.role,
     complianceStatus: "clear",
     dealerStatus: "none",
     dealerVerified: false,
+    accountBanned: false,
     listingRestricted: false,
     createdAt: Timestamp.now(),
     failedLoginAttempts: 0,
@@ -463,9 +467,11 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
         !data.uid ||
         !data.name ||
         !("phone" in data) ||
+        !("emailVerified" in data) ||
         !("complianceStatus" in data) ||
         !("dealerStatus" in data) ||
         !("dealerVerified" in data) ||
+        !("accountBanned" in data) ||
         !("listingRestricted" in data) ||
         !("failedLoginAttempts" in data) ||
         !("mustResetPassword" in data) ||
@@ -478,10 +484,12 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
           displayName: user.displayName,
           email: user.email,
           phone: user.phone ?? "",
+          emailVerified: firebaseUser.emailVerified,
           role: user.role,
           complianceStatus: user.complianceStatus ?? "clear",
           dealerStatus: user.dealerStatus ?? "none",
           dealerVerified: user.dealerVerified ?? false,
+          accountBanned: user.accountBanned ?? false,
           listingRestricted: user.listingRestricted ?? false,
           ...(user.dealerApplicationId ? { dealerApplicationId: user.dealerApplicationId } : {}),
           failedLoginAttempts: getUserSecurityState(data).failedLoginAttempts,
@@ -507,6 +515,17 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
     pendingProfileSeeds.delete(firebaseUser.uid);
     return user;
   });
+}
+
+async function assertAccountNotBanned(profile: AppUser) {
+  if (!profile.accountBanned) return;
+
+  try {
+    await signOut(auth);
+  } catch {}
+
+  setSessionCookies(null);
+  throw new Error(ACCOUNT_BANNED_MESSAGE);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -537,6 +556,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const profile = await ensureUserProfile(user);
+        await assertAccountNotBanned(profile);
         setAppUser(profile);
         setAuthError("");
       } catch (error) {
@@ -545,7 +565,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         setAppUser(null);
         setSessionCookies(null);
-        setAuthError(LIVE_DATA_MESSAGE);
+        setAuthError(error instanceof Error && error.message ? error.message : LIVE_DATA_MESSAGE);
       } finally {
         setLoading(false);
       }
@@ -585,6 +605,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           try {
             profile = await ensureUserProfile(credential.user);
+            await assertAccountNotBanned(profile);
           } catch (profileError) {
             if (process.env.NODE_ENV === "development") {
               console.error("Login profile load failed", profileError);
