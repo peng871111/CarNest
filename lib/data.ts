@@ -33,6 +33,7 @@ import {
   InspectionRequest,
   InspectionRequestStatus,
   Offer,
+  OfferContactVisibilityState,
   OfferContactUnlockSource,
   OfferThreadEntry,
   OfferMessageSender,
@@ -994,6 +995,9 @@ function serializeVehicleViewEventDoc(id: string, data: Record<string, unknown>)
 function normalizeOfferStatus(status: unknown): OfferStatus {
   if (
     status === "pending"
+    || status === "countered"
+    || status === "accepted"
+    || status === "declined"
     || status === "accepted_pending_buyer_confirmation"
     || status === "buyer_confirmed"
     || status === "buyer_declined"
@@ -1003,11 +1007,11 @@ function normalizeOfferStatus(status: unknown): OfferStatus {
   }
 
   if (status === "accepted") {
-    return "buyer_confirmed";
+    return "accepted";
   }
 
   if (status === "declined" || status === "withdrawn") {
-    return "rejected";
+    return "declined";
   }
 
   return "pending";
@@ -1094,9 +1098,20 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
     contactUnlocked: Boolean(data.contactUnlocked),
     contactUnlockedAt: serializeDate(data.contactUnlockedAt) ?? null,
     contactUnlockedBy:
-      data.contactUnlockedBy === "buyer_confirm" || data.contactUnlockedBy === "seller_manual"
+      data.contactUnlockedBy === "buyer_confirm"
+      || data.contactUnlockedBy === "seller_manual"
+      || data.contactUnlockedBy === "seller_accept"
+      || data.contactUnlockedBy === "buyer_counter_accept"
         ? data.contactUnlockedBy
         : null,
+    contactVisibilityState:
+      data.contactVisibilityState === "hidden"
+      || data.contactVisibilityState === "shared_after_accept"
+      || data.contactVisibilityState === "shared_after_counter_accept"
+        ? data.contactVisibilityState
+        : Boolean(data.contactUnlocked)
+          ? "shared_after_accept"
+          : "hidden",
     lastUpdatedBy:
       data.lastUpdatedBy === "buyer" || data.lastUpdatedBy === "seller"
         ? data.lastUpdatedBy
@@ -2628,6 +2643,12 @@ function buildOfferThreadEntryForWrite(entry: OfferThreadEntry) {
 const OFFER_ACTIVITY_NOTIFICATION_SUBJECT = "Update on your offer activity";
 const OFFER_ACTIVITY_NOTIFICATION_LIMIT = 3;
 const OFFER_ACTIVITY_NOTIFICATION_DEDUPE_WINDOW_MS = 6 * 60 * 60 * 1000;
+type OfferLifecycleNotificationKind =
+  | "new_offer_to_seller"
+  | "seller_accepted_offer"
+  | "seller_declined_offer"
+  | "seller_countered_offer"
+  | "buyer_accepted_counteroffer";
 
 function buildOfferActivityNotificationCopy(vehicleId: string) {
   const vehicleLink = buildAbsoluteUrl(`/inventory/${vehicleId}`);
@@ -2651,6 +2672,56 @@ function buildOfferActivityNotificationCopy(vehicleId: string) {
     html,
     vehicleLink
   };
+}
+
+async function queueOfferLifecycleEmailNotification(
+  kind: OfferLifecycleNotificationKind,
+  offer: Offer,
+  recipientEmail: string
+) {
+  if (!isFirebaseConfigured) return;
+
+  const normalizedRecipientEmail = recipientEmail.trim().toLowerCase();
+  if (!normalizedRecipientEmail || !isValidEmailAddress(normalizedRecipientEmail)) return;
+
+  const endpoint =
+    typeof window !== "undefined"
+      ? "/api/offer-notifications"
+      : buildAbsoluteUrl("/api/offer-notifications");
+
+  fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      event: kind,
+      to: normalizedRecipientEmail,
+      vehicleTitle: offer.vehicleTitle,
+      amount: offer.amount,
+      offerId: offer.id
+    }),
+    keepalive: true,
+    cache: "no-store"
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        console.error("[offer-email] Failed to trigger transactional email", {
+          event: kind,
+          offerId: offer.id,
+          status: response.status,
+          body
+        });
+      }
+    })
+    .catch((error) => {
+      console.error("[offer-email] Failed to reach transactional email endpoint", {
+        event: kind,
+        offerId: offer.id,
+        error
+      });
+    });
 }
 
 function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
@@ -3510,6 +3581,7 @@ export async function createOffer(input: OfferWriteInput) {
     contactUnlocked: false,
     contactUnlockedAt: null,
     contactUnlockedBy: null,
+    contactVisibilityState: "hidden" as OfferContactVisibilityState,
     lastUpdatedBy: "buyer" as const,
     sellerOwnerUid: input.sellerOwnerUid,
     submittedByUid: input.submittedByUid ?? input.userId,
@@ -3585,6 +3657,8 @@ export async function createOffer(input: OfferWriteInput) {
     createdAt: new Date().toISOString()
   } satisfies Offer;
 
+  const sellerUser = await getUserById(input.sellerOwnerUid).catch(() => null);
+  void queueOfferLifecycleEmailNotification("new_offer_to_seller", offer, sellerUser?.email ?? "");
   await queueOfferActivityNotificationsForOffer(offer, vehicle, input.userId).catch(() => undefined);
 
   return {
@@ -3900,8 +3974,8 @@ export async function appendOfferMessage(
     throw new Error("You can only reply to your own offers.");
   }
 
-  if (sender === "buyer" && offer.status !== "pending") {
-    throw new Error("Buyer replies are only available while the offer is still pending.");
+  if (sender === "buyer" && offer.status !== "pending" && offer.status !== "countered") {
+    throw new Error("Buyer replies are only available while the negotiation is still active.");
   }
 
   const nextMessage = buildOfferMessageForReturn(sender, sanitizedText);
@@ -3973,10 +4047,6 @@ export async function updateOfferAmount(
     throw new Error("Offer not found.");
   }
 
-  if (offer.status !== "pending") {
-    throw new Error("Price updates are only available while the offer is still pending.");
-  }
-
   const isOfferSeller = offer.listingOwnerUid === actor.id;
   const isOfferBuyer = offer.buyerUid === actor.id;
 
@@ -3988,6 +4058,14 @@ export async function updateOfferAmount(
     throw new Error("You can only revise your own offers.");
   }
 
+  if (sender === "seller" && offer.status !== "pending") {
+    throw new Error("Counteroffers are only available while a buyer offer is still pending.");
+  }
+
+  if (sender === "buyer" && offer.status !== "pending" && offer.status !== "countered") {
+    throw new Error("Price updates are only available while the negotiation is still active.");
+  }
+
   const minimumOffer = Math.max(1000, Math.round(offer.vehiclePrice * 0.5));
   if (nextAmount < minimumOffer) {
     throw new Error("Please enter a realistic offer amount.");
@@ -3995,8 +4073,13 @@ export async function updateOfferAmount(
 
   const nextEntry = buildOfferUpdateForReturn(sender, nextAmount);
   const nextMessages = [...offer.messages, nextEntry];
+  const nextStatus: OfferStatus =
+    sender === "seller"
+      ? "countered"
+      : "pending";
   const nextBuyerViewed = sender === "seller" ? false : true;
   const nextSellerViewed = sender === "seller" ? true : false;
+  const nextRespondedAt = sender === "seller" ? new Date().toISOString() : null;
 
   if (!isFirebaseConfigured) {
     return {
@@ -4004,10 +4087,12 @@ export async function updateOfferAmount(
         ...offer,
         amount: nextAmount,
         offerAmount: nextAmount,
+        status: nextStatus,
         messages: nextMessages,
         buyerViewed: nextBuyerViewed,
         sellerViewed: nextSellerViewed,
         lastUpdatedBy: sender,
+        respondedAt: nextRespondedAt,
         updatedAt: new Date().toISOString()
       },
       source: "mock" as const,
@@ -4018,22 +4103,41 @@ export async function updateOfferAmount(
   await updateDoc(doc(db, "offers", id), {
     amount: nextAmount,
     offerAmount: nextAmount,
+    status: nextStatus,
     messages: [...offer.messages.map(toStoredOfferThreadEntry), buildOfferThreadEntryForWrite(nextEntry)],
     buyerViewed: nextBuyerViewed,
     sellerViewed: nextSellerViewed,
     lastUpdatedBy: sender,
+    respondedAt: sender === "seller" ? serverTimestamp() : null,
     updatedAt: serverTimestamp()
   });
+
+  if (sender === "seller") {
+    void queueOfferLifecycleEmailNotification("seller_countered_offer", {
+      ...offer,
+      amount: nextAmount,
+      offerAmount: nextAmount,
+      status: nextStatus,
+      messages: nextMessages,
+      buyerViewed: nextBuyerViewed,
+      sellerViewed: nextSellerViewed,
+      lastUpdatedBy: sender,
+      respondedAt: nextRespondedAt,
+      updatedAt: new Date().toISOString()
+    }, offer.buyerEmail);
+  }
 
   return {
     offer: {
       ...offer,
       amount: nextAmount,
       offerAmount: nextAmount,
+      status: nextStatus,
       messages: nextMessages,
       buyerViewed: nextBuyerViewed,
       sellerViewed: nextSellerViewed,
       lastUpdatedBy: sender,
+      respondedAt: nextRespondedAt,
       updatedAt: new Date().toISOString()
     },
     source: "firestore" as const,
@@ -4167,7 +4271,7 @@ export async function markSellerOffersViewed(ownerUid: string) {
 
   const snapshot = await getDocs(query(collection(db, "offers"), where("sellerOwnerUid", "==", ownerUid)));
   const offers = snapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
-  const pendingUpdates = offers.filter((offer) => offer.status === "pending" && !offer.sellerViewed);
+  const pendingUpdates = offers.filter((offer) => !offer.sellerViewed);
 
   await Promise.all(
     pendingUpdates.map((offer) =>
@@ -4225,6 +4329,7 @@ export async function unlockOfferContactDetails(
         contactUnlocked: true,
         contactUnlockedAt: now,
         contactUnlockedBy: "seller_manual",
+        contactVisibilityState: "shared_after_accept",
         buyerViewed: false,
         sellerViewed: true,
         updatedAt: now
@@ -4238,21 +4343,23 @@ export async function unlockOfferContactDetails(
     contactUnlocked: true,
     contactUnlockedAt: serverTimestamp(),
     contactUnlockedBy: "seller_manual" satisfies OfferContactUnlockSource,
+    contactVisibilityState: "shared_after_accept" satisfies OfferContactVisibilityState,
     buyerViewed: false,
     sellerViewed: true,
     updatedAt: serverTimestamp()
   });
 
   return {
-    offer: {
-      ...offer,
-      contactUnlocked: true,
-      contactUnlockedAt: now,
-      contactUnlockedBy: "seller_manual",
-      buyerViewed: false,
-      sellerViewed: true,
-      updatedAt: now
-    },
+      offer: {
+        ...offer,
+        contactUnlocked: true,
+        contactUnlockedAt: now,
+        contactUnlockedBy: "seller_manual",
+        contactVisibilityState: "shared_after_accept",
+        buyerViewed: false,
+        sellerViewed: true,
+        updatedAt: now
+      },
     source: "firestore" as const,
     writeSucceeded: true
   } satisfies OfferWriteResult;
@@ -4285,71 +4392,151 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
     throw new Error("You do not have access to update this offer.");
   }
 
-  if (isOfferSeller && status === "accepted_pending_buyer_confirmation" && offer.status !== "pending") {
-    throw new Error("Only pending offers can be accepted.");
-  }
-
-  if (isOfferSeller && status === "rejected" && offer.status !== "pending") {
-    throw new Error("Only pending offers can be rejected.");
-  }
-
-  if (isOfferBuyer && status === "buyer_confirmed" && offer.status !== "accepted_pending_buyer_confirmation") {
-    throw new Error("This offer is not awaiting buyer confirmation.");
-  }
-
-  if (isOfferBuyer && status === "buyer_declined" && offer.status !== "accepted_pending_buyer_confirmation") {
-    throw new Error("This offer is not awaiting buyer confirmation.");
-  }
-
-  const nextRespondedAt =
-    status === "accepted_pending_buyer_confirmation" || status === "rejected"
-      ? new Date().toISOString()
-      : offer.respondedAt ?? null;
-
-  const nextBuyerViewed =
-    status === "accepted_pending_buyer_confirmation" || status === "rejected"
-      ? false
-      : status === "buyer_confirmed" || status === "buyer_declined"
-        ? true
-        : offer.buyerViewed;
-
-  const nextSellerViewed =
-    status === "accepted_pending_buyer_confirmation" || status === "rejected"
-      ? true
-      : status === "buyer_confirmed" || status === "buyer_declined"
-        ? true
-        : offer.sellerViewed;
-
-  const nextContactUnlocked = status === "buyer_confirmed" ? true : offer.contactUnlocked;
-  const nextContactUnlockedBy = status === "buyer_confirmed" ? ("buyer_confirm" as const) : offer.contactUnlockedBy ?? null;
-  const nextContactUnlockedAt = status === "buyer_confirmed" ? new Date().toISOString() : offer.contactUnlockedAt ?? null;
-
-  const baseVehicle = await getVehicleById(offer.vehicleId);
-  if (!baseVehicle) {
-    throw new Error("Vehicle not found.");
-  }
-
-  if (
+  const isLegacyTransition =
     status === "accepted_pending_buyer_confirmation"
-    && baseVehicle.sellerStatus === "UNDER_OFFER"
-    && baseVehicle.underOfferBuyerUid
-    && baseVehicle.underOfferBuyerUid !== offer.buyerUid
-  ) {
-    throw new Error("This vehicle is already under offer.");
-  }
+    || status === "buyer_confirmed"
+    || status === "buyer_declined"
+    || status === "rejected";
 
-  const nextVehiclePatch =
-    status === "accepted_pending_buyer_confirmation"
-      ? {
-          sellerStatus: "UNDER_OFFER" as const,
-          underOfferBuyerUid: offer.buyerUid
-        }
-      : status === "buyer_declined"
+  let nextRespondedAt = offer.respondedAt ?? null;
+  let nextBuyerViewed = offer.buyerViewed;
+  let nextSellerViewed = offer.sellerViewed;
+  let nextContactUnlocked = offer.contactUnlocked;
+  let nextContactUnlockedBy = offer.contactUnlockedBy ?? null;
+  let nextContactUnlockedAt = offer.contactUnlockedAt ?? null;
+  let nextContactVisibilityState = offer.contactVisibilityState ?? (offer.contactUnlocked ? "shared_after_accept" : "hidden");
+  let nextLastUpdatedBy = offer.lastUpdatedBy;
+  let nextVehiclePatch: { sellerStatus: SellerVehicleStatus; underOfferBuyerUid: string } | null = null;
+  let emailKind: OfferLifecycleNotificationKind | null = null;
+  let emailRecipient = "";
+
+  if (!isLegacyTransition) {
+    if (status === "accepted") {
+      if (isOfferSeller && offer.status === "pending") {
+        nextRespondedAt = new Date().toISOString();
+        nextBuyerViewed = false;
+        nextSellerViewed = true;
+        nextContactUnlocked = true;
+        nextContactUnlockedBy = "seller_accept";
+        nextContactUnlockedAt = new Date().toISOString();
+        nextContactVisibilityState = "shared_after_accept";
+        nextLastUpdatedBy = "seller";
+        emailKind = "seller_accepted_offer";
+        emailRecipient = offer.buyerEmail;
+      } else if (isOfferBuyer && offer.status === "countered") {
+        nextRespondedAt = new Date().toISOString();
+        nextBuyerViewed = true;
+        nextSellerViewed = false;
+        nextContactUnlocked = true;
+        nextContactUnlockedBy = "buyer_counter_accept";
+        nextContactUnlockedAt = new Date().toISOString();
+        nextContactVisibilityState = "shared_after_counter_accept";
+        nextLastUpdatedBy = "buyer";
+        const sellerUser = await getUserById(offer.listingOwnerUid).catch(() => null);
+        emailKind = "buyer_accepted_counteroffer";
+        emailRecipient = sellerUser?.email ?? "";
+      } else {
+        throw new Error("This offer cannot be accepted right now.");
+      }
+    } else if (status === "declined") {
+      if (isOfferSeller && offer.status === "pending") {
+        nextRespondedAt = new Date().toISOString();
+        nextBuyerViewed = false;
+        nextSellerViewed = true;
+        nextContactUnlocked = false;
+        nextContactUnlockedBy = null;
+        nextContactUnlockedAt = null;
+        nextContactVisibilityState = "hidden";
+        nextLastUpdatedBy = "seller";
+      } else if (isOfferBuyer && offer.status === "countered") {
+        nextRespondedAt = new Date().toISOString();
+        nextBuyerViewed = true;
+        nextSellerViewed = true;
+        nextContactUnlocked = false;
+        nextContactUnlockedBy = null;
+        nextContactUnlockedAt = null;
+        nextContactVisibilityState = "hidden";
+        nextLastUpdatedBy = "buyer";
+      } else {
+        throw new Error("This offer cannot be declined right now.");
+      }
+    } else {
+      throw new Error("This status transition is not supported.");
+    }
+  } else {
+    if (isOfferSeller && status === "accepted_pending_buyer_confirmation" && offer.status !== "pending") {
+      throw new Error("Only pending offers can be accepted.");
+    }
+
+    if (isOfferSeller && status === "rejected" && offer.status !== "pending") {
+      throw new Error("Only pending offers can be rejected.");
+    }
+
+    if (isOfferBuyer && status === "buyer_confirmed" && offer.status !== "accepted_pending_buyer_confirmation") {
+      throw new Error("This offer is not awaiting buyer confirmation.");
+    }
+
+    if (isOfferBuyer && status === "buyer_declined" && offer.status !== "accepted_pending_buyer_confirmation") {
+      throw new Error("This offer is not awaiting buyer confirmation.");
+    }
+
+    nextRespondedAt =
+      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+        ? new Date().toISOString()
+        : offer.respondedAt ?? null;
+
+    nextBuyerViewed =
+      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+        ? false
+        : status === "buyer_confirmed" || status === "buyer_declined"
+          ? true
+          : offer.buyerViewed;
+
+    nextSellerViewed =
+      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+        ? true
+        : status === "buyer_confirmed" || status === "buyer_declined"
+          ? true
+          : offer.sellerViewed;
+
+    nextContactUnlocked = status === "buyer_confirmed" ? true : offer.contactUnlocked;
+    nextContactUnlockedBy = status === "buyer_confirmed" ? "buyer_confirm" : offer.contactUnlockedBy ?? null;
+    nextContactUnlockedAt = status === "buyer_confirmed" ? new Date().toISOString() : offer.contactUnlockedAt ?? null;
+    nextContactVisibilityState = status === "buyer_confirmed" ? "shared_after_accept" : offer.contactVisibilityState ?? "hidden";
+    nextLastUpdatedBy =
+      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+        ? "seller"
+        : status === "buyer_confirmed" || status === "buyer_declined"
+          ? "buyer"
+          : offer.lastUpdatedBy;
+
+    const baseVehicle = await getVehicleById(offer.vehicleId);
+    if (!baseVehicle) {
+      throw new Error("Vehicle not found.");
+    }
+
+    if (
+      status === "accepted_pending_buyer_confirmation"
+      && baseVehicle.sellerStatus === "UNDER_OFFER"
+      && baseVehicle.underOfferBuyerUid
+      && baseVehicle.underOfferBuyerUid !== offer.buyerUid
+    ) {
+      throw new Error("This vehicle is already under offer.");
+    }
+
+    nextVehiclePatch =
+      status === "accepted_pending_buyer_confirmation"
         ? {
-            sellerStatus: "ACTIVE" as const,
-            underOfferBuyerUid: ""
+            sellerStatus: "UNDER_OFFER" as const,
+            underOfferBuyerUid: offer.buyerUid
           }
-        : null;
+        : status === "buyer_declined"
+          ? {
+              sellerStatus: "ACTIVE" as const,
+              underOfferBuyerUid: ""
+            }
+          : null;
+  }
 
   if (!isFirebaseConfigured) {
     return {
@@ -4361,6 +4548,8 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
         contactUnlocked: nextContactUnlocked,
         contactUnlockedAt: nextContactUnlockedAt,
         contactUnlockedBy: nextContactUnlockedBy,
+        contactVisibilityState: nextContactVisibilityState,
+        lastUpdatedBy: nextLastUpdatedBy,
         respondedAt: nextRespondedAt,
         updatedAt: new Date().toISOString()
       },
@@ -4385,12 +4574,17 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
     sellerViewed: nextSellerViewed,
     contactUnlocked: nextContactUnlocked,
     contactUnlockedAt:
-      status === "buyer_confirmed"
+      status === "buyer_confirmed" || status === "accepted"
         ? serverTimestamp()
         : nextContactUnlockedAt,
     contactUnlockedBy: nextContactUnlockedBy,
+    contactVisibilityState: nextContactVisibilityState,
+    lastUpdatedBy: nextLastUpdatedBy,
     respondedAt:
-      status === "accepted_pending_buyer_confirmation" || status === "rejected"
+      status === "accepted_pending_buyer_confirmation"
+      || status === "rejected"
+      || status === "accepted"
+      || status === "declined"
         ? serverTimestamp()
         : nextRespondedAt,
     updatedAt: serverTimestamp()
@@ -4398,18 +4592,26 @@ export async function updateOfferStatus(id: string, status: OfferStatus, actor: 
 
   await batch.commit();
 
+  const nextOffer = {
+    ...offer,
+    status,
+    buyerViewed: nextBuyerViewed,
+    sellerViewed: nextSellerViewed,
+    contactUnlocked: nextContactUnlocked,
+    contactUnlockedAt: nextContactUnlockedAt,
+    contactUnlockedBy: nextContactUnlockedBy,
+    contactVisibilityState: nextContactVisibilityState,
+    lastUpdatedBy: nextLastUpdatedBy,
+    respondedAt: nextRespondedAt,
+    updatedAt: new Date().toISOString()
+  } satisfies Offer;
+
+  if (emailKind && emailRecipient) {
+    void queueOfferLifecycleEmailNotification(emailKind, nextOffer, emailRecipient);
+  }
+
   return {
-    offer: {
-      ...offer,
-      status,
-      buyerViewed: nextBuyerViewed,
-      sellerViewed: nextSellerViewed,
-      contactUnlocked: nextContactUnlocked,
-      contactUnlockedAt: nextContactUnlockedAt,
-      contactUnlockedBy: nextContactUnlockedBy,
-      respondedAt: nextRespondedAt,
-      updatedAt: new Date().toISOString()
-    },
+    offer: nextOffer,
     source: "firestore" as const,
     writeSucceeded: true
   } satisfies OfferWriteResult;

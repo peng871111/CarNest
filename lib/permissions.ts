@@ -311,17 +311,22 @@ export function getSellerListingStatusTone(vehicle: Pick<Vehicle, "status" | "se
 
 export function getOfferStatusLabel(status: OfferStatus) {
   if (status === "pending") return "Pending";
+  if (status === "countered") return "Countered";
+  if (status === "accepted") return "Accepted";
+  if (status === "declined" || status === "rejected") return "Declined";
   if (status === "accepted_pending_buyer_confirmation") return "Awaiting Buyer Confirmation";
   if (status === "buyer_confirmed") return "Buyer Confirmed";
   if (status === "buyer_declined") return "Buyer Declined";
-  return "Rejected";
+  return "Declined";
 }
 
 export function getOfferStatusTone(status: OfferStatus) {
+  if (status === "accepted") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "countered") return "bg-[#FFF4E8] text-[#B54708] border-[#F5D7B2]";
+  if (status === "declined" || status === "rejected") return "bg-red-50 text-red-700 border-red-200";
   if (status === "buyer_confirmed") return "bg-emerald-50 text-emerald-700 border-emerald-200";
   if (status === "accepted_pending_buyer_confirmation") return "bg-[#FFF4E8] text-[#B54708] border-[#F5D7B2]";
   if (status === "buyer_declined") return "bg-zinc-100 text-zinc-700 border-zinc-200";
-  if (status === "rejected") return "bg-red-50 text-red-700 border-red-200";
   return "bg-amber-50 text-amber-700 border-amber-200";
 }
 

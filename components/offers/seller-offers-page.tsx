@@ -6,7 +6,7 @@ import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, unlockOfferContactDetails, updateOfferAmount, updateOfferStatus } from "@/lib/data";
+import { appendOfferMessage, getSellerOffersData, markSellerOffersViewed, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Offer } from "@/types";
 
@@ -29,7 +29,7 @@ export function SellerOffersPageClient({
     let cancelled = false;
 
     async function loadOffers() {
-      if (!appUser || appUser.role !== "seller") return;
+      if (!appUser || (appUser.role !== "seller" && appUser.role !== "dealer")) return;
       const result = await getSellerOffersData(appUser.id);
       if (cancelled) return;
       setOffers(result.items);
@@ -45,15 +45,13 @@ export function SellerOffersPageClient({
 
   const writeStatus =
     initialWrite === "success"
-      ? initialStatus === "accepted_pending_buyer_confirmation"
-        ? "Offer accepted. The buyer has been notified and the vehicle is now under offer."
-        : initialStatus === "rejected"
-          ? "Offer rejected"
-          : initialStatus === "buyer_confirmed"
-            ? "The buyer confirmed that they want to proceed."
-            : initialStatus === "buyer_declined"
-              ? "The buyer declined to proceed, and the vehicle returned to live."
-          : "Offer updated"
+      ? initialStatus === "accepted"
+        ? "Offer accepted. Seller contact details are now visible to the buyer."
+        : initialStatus === "declined"
+          ? "Offer declined."
+          : initialStatus === "countered"
+            ? "Counteroffer sent."
+            : "Offer updated"
       : "";
 
   async function handleSellerReply(offer: Offer, text: string) {
@@ -82,9 +80,28 @@ export function SellerOffersPageClient({
     setNotice("");
 
     try {
-      const result = await updateOfferStatus(offer.id, "accepted_pending_buyer_confirmation", appUser, offer);
+      const result = await updateOfferStatus(offer.id, "accepted", appUser, offer);
       setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice("Offer accepted. The buyer has been notified and the vehicle is now under offer.");
+      setNotice("Offer accepted. Seller contact details are now visible to the buyer.");
+      setCounterOfferOpenId("");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer right now.");
+    } finally {
+      setBusyOfferId("");
+    }
+  }
+
+  async function handleSellerDecline(offer: Offer) {
+    if (!appUser) return;
+
+    setBusyOfferId(offer.id);
+    setError("");
+    setNotice("");
+
+    try {
+      const result = await updateOfferStatus(offer.id, "declined", appUser, offer);
+      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
+      setNotice("Offer declined.");
       setCounterOfferOpenId("");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer right now.");
@@ -114,24 +131,6 @@ export function SellerOffersPageClient({
       setCounterOfferOpenId("");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update the offer amount right now.");
-    } finally {
-      setBusyOfferId("");
-    }
-  }
-
-  async function handleShareContactDetails(offer: Offer) {
-    if (!appUser) return;
-
-    setBusyOfferId(offer.id);
-    setError("");
-    setNotice("");
-
-    try {
-      const result = await unlockOfferContactDetails(offer.id, appUser, offer);
-      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice("Your contact details are now available for this buyer.");
-    } catch (shareError) {
-      setError(shareError instanceof Error ? shareError.message : "We couldn't share your contact details right now.");
     } finally {
       setBusyOfferId("");
     }
@@ -198,6 +197,14 @@ export function SellerOffersPageClient({
                         </button>
                         <button
                           type="button"
+                          onClick={() => void handleSellerDecline(offer)}
+                          disabled={busyOfferId === offer.id}
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {busyOfferId === offer.id ? "Saving..." : "Decline"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             setCounterOfferOpenId(offer.id);
                             setCounterOfferDrafts((current) => ({
@@ -210,24 +217,21 @@ export function SellerOffersPageClient({
                           disabled={busyOfferId === offer.id}
                           className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Reject
+                          Counteroffer
                         </button>
                       </div>
+                    ) : offer.status === "countered" ? (
+                      <p className="text-sm text-ink/55">Waiting for the buyer to respond to your counteroffer.</p>
+                    ) : offer.status === "accepted" || offer.status === "buyer_confirmed" ? (
+                      <p className="text-sm text-ink/55">Negotiation accepted.</p>
                     ) : (
-                      <p className="text-sm text-ink/55">Response sent</p>
+                      <p className="text-sm text-ink/55">Negotiation closed.</p>
                     )}
-                    {!offer.contactUnlocked ? (
-                      <button
-                        type="button"
-                        disabled={busyOfferId === offer.id}
-                        onClick={() => void handleShareContactDetails(offer)}
-                        className="mt-3 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-40"
-                      >
-                        {busyOfferId === offer.id ? "Sharing..." : "Share my contact details"}
-                      </button>
-                    ) : (
-                      <p className="mt-3 text-sm text-ink/55">Contact details shared for this buyer.</p>
-                    )}
+                    <p className="mt-3 text-sm text-ink/55">
+                      {offer.contactUnlocked
+                        ? "Your contact details are now visible to this buyer."
+                        : "Your contact details stay hidden until the negotiation is accepted."}
+                    </p>
                   </div>
                 </div>
                 {offer.status === "pending" && counterOfferOpenId === offer.id ? (

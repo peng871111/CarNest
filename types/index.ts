@@ -18,9 +18,17 @@ export type VehicleStatus = "pending" | "approved" | "rejected";
 export type SellerVehicleStatus = "ACTIVE" | "UNDER_OFFER" | "PAUSED" | "WITHDRAWN" | "SOLD";
 export type OfferMessageSender = "buyer" | "seller";
 export type OfferThreadEntryType = "message" | "offer_update";
-export type OfferContactUnlockSource = "buyer_confirm" | "seller_manual";
+export type OfferContactUnlockSource =
+  | "buyer_confirm"
+  | "seller_manual"
+  | "seller_accept"
+  | "buyer_counter_accept";
+export type OfferContactVisibilityState = "hidden" | "shared_after_accept" | "shared_after_counter_accept";
 export type OfferStatus =
   | "pending"
+  | "countered"
+  | "accepted"
+  | "declined"
   | "accepted_pending_buyer_confirmation"
   | "buyer_confirmed"
   | "buyer_declined"
@@ -201,6 +209,7 @@ export interface Offer {
   contactUnlocked: boolean;
   contactUnlockedAt?: string | null;
   contactUnlockedBy?: OfferContactUnlockSource | null;
+  contactVisibilityState?: OfferContactVisibilityState;
   lastUpdatedBy?: OfferMessageSender;
   submittedByUid?: string;
   status: OfferStatus;

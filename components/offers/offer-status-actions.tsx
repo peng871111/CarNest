@@ -8,6 +8,9 @@ import { Offer, OfferStatus } from "@/types";
 
 const OFFER_STATUS_OPTIONS: OfferStatus[] = [
   "pending",
+  "countered",
+  "accepted",
+  "declined",
   "accepted_pending_buyer_confirmation",
   "buyer_confirmed",
   "buyer_declined",
@@ -54,18 +57,18 @@ export function OfferStatusActions({ offer, basePath }: { offer: Offer; basePath
             disabled={busy}
             className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {busy && status === "accepted_pending_buyer_confirmation" ? "Saving..." : "Accept"}
+            {busy && (status === "accepted_pending_buyer_confirmation" || status === "accepted") ? "Saving..." : "Accept"}
           </button>
           <button
             type="button"
             onClick={() => {
-              setStatus("rejected");
-              void handleSave("rejected");
+              setStatus("declined");
+              void handleSave("declined");
             }}
             disabled={busy}
             className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {busy && status === "rejected" ? "Saving..." : "Reject"}
+            {busy && (status === "rejected" || status === "declined") ? "Saving..." : "Reject"}
           </button>
         </div>
         {showAcceptConfirm ? (
@@ -74,15 +77,15 @@ export function OfferStatusActions({ offer, basePath }: { offer: Offer; basePath
               <p className="text-xs uppercase tracking-[0.25em] text-bronze">Confirm acceptance</p>
               <h3 className="mt-3 text-2xl font-semibold text-ink">Accept this offer?</h3>
               <p className="mt-3 text-sm leading-6 text-ink/70">
-                Accepting this offer will notify the buyer and mark the vehicle as Under Offer while waiting for buyer confirmation.
+                Accepting this offer will notify the buyer and reveal the seller contact details for this negotiation.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   type="button"
                   onClick={() => {
-                    setStatus("accepted_pending_buyer_confirmation");
+                    setStatus("accepted");
                     setShowAcceptConfirm(false);
-                    void handleSave("accepted_pending_buyer_confirmation");
+                    void handleSave("accepted");
                   }}
                   disabled={busy}
                   className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"

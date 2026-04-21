@@ -69,7 +69,9 @@ export function SellerShell({
       if (cancelled) return;
 
       setOffersBadgeCount(
-        sellerOffersResult.items.filter((offer) => offer.status === "pending" && !offer.sellerViewed).length
+        sellerOffersResult.items.filter(
+          (offer) => !offer.sellerViewed && (offer.status === "pending" || offer.status === "accepted" || offer.status === "buyer_confirmed")
+        ).length
       );
       setMyOffersBadgeCount(buyerOffersResult.items.filter((offer) => !offer.buyerViewed).length);
     }

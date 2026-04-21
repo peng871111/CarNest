@@ -8,7 +8,7 @@ import { OfferNegotiationCard } from "@/components/offers/offer-negotiation-card
 import { OfferThread } from "@/components/offers/offer-thread";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
 import { useAuth } from "@/lib/auth";
-import { appendOfferMessage, getAppUserById, getBuyerOffersData, markBuyerOfferResponsesViewed, submitBuyerReplacementOffer, updateOfferAmount, updateOfferStatus } from "@/lib/data";
+import { appendOfferMessage, getAppUserById, getBuyerOffersData, markBuyerOfferResponsesViewed, updateOfferAmount, updateOfferStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { AppUser, Offer, OfferStatus } from "@/types";
 
@@ -62,7 +62,15 @@ export function BuyerOffersPageClient() {
     try {
       const result = await updateOfferStatus(offer.id, nextStatus, appUser, offer);
       setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice(nextStatus === "buyer_confirmed" ? "Offer confirmed. The vehicle remains under offer." : "Offer declined.");
+      setNotice(
+        nextStatus === "accepted"
+          ? "Counteroffer accepted. Seller contact details are now visible."
+          : nextStatus === "declined"
+            ? "Counteroffer declined."
+            : nextStatus === "buyer_confirmed"
+              ? "Offer confirmed. The vehicle remains under offer."
+              : "Offer declined."
+      );
       router.refresh();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "We couldn't update your offer right now.");
@@ -99,28 +107,9 @@ export function BuyerOffersPageClient() {
     try {
       const result = await updateOfferAmount(offer.id, amount, "buyer", appUser, offer);
       setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice("Offer amount updated.");
+      setNotice(offer.status === "countered" ? "Updated offer sent to the seller." : "Offer amount updated.");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "We couldn't update your offer right now.");
-    } finally {
-      setBusyOfferId("");
-    }
-  }
-
-  async function handleBuyerReplacementOffer(offer: Offer, nextAmount: number) {
-    if (!appUser) return;
-
-    setBusyOfferId(offer.id);
-    setError("");
-    setNotice("");
-
-    try {
-      const result = await submitBuyerReplacementOffer(offer.id, nextAmount, appUser, offer);
-      setOffers((current) => current.map((item) => (item.id === offer.id ? result.offer : item)));
-      setNotice("New offer submitted. The seller can review it now.");
-      router.refresh();
-    } catch (updateError) {
-      setError(updateError instanceof Error ? updateError.message : "We couldn't submit your new offer right now.");
     } finally {
       setBusyOfferId("");
     }
@@ -175,7 +164,7 @@ export function BuyerOffersPageClient() {
                   <div className="text-ink/70">{formatAdminDateTime(offer.respondedAt ?? offer.updatedAt ?? offer.createdAt)}</div>
                   <div className="space-y-3">
                     <div className="rounded-[20px] border border-black/5 bg-shell p-4">
-                      {offer.contactUnlocked ? (
+                      {offer.contactUnlocked || offer.contactVisibilityState !== "hidden" ? (
                         <>
                           <p className="text-xs uppercase tracking-[0.22em] text-bronze">Seller contact details</p>
                           <p className="mt-2 font-medium text-ink">
@@ -194,7 +183,47 @@ export function BuyerOffersPageClient() {
                         </p>
                       )}
                     </div>
-                    {offer.status === "accepted_pending_buyer_confirmation" ? (
+                    {offer.status === "countered" ? (
+                      <div className="space-y-3">
+                        <p className="text-sm leading-6 text-ink/70">
+                          The seller sent a counteroffer. You can accept it, decline it, or send another amount to continue negotiating.
+                        </p>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            disabled={busyOfferId === offer.id}
+                            onClick={() => void handleBuyerDecision(offer, "accepted")}
+                            className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {busyOfferId === offer.id ? "Saving..." : "Accept counteroffer"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busyOfferId === offer.id}
+                            onClick={() => void handleBuyerDecision(offer, "declined")}
+                            className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {busyOfferId === offer.id ? "Saving..." : "Decline counteroffer"}
+                          </button>
+                        </div>
+                        <OfferNegotiationCard
+                          title="Send another offer"
+                          description="Prefer a different number? Submit another offer amount and keep the negotiation moving."
+                          currentAmount={offer.amount}
+                          buttonLabel="Send updated offer"
+                          busy={busyOfferId === offer.id}
+                          onConfirm={(amount) => handleBuyerAmountUpdate(offer, amount)}
+                        />
+                      </div>
+                    ) : offer.status === "accepted" ? (
+                      <p className="text-sm leading-6 text-ink/60">The offer has been accepted. Seller contact details are now available above.</p>
+                    ) : offer.status === "declined" ? (
+                      <p className="text-sm leading-6 text-ink/60">
+                        {offer.lastUpdatedBy === "buyer"
+                          ? "You declined the seller’s counteroffer."
+                          : "The seller declined this offer."}
+                      </p>
+                    ) : offer.status === "accepted_pending_buyer_confirmation" ? (
                       <>
                         <p className="text-sm leading-6 text-ink/70">
                           The seller accepted this offer. Confirm if you would like to proceed while the vehicle remains under offer.
@@ -231,7 +260,7 @@ export function BuyerOffersPageClient() {
                           currentAmount={offer.amount}
                           buttonLabel="Submit new offer"
                           busy={busyOfferId === offer.id}
-                          onConfirm={(amount) => handleBuyerReplacementOffer(offer, amount)}
+                          onConfirm={(amount) => handleBuyerAmountUpdate(offer, amount)}
                         />
                       </div>
                     ) : (
@@ -242,10 +271,10 @@ export function BuyerOffersPageClient() {
                 <div className="mt-5">
                   <OfferThread
                     offer={offer}
-                    canReply={offer.status === "pending"}
+                    canReply={offer.status === "pending" || offer.status === "countered"}
                     replyPlaceholder="Add a short buyer message to this offer."
                     busy={busyOfferId === offer.id}
-                    onReply={offer.status === "pending" ? (text) => handleBuyerReply(offer, text) : undefined}
+                    onReply={offer.status === "pending" || offer.status === "countered" ? (text) => handleBuyerReply(offer, text) : undefined}
                   />
                 </div>
               </div>

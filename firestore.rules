@@ -62,10 +62,19 @@ service cloud.firestore {
 
     function isValidOfferStatus(status) {
       return status == "pending"
+        || status == "countered"
+        || status == "accepted"
+        || status == "declined"
         || status == "accepted_pending_buyer_confirmation"
         || status == "buyer_confirmed"
         || status == "buyer_declined"
         || status == "rejected";
+    }
+
+    function isValidOfferContactVisibilityState(value) {
+      return value == "hidden"
+        || value == "shared_after_accept"
+        || value == "shared_after_counter_accept";
     }
 
     function isValidQuoteStatus(status) {
@@ -184,16 +193,23 @@ service cloud.firestore {
       return request.resource.data.contactUnlocked is bool
         && (request.resource.data.contactUnlockedAt == null || request.resource.data.contactUnlockedAt is timestamp)
         && (
+          request.resource.data.contactVisibilityState == null
+          || isValidOfferContactVisibilityState(request.resource.data.contactVisibilityState)
+        )
+        && (
           request.resource.data.contactUnlockedBy == null
           || request.resource.data.contactUnlockedBy == "buyer_confirm"
           || request.resource.data.contactUnlockedBy == "seller_manual"
+          || request.resource.data.contactUnlockedBy == "seller_accept"
+          || request.resource.data.contactUnlockedBy == "buyer_counter_accept"
         );
     }
 
     function offerContactUnlockFieldsUnchanged() {
       return request.resource.data.contactUnlocked == resource.data.contactUnlocked
         && request.resource.data.contactUnlockedAt == resource.data.contactUnlockedAt
-        && request.resource.data.contactUnlockedBy == resource.data.contactUnlockedBy;
+        && request.resource.data.contactUnlockedBy == resource.data.contactUnlockedBy
+        && request.resource.data.contactVisibilityState == resource.data.contactVisibilityState;
     }
 
     function offerActivityNotificationOffer(offerId) {
@@ -586,6 +602,7 @@ service cloud.firestore {
           "contactUnlocked",
           "contactUnlockedAt",
           "contactUnlockedBy",
+          "contactVisibilityState",
           "lastUpdatedBy",
           "sellerOwnerUid",
           "submittedByUid",
@@ -617,6 +634,7 @@ service cloud.firestore {
         && request.resource.data.contactUnlocked == false
         && request.resource.data.contactUnlockedAt == null
         && request.resource.data.contactUnlockedBy == null
+        && request.resource.data.contactVisibilityState == "hidden"
         && request.resource.data.lastUpdatedBy == "buyer"
         && request.resource.data.submittedByUid == request.auth.uid
         && request.resource.data.createdAt is timestamp
@@ -654,8 +672,7 @@ service cloud.firestore {
           && offerFieldsUnchanged()
           && offerAmountsAreValid()
           && request.resource.data.messages is list
-          && request.resource.data.status == "pending"
-          && resource.data.status == "pending"
+          && request.resource.data.status == resource.data.status
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             "sellerViewed",
             "updatedAt"
@@ -668,6 +685,54 @@ service cloud.firestore {
           && request.resource.data.sellerViewed == true
           && request.resource.data.updatedAt is timestamp
           && request.resource.data.respondedAt == resource.data.respondedAt
+        )
+        || (
+          signedIn()
+          && (resource.data.sellerOwnerUid == request.auth.uid || resource.data.listingOwnerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
+          && resource.data.status == "pending"
+          && (
+            request.resource.data.status == "accepted"
+            || request.resource.data.status == "declined"
+          )
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "status",
+            "buyerViewed",
+            "sellerViewed",
+            "contactUnlocked",
+            "contactUnlockedAt",
+            "contactUnlockedBy",
+            "contactVisibilityState",
+            "lastUpdatedBy",
+            "respondedAt",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && request.resource.data.amount == resource.data.amount
+          && request.resource.data.offerAmount == resource.data.offerAmount
+          && request.resource.data.lastUpdatedBy == "seller"
+          && request.resource.data.buyerViewed == false
+          && request.resource.data.sellerViewed == true
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt is timestamp
+          && (
+            (
+              request.resource.data.status == "accepted"
+              && request.resource.data.contactUnlocked == true
+              && request.resource.data.contactUnlockedAt is timestamp
+              && request.resource.data.contactUnlockedBy == "seller_accept"
+              && request.resource.data.contactVisibilityState == "shared_after_accept"
+            )
+            || (
+              request.resource.data.status == "declined"
+              && request.resource.data.contactUnlocked == false
+              && request.resource.data.contactUnlockedAt == null
+              && request.resource.data.contactUnlockedBy == null
+              && request.resource.data.contactVisibilityState == "hidden"
+            )
+          )
         )
         || (
           signedIn()
@@ -724,6 +789,56 @@ service cloud.firestore {
           && offerFieldsUnchanged()
           && offerAmountsAreValid()
           && request.resource.data.messages is list
+          && resource.data.status == "countered"
+          && (
+            request.resource.data.status == "accepted"
+            || request.resource.data.status == "declined"
+          )
+          && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+            "status",
+            "buyerViewed",
+            "sellerViewed",
+            "contactUnlocked",
+            "contactUnlockedAt",
+            "contactUnlockedBy",
+            "contactVisibilityState",
+            "lastUpdatedBy",
+            "respondedAt",
+            "updatedAt"
+          ])
+          && request.resource.data.messages == resource.data.messages
+          && offerAmountsUnchanged()
+          && request.resource.data.updatedAt is timestamp
+          && request.resource.data.respondedAt is timestamp
+          && (
+            (
+              request.resource.data.status == "accepted"
+              && request.resource.data.lastUpdatedBy == "buyer"
+              && request.resource.data.buyerViewed == true
+              && request.resource.data.sellerViewed == false
+              && request.resource.data.contactUnlocked == true
+              && request.resource.data.contactUnlockedAt is timestamp
+              && request.resource.data.contactUnlockedBy == "buyer_counter_accept"
+              && request.resource.data.contactVisibilityState == "shared_after_counter_accept"
+            )
+            || (
+              request.resource.data.status == "declined"
+              && request.resource.data.lastUpdatedBy == "buyer"
+              && request.resource.data.buyerViewed == true
+              && request.resource.data.sellerViewed == true
+              && request.resource.data.contactUnlocked == false
+              && request.resource.data.contactUnlockedAt == null
+              && request.resource.data.contactUnlockedBy == null
+              && request.resource.data.contactVisibilityState == "hidden"
+            )
+          )
+        )
+        || (
+          signedIn()
+          && (resource.data.userId == request.auth.uid || resource.data.buyerUid == request.auth.uid)
+          && offerFieldsUnchanged()
+          && offerAmountsAreValid()
+          && request.resource.data.messages is list
           && resource.data.status == "accepted_pending_buyer_confirmation"
           && (
             request.resource.data.status == "buyer_confirmed"
@@ -736,22 +851,26 @@ service cloud.firestore {
             "contactUnlocked",
             "contactUnlockedAt",
             "contactUnlockedBy",
+            "contactVisibilityState",
+            "lastUpdatedBy",
             "updatedAt"
           ])
           && request.resource.data.messages == resource.data.messages
           && offerAmountsUnchanged()
-          && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == true
           && (
             (
               request.resource.data.status == "buyer_confirmed"
+              && request.resource.data.lastUpdatedBy == "buyer"
               && request.resource.data.contactUnlocked == true
               && request.resource.data.contactUnlockedAt is timestamp
               && request.resource.data.contactUnlockedBy == "buyer_confirm"
+              && request.resource.data.contactVisibilityState == "shared_after_accept"
             )
             || (
               request.resource.data.status == "buyer_declined"
+              && request.resource.data.lastUpdatedBy == "buyer"
               && offerContactUnlockFieldsUnchanged()
             )
           )
@@ -796,6 +915,7 @@ service cloud.firestore {
             "contactUnlocked",
             "contactUnlockedAt",
             "contactUnlockedBy",
+            "contactVisibilityState",
             "buyerViewed",
             "sellerViewed",
             "updatedAt"
@@ -806,6 +926,7 @@ service cloud.firestore {
           && request.resource.data.contactUnlocked == true
           && request.resource.data.contactUnlockedAt is timestamp
           && request.resource.data.contactUnlockedBy == "seller_manual"
+          && request.resource.data.contactVisibilityState == "shared_after_accept"
           && request.resource.data.lastUpdatedBy == resource.data.lastUpdatedBy
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
@@ -863,22 +984,24 @@ service cloud.firestore {
           && offerAmountsAreValid()
           && request.resource.data.messages is list
           && resource.data.status == "pending"
-          && request.resource.data.status == "pending"
+          && request.resource.data.status == "countered"
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             "amount",
             "offerAmount",
+            "status",
             "messages",
             "buyerViewed",
             "sellerViewed",
             "lastUpdatedBy",
+            "respondedAt",
             "updatedAt"
           ])
           && request.resource.data.lastUpdatedBy == "seller"
           && offerContactUnlockFieldsUnchanged()
           && request.resource.data.buyerViewed == false
           && request.resource.data.sellerViewed == true
+          && request.resource.data.respondedAt is timestamp
           && request.resource.data.updatedAt is timestamp
-          && request.resource.data.respondedAt == resource.data.respondedAt
         )
         || (
           signedIn()
@@ -886,7 +1009,7 @@ service cloud.firestore {
           && offerFieldsUnchanged()
           && offerAmountsAreValid()
           && request.resource.data.messages is list
-          && resource.data.status == "pending"
+          && (resource.data.status == "pending" || resource.data.status == "countered")
           && request.resource.data.status == "pending"
           && request.resource.data.diff(resource.data).changedKeys().hasOnly([
             "amount",
@@ -902,7 +1025,7 @@ service cloud.firestore {
           && request.resource.data.buyerViewed == true
           && request.resource.data.sellerViewed == false
           && request.resource.data.updatedAt is timestamp
-          && request.resource.data.respondedAt == resource.data.respondedAt
+          && request.resource.data.respondedAt == null
         );
       allow delete: if isAdmin();
     }
