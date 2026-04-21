@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ReactNode } from "react";
 import { AdminShell } from "@/components/layout/admin-shell";
 import {
   getContactMessagesData,
@@ -25,13 +26,6 @@ type RankedListing = {
 type RankedBrand = {
   label: string;
   count: number;
-};
-
-type FunnelMetric = {
-  label: string;
-  value: string;
-  detail: string;
-  isPlaceholder?: boolean;
 };
 
 function toAverageLabel(total: number, divisor: number) {
@@ -103,13 +97,51 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
   );
 }
 
-function ExternalMetricCard({
+function CollapsibleSection({
+  label,
+  description,
+  children
+}: {
+  label: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <details className="group rounded-[28px] border border-black/5 bg-white shadow-panel">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-6 py-5 [&::-webkit-details-marker]:hidden">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-bronze">{label}</p>
+          <h2 className="mt-2 font-display text-3xl text-ink">{description}</h2>
+        </div>
+        <span className="text-2xl text-ink/45 transition-transform group-open:rotate-180">⌄</span>
+      </summary>
+      <div className="border-t border-black/5 px-6 pb-6 pt-5">{children}</div>
+    </details>
+  );
+}
+
+function CompactMetricCard({
+  label,
+  value
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
+      <p className="text-[11px] uppercase tracking-[0.24em] text-ink/45">{label}</p>
+      <p className="mt-3 font-display text-3xl text-ink">{value}</p>
+    </div>
+  );
+}
+
+function FunnelMetricCard({
   label,
   value,
   detail
 }: {
   label: string;
-  value: string;
+  value: string | number;
   detail: string;
 }) {
   return (
@@ -117,20 +149,6 @@ function ExternalMetricCard({
       <p className="text-[11px] uppercase tracking-[0.24em] text-ink/45">{label}</p>
       <p className="mt-3 font-display text-3xl text-ink">{value}</p>
       <p className="mt-3 text-sm leading-6 text-ink/65">{detail}</p>
-    </div>
-  );
-}
-
-function resolveVercelAnalyticsHref() {
-  return process.env.VERCEL_ANALYTICS_DASHBOARD_URL?.trim() || "https://vercel.com/docs/analytics";
-}
-
-function FunnelMetricCard({ metric }: { metric: FunnelMetric }) {
-  return (
-    <div className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
-      <p className="text-[11px] uppercase tracking-[0.24em] text-ink/45">{metric.label}</p>
-      <p className="mt-3 font-display text-3xl text-ink">{metric.value}</p>
-      <p className={`mt-3 text-sm leading-6 ${metric.isPlaceholder ? "text-ink/50" : "text-ink/65"}`}>{metric.detail}</p>
     </div>
   );
 }
@@ -211,7 +229,6 @@ function RankedSignalSection({
 }
 
 export default async function AdminAnalyticsPage() {
-  const vercelAnalyticsHref = resolveVercelAnalyticsHref();
   const [
     usersResult,
     vehiclesResult,
@@ -315,54 +332,8 @@ export default async function AdminAnalyticsPage() {
   const listingsWithOffers = new Set(offers.map((offer) => offer.vehicleId));
   const soldListingsWithOffers = soldListings.filter((vehicle) => listingsWithOffers.has(vehicle.id)).length;
   const totalViewCount = viewEvents.length;
-  const funnelMetrics: FunnelMetric[] = totalViewCount
-    ? [
-        {
-          label: "Views to saves",
-          value: formatPercentage(savedVehicles.length, totalViewCount),
-          detail: `${savedVehicles.length} saved vehicle actions from ${totalViewCount} tracked listing views.`
-        },
-        {
-          label: "Views to enquiries",
-          value: formatPercentage(inspectionRequests.length, totalViewCount),
-          detail: `${inspectionRequests.length} linked enquiry actions from ${totalViewCount} tracked listing views.`
-        },
-        {
-          label: "Views to offers",
-          value: formatPercentage(offers.length, totalViewCount),
-          detail: `${offers.length} offers created from ${totalViewCount} tracked listing views.`
-        },
-        {
-          label: "Offers to sold",
-          value: formatPercentage(soldListingsWithOffers, listingsWithOffers.size),
-          detail: `${soldListingsWithOffers} sold listings had prior offer activity across ${listingsWithOffers.size} listings that received offers.`
-        }
-      ]
-    : [
-        {
-          label: "Views to saves",
-          value: "Not enough data yet",
-          detail: "Listing view tracking is not available in enough volume yet to calculate a real view-to-save rate.",
-          isPlaceholder: true
-        },
-        {
-          label: "Views to enquiries",
-          value: "Not enough data yet",
-          detail: "Listing view tracking is not available in enough volume yet to calculate a real view-to-enquiry rate.",
-          isPlaceholder: true
-        },
-        {
-          label: "Views to offers",
-          value: "Not enough data yet",
-          detail: "Listing view tracking is not available in enough volume yet to calculate a real view-to-offer rate.",
-          isPlaceholder: true
-        },
-        {
-          label: "Offers to sold",
-          value: formatPercentage(soldListingsWithOffers, listingsWithOffers.size),
-          detail: `${soldListingsWithOffers} sold listings had prior offer activity across ${listingsWithOffers.size} listings that received offers.`
-        }
-      ];
+  const totalPageViewsValue = "—";
+  const totalVisitorsValue = "—";
 
   const dataWarnings = [
     usersResult.error,
@@ -378,11 +349,11 @@ export default async function AdminAnalyticsPage() {
   return (
     <AdminShell
       title="Analytics"
-      description="A first live view of platform activity across users, listings, buyer intent, and dealer pipeline signals."
+      description="A cleaner view of platform activity across users, listings, buyer demand, and outcomes."
     >
       {dataWarnings.length ? (
         <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-          Some analytics collections could not be read right now, so sections with missing data fall back to safe placeholders.
+          Some analytics data could not be read right now, so a few sections may appear lighter than usual.
         </div>
       ) : null}
 
@@ -396,56 +367,24 @@ export default async function AdminAnalyticsPage() {
         <SummaryCard label="Total offers" value={offers.length} />
         <SummaryCard label="Total enquiries" value={enquiries.length} />
         <SummaryCard label="Total saved vehicles" value={savedVehicles.length} />
-        <ExternalMetricCard
-          label="Total page views"
-          value="External"
-          detail="Page views and route visits are now tracked through Vercel Analytics in production. Totals currently live in Vercel, not Firestore."
-        />
-        <ExternalMetricCard
-          label="Total visitors"
-          value="External"
-          detail="Unique visitor totals are available from Vercel Analytics. They are not yet ingested into CarNest server-side."
-        />
+        <SummaryCard label="Total page views" value={totalPageViewsValue} />
+        <SummaryCard label="Total visitors" value={totalVisitorsValue} />
       </div>
 
-      <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-bronze">Traffic overview</p>
-            <h2 className="mt-2 font-display text-3xl text-ink">Traffic and buyer activity</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
-              Website traffic totals come from Vercel Analytics. Listing views, enquiries, and offers below are real CarNest metrics from existing tracked collections.
-            </p>
-          </div>
-          <Link
-            href={vercelAnalyticsHref}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-shell"
-          >
-            Open Vercel Analytics
-          </Link>
-        </div>
-
+      <CollapsibleSection label="Traffic" description="Traffic and buyer activity">
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <ExternalMetricCard
-            label="Total traffic"
-            value="From Vercel"
-            detail="Use the Vercel Analytics dashboard for live total page views and visitors."
-          />
-          <SummaryCard label="Listing views" value={viewEvents.length} />
-          <SummaryCard label="Enquiries" value={inspectionRequests.length} />
-          <SummaryCard label="Offers" value={offers.length} />
+          <CompactMetricCard label="Total traffic" value={totalPageViewsValue} />
+          <CompactMetricCard label="Listing views" value={viewEvents.length || "No data yet"} />
+          <CompactMetricCard label="Enquiries" value={inspectionRequests.length || "No data yet"} />
+          <CompactMetricCard label="Offers" value={offers.length || "No data yet"} />
         </div>
-      </section>
+      </CollapsibleSection>
 
-      <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+      <CollapsibleSection label="Listing analytics" description="Listing performance">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-bronze">Listing analytics</p>
-            <h2 className="mt-2 font-display text-3xl text-ink">How listings are performing</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
-              Offer and save counts are direct listing metrics. Enquiry counts currently use inspection requests as the real linked enquiry signal.
+              Review the listings drawing the strongest activity and compare how demand is spreading across the live marketplace.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -484,13 +423,11 @@ export default async function AdminAnalyticsPage() {
             suffix="saves"
           />
         </div>
-      </section>
+      </CollapsibleSection>
 
-      <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-        <p className="text-xs uppercase tracking-[0.28em] text-bronze">User behavior</p>
-        <h2 className="mt-2 font-display text-3xl text-ink">Preference and intent signals</h2>
+      <CollapsibleSection label="User behavior" description="Preference and intent signals">
         <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
-          These sections surface the strongest current demand signals from views, saves, and enquiry-linked actions already tracked by CarNest.
+          Surface the strongest demand signals from views, saves, enquiries, and offer activity already captured across the platform.
         </p>
 
         <div className="mt-6 grid gap-5 xl:grid-cols-3">
@@ -551,7 +488,7 @@ export default async function AdminAnalyticsPage() {
             suffix="signals"
           />
         </div>
-      </section>
+      </CollapsibleSection>
 
       <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.28em] text-bronze">Conversion funnel</p>
@@ -561,32 +498,42 @@ export default async function AdminAnalyticsPage() {
         </p>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {funnelMetrics.map((metric) => (
-            <FunnelMetricCard key={metric.label} metric={metric} />
-          ))}
+          <FunnelMetricCard
+            label="Views to saves"
+            value={totalViewCount ? formatPercentage(savedVehicles.length, totalViewCount) : "No data yet"}
+            detail={
+              totalViewCount
+                ? `${savedVehicles.length} saved vehicle actions from ${totalViewCount} tracked listing views.`
+                : "View-to-save conversion will appear here once more traffic data is available."
+            }
+          />
+          <FunnelMetricCard
+            label="Views to enquiries"
+            value={totalViewCount ? formatPercentage(inspectionRequests.length, totalViewCount) : "No data yet"}
+            detail={
+              totalViewCount
+                ? `${inspectionRequests.length} linked enquiry actions from ${totalViewCount} tracked listing views.`
+                : "View-to-enquiry conversion will appear here once more traffic data is available."
+            }
+          />
+          <FunnelMetricCard
+            label="Views to offers"
+            value={totalViewCount ? formatPercentage(offers.length, totalViewCount) : "No data yet"}
+            detail={
+              totalViewCount
+                ? `${offers.length} offers created from ${totalViewCount} tracked listing views.`
+                : "View-to-offer conversion will appear here once more traffic data is available."
+            }
+          />
+          <FunnelMetricCard
+            label="Offers to sold"
+            value={formatPercentage(soldListingsWithOffers, listingsWithOffers.size)}
+            detail={`${soldListingsWithOffers} sold listings had prior offer activity across ${listingsWithOffers.size} listings that received offers.`}
+          />
         </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
-        <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.28em] text-bronze">Traffic</p>
-          <h2 className="mt-2 font-display text-3xl text-ink">Website visits</h2>
-          <div className="mt-5 rounded-[20px] bg-shell px-4 py-5 text-sm leading-6 text-ink/65">
-            Vercel Analytics is connected for production page views and route-level visits.
-          </div>
-          <div className="mt-3 rounded-[20px] bg-shell px-4 py-5 text-sm leading-6 text-ink/65">
-            Traffic totals still live externally in Vercel Analytics. State-based visit analytics are not connected yet.
-          </div>
-          <Link
-            href={vercelAnalyticsHref}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-4 inline-flex rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-shell"
-          >
-            Open traffic source
-          </Link>
-        </div>
-
         <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">Quick links</p>
           <h2 className="mt-2 font-display text-3xl text-ink">Follow-up actions</h2>
@@ -608,6 +555,21 @@ export default async function AdminAnalyticsPage() {
               <span className="font-semibold text-ink">{formatCurrency(vehicles.reduce((total, vehicle) => total + vehicle.price, 0))}</span>
             </div>
           </div>
+        </div>
+        <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+          <p className="text-xs uppercase tracking-[0.28em] text-bronze">Traffic dashboard</p>
+          <h2 className="mt-2 font-display text-3xl text-ink">Open traffic reporting</h2>
+          <div className="mt-5 rounded-[20px] bg-shell px-4 py-5 text-sm leading-6 text-ink/65">
+            Open the connected traffic dashboard for route and visitor reporting.
+          </div>
+          <Link
+            href={process.env.VERCEL_ANALYTICS_DASHBOARD_URL?.trim() || "https://vercel.com/docs/analytics"}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:bg-shell"
+          >
+            Open traffic dashboard
+          </Link>
         </div>
       </section>
     </AdminShell>
