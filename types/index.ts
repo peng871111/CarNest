@@ -434,6 +434,31 @@ export interface ContactMessage {
   createdAt?: string;
 }
 
+export interface UserSupportAccountMetrics {
+  totalListings: number;
+  liveListings: number;
+  soldListings: number;
+  pendingListings: number;
+  totalOffers: number;
+  totalEnquiries: number;
+  totalInspections: number;
+}
+
+export interface UserSupportRecord {
+  matchedUser: AppUser | null;
+  matchedVehicle: Vehicle | null;
+  ownedVehicles: Vehicle[];
+  metrics: UserSupportAccountMetrics;
+}
+
+export interface UserSupportSuggestion {
+  type: "user" | "listing";
+  queryValue: string;
+  email: string;
+  name: string;
+  id: string;
+}
+
 export interface PricingRequest {
   id: string;
   userId: string;

@@ -1,4 +1,4 @@
-import { Timestamp, addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { Timestamp, addDoc, collection, deleteDoc, deleteField, doc, documentId, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { db, isFirebaseConfigured } from "@/lib/firebase";
 import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { verifyDealerLicenceByState } from "@/lib/dealer-licence-verification";
@@ -61,7 +61,10 @@ import {
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
-  VehicleDeviceType
+  VehicleDeviceType,
+  UserSupportAccountMetrics,
+  UserSupportRecord,
+  UserSupportSuggestion
 } from "@/types";
 
 type CollectionName =
@@ -1486,6 +1489,213 @@ export async function getUsersData(fallback?: AppUser[]) {
   ] satisfies AppUser[];
 
   return getCollection<AppUser>("users", defaultFallback, serializeUserDoc);
+}
+
+function createEmptyUserSupportMetrics(): UserSupportAccountMetrics {
+  return {
+    totalListings: 0,
+    liveListings: 0,
+    soldListings: 0,
+    pendingListings: 0,
+    totalOffers: 0,
+    totalEnquiries: 0,
+    totalInspections: 0
+  };
+}
+
+function createEmptyUserSupportRecord(): UserSupportRecord {
+  return {
+    matchedUser: null,
+    matchedVehicle: null,
+    ownedVehicles: [],
+    metrics: createEmptyUserSupportMetrics()
+  };
+}
+
+async function findUserByExactEmail(email: string) {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  if (!isFirebaseConfigured) {
+    return (await listUsers()).find((user) => user.email.trim().toLowerCase() === normalizedEmail) ?? null;
+  }
+
+  const snapshot = await getDocs(query(collection(db, "users"), where("email", "==", normalizedEmail), limit(1)));
+  if (!snapshot.docs.length) return null;
+  return serializeUserDoc(snapshot.docs[0].id, snapshot.docs[0].data());
+}
+
+async function findVehiclesByOwnerForSupport(ownerUid: string) {
+  if (!ownerUid) return [] as Vehicle[];
+
+  if (!isFirebaseConfigured) {
+    return sampleVehicles.filter((vehicle) => vehicle.ownerUid === ownerUid);
+  }
+
+  const snapshot = await getDocs(query(collection(db, "vehicles"), where("ownerUid", "==", ownerUid)));
+  return snapshot.docs
+    .map((item) => serializeVehicleDoc(item.id, item.data()))
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+}
+
+async function getUserSupportMetrics(user: AppUser, ownedVehicles: Vehicle[]) {
+  const email = user.email.trim().toLowerCase();
+
+  if (!isFirebaseConfigured) {
+    const allOffers = (await getOffersData()).items;
+    const allInspections = (await getInspectionRequestsData()).items;
+    const allMessages = (await getContactMessagesData()).items;
+
+    return {
+      totalListings: ownedVehicles.length,
+      liveListings: ownedVehicles.filter((vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")).length,
+      soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
+      pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length,
+      totalOffers: allOffers.filter((offer) => offer.listingOwnerUid === user.id).length,
+      totalEnquiries: allMessages.filter((message) => message.email.trim().toLowerCase() === email).length,
+      totalInspections: allInspections.filter((request) => request.sellerOwnerUid === user.id).length
+    } satisfies UserSupportAccountMetrics;
+  }
+
+  const [offersSnapshot, enquiriesSnapshot, inspectionsSnapshot] = await Promise.all([
+    getDocs(query(collection(db, "offers"), where("listingOwnerUid", "==", user.id))),
+    getDocs(query(collection(db, "contact_messages"), where("email", "==", email))),
+    getDocs(query(collection(db, "inspectionRequests"), where("sellerOwnerUid", "==", user.id)))
+  ]);
+
+  return {
+    totalListings: ownedVehicles.length,
+    liveListings: ownedVehicles.filter((vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")).length,
+    soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
+    pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length,
+    totalOffers: offersSnapshot.size,
+    totalEnquiries: enquiriesSnapshot.size,
+    totalInspections: inspectionsSnapshot.size
+  } satisfies UserSupportAccountMetrics;
+}
+
+export async function getUserSupportRecord(searchQuery: string) {
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  if (!normalizedQuery) {
+    return createEmptyUserSupportRecord();
+  }
+
+  let matchedUser: AppUser | null = null;
+  let matchedVehicle: Vehicle | null = null;
+
+  if (normalizedQuery.includes("@")) {
+    matchedUser = await findUserByExactEmail(normalizedQuery);
+  } else {
+    matchedVehicle = await getVehicleById(searchQuery.trim());
+    if (matchedVehicle) {
+      matchedUser = await getAppUserById(matchedVehicle.ownerUid);
+    }
+  }
+
+  if (!matchedUser) {
+    return {
+      matchedUser: null,
+      matchedVehicle,
+      ownedVehicles: [],
+      metrics: createEmptyUserSupportMetrics()
+    } satisfies UserSupportRecord;
+  }
+
+  const ownedVehicles = await findVehiclesByOwnerForSupport(matchedUser.id);
+  const metrics = await getUserSupportMetrics(matchedUser, ownedVehicles);
+
+  return {
+    matchedUser,
+    matchedVehicle,
+    ownedVehicles,
+    metrics
+  } satisfies UserSupportRecord;
+}
+
+export async function getUserSupportSuggestions(searchQuery: string, maxResults = 10) {
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  if (!normalizedQuery) return [] as UserSupportSuggestion[];
+
+  const safeLimit = Math.min(Math.max(maxResults, 1), 10);
+  const userLimit = Math.min(5, safeLimit);
+  const listingLimit = Math.max(1, safeLimit - userLimit);
+
+  if (!isFirebaseConfigured) {
+    const users = (await listUsers())
+      .filter((user) => user.email.trim().toLowerCase().startsWith(normalizedQuery))
+      .slice(0, userLimit)
+      .map((user) => ({
+        type: "user" as const,
+        queryValue: user.email,
+        email: user.email,
+        name: user.displayName || user.name || user.email,
+        id: user.id
+      }));
+
+    const listings = sampleVehicles
+      .filter((vehicle) => vehicle.id.toLowerCase().startsWith(normalizedQuery))
+      .slice(0, listingLimit)
+      .map((vehicle) => ({
+        type: "listing" as const,
+        queryValue: vehicle.id,
+        email: "",
+        name: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+        id: vehicle.id
+      }));
+
+    return [...users, ...listings].slice(0, safeLimit);
+  }
+
+  const [userSnapshot, listingSnapshot] = await Promise.all([
+    getDocs(
+      query(
+        collection(db, "users"),
+        orderBy("email"),
+        where("email", ">=", normalizedQuery),
+        where("email", "<=", `${normalizedQuery}\uf8ff`),
+        limit(userLimit)
+      )
+    ),
+    getDocs(
+      query(
+        collection(db, "vehicles"),
+        orderBy(documentId()),
+        where(documentId(), ">=", searchQuery.trim()),
+        where(documentId(), "<=", `${searchQuery.trim()}\uf8ff`),
+        limit(listingLimit)
+      )
+    )
+  ]);
+
+  const ownerIds = Array.from(new Set(listingSnapshot.docs.map((item) => String(item.data().ownerUid ?? "")).filter(Boolean)));
+  const owners = await Promise.all(ownerIds.map((ownerId) => getAppUserById(ownerId)));
+  const ownersById = new Map(owners.filter((owner): owner is AppUser => Boolean(owner)).map((owner) => [owner.id, owner]));
+
+  const userSuggestions = userSnapshot.docs.map((item) => {
+    const user = serializeUserDoc(item.id, item.data());
+    return {
+      type: "user" as const,
+      queryValue: user.email,
+      email: user.email,
+      name: user.displayName || user.name || user.email,
+      id: user.id
+    } satisfies UserSupportSuggestion;
+  });
+
+  const listingSuggestions = listingSnapshot.docs.map((item) => {
+    const vehicle = serializeVehicleDoc(item.id, item.data());
+    const owner = ownersById.get(vehicle.ownerUid);
+
+    return {
+      type: "listing" as const,
+      queryValue: vehicle.id,
+      email: owner?.email ?? "",
+      name: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+      id: vehicle.id
+    } satisfies UserSupportSuggestion;
+  });
+
+  return [...userSuggestions, ...listingSuggestions].slice(0, safeLimit);
 }
 
 export async function getUserComplianceAssessment(

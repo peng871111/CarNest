@@ -1,21 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { updateUserSupportStatus } from "@/lib/data";
+import { getUserSupportSuggestions, updateUserSupportStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, ContactMessage, InspectionRequest, Offer, Vehicle, VehicleActor } from "@/types";
+import { AppUser, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
 
 function normalizeQuery(value: string) {
   return value.trim().toLowerCase();
-}
-
-function isLiveListing(vehicle: Vehicle) {
-  return vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER");
 }
 
 function buildActor(appUser: AppUser | null): VehicleActor | null {
@@ -35,83 +31,61 @@ function buildActor(appUser: AppUser | null): VehicleActor | null {
 
 export function UserSupportPanel({
   initialQuery,
-  users,
-  vehicles,
-  offers,
-  contactMessages,
-  inspectionRequests
+  initialRecord
 }: {
   initialQuery: string;
-  users: AppUser[];
-  vehicles: Vehicle[];
-  offers: Offer[];
-  contactMessages: ContactMessage[];
-  inspectionRequests: InspectionRequest[];
+  initialRecord: UserSupportRecord;
 }) {
   const router = useRouter();
   const { appUser, requestPasswordReset } = useAuth();
   const [query, setQuery] = useState(initialQuery);
-  const [usersState, setUsersState] = useState(users);
+  const [record, setRecord] = useState(initialRecord);
+  const [suggestions, setSuggestions] = useState<UserSupportSuggestion[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [busyAction, setBusyAction] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const normalizedQuery = normalizeQuery(query);
+  const matchedUser = record.matchedUser;
+  const matchedVehicle = record.matchedVehicle;
+  const ownedVehicles = record.ownedVehicles;
+  const accountMetrics = record.metrics;
 
-  const searchResult = useMemo(() => {
-    if (!normalizedQuery) {
-      return {
-        matchedUser: null as AppUser | null,
-        matchedVehicle: null as Vehicle | null
-      };
+  useEffect(() => {
+    setRecord(initialRecord);
+  }, [initialRecord]);
+
+  useEffect(() => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery || trimmedQuery === initialQuery.trim()) {
+      setSuggestions([]);
+      setLoadingSuggestions(false);
+      return;
     }
 
-    const matchedUser = usersState.find((user) => normalizeQuery(user.email) === normalizedQuery) ?? null;
-    const matchedVehicle = vehicles.find((vehicle) => {
-      const vehicleId = normalizeQuery(vehicle.id);
-      const displayReference = normalizeQuery(getVehicleDisplayReference(vehicle));
-      return vehicleId === normalizedQuery || displayReference === normalizedQuery;
-    }) ?? null;
+    const timeoutId = window.setTimeout(async () => {
+      setLoadingSuggestions(true);
+      try {
+        const nextSuggestions = await getUserSupportSuggestions(trimmedQuery, 10);
+        setSuggestions(nextSuggestions);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    }, 300);
 
-    return {
-      matchedUser: matchedUser ?? (matchedVehicle ? usersState.find((user) => user.id === matchedVehicle.ownerUid) ?? null : null),
-      matchedVehicle
+    return () => {
+      window.clearTimeout(timeoutId);
     };
-  }, [normalizedQuery, usersState, vehicles]);
-
-  const matchedUser = searchResult.matchedUser;
-  const matchedVehicle = searchResult.matchedVehicle;
-  const ownedVehicles = useMemo(
-    () => (matchedUser ? vehicles.filter((vehicle) => vehicle.ownerUid === matchedUser.id) : []),
-    [matchedUser, vehicles]
-  );
-  const accountMetrics = useMemo(() => {
-    if (!matchedUser) {
-      return {
-        totalListings: 0,
-        liveListings: 0,
-        soldListings: 0,
-        pendingListings: 0,
-        totalOffers: 0,
-        totalEnquiries: 0,
-        totalInspections: 0
-      };
-    }
-
-    return {
-      totalListings: ownedVehicles.length,
-      liveListings: ownedVehicles.filter(isLiveListing).length,
-      soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
-      pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length,
-      totalOffers: offers.filter((offer) => offer.listingOwnerUid === matchedUser.id).length,
-      totalEnquiries: contactMessages.filter((message) => normalizeQuery(message.email) === normalizeQuery(matchedUser.email)).length,
-      totalInspections: inspectionRequests.filter((request) => request.sellerOwnerUid === matchedUser.id).length
-    };
-  }, [contactMessages, inspectionRequests, matchedUser, offers, ownedVehicles]);
+  }, [initialQuery, query]);
 
   async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSuccess("");
     setError("");
+    setShowSuggestions(false);
     const nextQuery = query.trim();
     router.replace(nextQuery ? `/admin/user-support?q=${encodeURIComponent(nextQuery)}` : "/admin/user-support");
   }
@@ -130,7 +104,10 @@ export function UserSupportPanel({
 
     try {
       const result = await updateUserSupportStatus(matchedUser.id, action, actor, matchedUser);
-      setUsersState((current) => current.map((user) => (user.id === matchedUser.id ? result.user : user)));
+      setRecord((current) => ({
+        ...current,
+        matchedUser: result.user
+      }));
       setSuccess(
         action === "ban"
           ? "Account banned."
@@ -177,6 +154,7 @@ export function UserSupportPanel({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => setShowSuggestions(true)}
             placeholder="Exact email, listing ID, or vehicle ID"
             className="h-12"
           />
@@ -198,6 +176,36 @@ export function UserSupportPanel({
             ) : null}
           </div>
         </form>
+        {showSuggestions && (loadingSuggestions || suggestions.length) ? (
+          <div className="mt-3 rounded-[24px] border border-black/10 bg-white shadow-panel">
+            {loadingSuggestions ? (
+              <div className="px-4 py-3 text-sm text-ink/60">Searching...</div>
+            ) : (
+              suggestions.map((item) => (
+                <button
+                  key={`${item.type}:${item.id}`}
+                  type="button"
+                  onClick={() => {
+                    setQuery(item.queryValue);
+                    setShowSuggestions(false);
+                    setSuccess("");
+                    setError("");
+                    router.replace(`/admin/user-support?q=${encodeURIComponent(item.queryValue)}`);
+                  }}
+                  className="flex w-full items-start justify-between gap-4 border-b border-black/5 px-4 py-3 text-left last:border-b-0 hover:bg-shell"
+                >
+                  <div>
+                    <p className="font-medium text-ink">{item.email || item.name}</p>
+                    <p className="mt-1 text-sm text-ink/60">{item.email && item.name !== item.email ? item.name : item.id}</p>
+                  </div>
+                  <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/60">
+                    {item.type === "user" ? "User" : "Listing"}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
         {success ? <p className="mt-4 text-sm text-emerald-700">{success}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
       </div>
