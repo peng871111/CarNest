@@ -7,27 +7,10 @@ export default function SellPage() {
     <main className="mx-auto max-w-7xl px-6 py-16">
       <section className="rounded-[36px] bg-[#111111] px-8 py-12 text-[#F5F5F5] shadow-panel md:px-12">
         <p className="text-xs uppercase tracking-[0.32em] text-[#C6A87D]">Sell with CarNest</p>
-        <div className="mt-6 grid gap-8 lg:grid-cols-[1fr,0.72fr]">
-          <div>
-            <h1 className="font-display text-5xl leading-tight">A structured seller intake, built for premium vehicles.</h1>
-            <p className="mt-6 max-w-2xl text-base leading-7 text-[#F5F5F5]/72">
-              Submit your vehicle through a guided four-step flow with uppercase-normalized data, image uploads, and a listing pathway that feeds straight into CarNest review.
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-            <div className="rounded-[24px] border border-white/10 bg-[#171717] p-5">
-              <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">Structured fields</p>
-              <p className="mt-3 text-sm leading-6 text-[#F5F5F5]/72">
-                Make, year, body type, fuel type, and transmission are all captured with consistent dropdown inputs.
-              </p>
-            </div>
-            <div className="rounded-[24px] border border-white/10 bg-[#171717] p-5">
-              <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">Serious buyer focus</p>
-              <p className="mt-3 text-sm leading-6 text-[#F5F5F5]/72">
-                Designed to connect you with buyers who value well-presented vehicles.
-              </p>
-            </div>
-          </div>
+        <div className="mt-6 flex min-h-[220px] items-center justify-center text-center">
+          <h1 className="max-w-4xl font-display text-5xl leading-tight md:text-6xl">
+            Designed to connect you with serious buyers who value well-presented vehicles.
+          </h1>
         </div>
       </section>
 
