@@ -239,9 +239,10 @@ export function SellFlow() {
             Login
           </Link>
           <Link href="/register" className="rounded-full border border-white/15 px-6 py-3 text-sm font-semibold text-[#F5F5F5] transition hover:border-[#C6A87D] hover:text-[#C6A87D]">
-            Register as seller
+            Create account
           </Link>
         </div>
+        <p className="mt-4 text-sm leading-6 text-[#F5F5F5]/72">Create an account to start selling your vehicle.</p>
       </div>
     );
   }

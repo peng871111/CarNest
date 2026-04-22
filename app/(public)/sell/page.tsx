@@ -31,6 +31,10 @@ export default function SellPage() {
         </div>
       </section>
 
+      <section className="mt-10">
+        <SellFlow />
+      </section>
+
       <section className="mt-10 rounded-[32px] border border-black/5 bg-white p-8 shadow-panel">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
@@ -61,10 +65,6 @@ export default function SellPage() {
             </Link>
           </div>
         </div>
-      </section>
-
-      <section className="mt-10">
-        <SellFlow />
       </section>
     </main>
   );
