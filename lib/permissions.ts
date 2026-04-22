@@ -20,6 +20,7 @@ export const LEON_ADMIN_EMAIL = "dengue0111@gmail.com";
 
 export const ADMIN_PERMISSION_KEYS: AdminPermissionKey[] = [
   "manageVehicles",
+  "deleteListings",
   "manageOffers",
   "manageEnquiries",
   "manageInspections",
@@ -31,6 +32,7 @@ export const ADMIN_PERMISSION_KEYS: AdminPermissionKey[] = [
 
 export const SUPER_ADMIN_DEFAULT_PERMISSIONS: AdminPermissions = {
   manageVehicles: true,
+  deleteListings: true,
   manageOffers: true,
   manageEnquiries: true,
   manageInspections: true,
@@ -42,6 +44,7 @@ export const SUPER_ADMIN_DEFAULT_PERMISSIONS: AdminPermissions = {
 
 export const DEFAULT_ADMIN_PERMISSIONS: AdminPermissions = {
   manageVehicles: true,
+  deleteListings: false,
   manageOffers: true,
   manageEnquiries: true,
   manageInspections: true,

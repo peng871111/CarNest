@@ -115,6 +115,26 @@ export default async function HomePage() {
 
       <section className="mx-auto max-w-7xl px-6 pb-16">
         <div className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-sm uppercase tracking-[0.35em] text-bronze">Seller guidance</p>
+              <h2 className="mt-3 font-display text-4xl text-ink">Learn how to prepare a stronger private-sale listing</h2>
+              <p className="mt-4 text-sm leading-6 text-ink/65">
+                Explore practical selling tips on pricing, photos, paperwork, buyer expectations, and writing a better listing description.
+              </p>
+            </div>
+            <Link
+              href="/selling-tips"
+              className="inline-flex rounded-full border border-black/10 bg-shell px-6 py-3 text-sm font-semibold text-ink transition hover:border-black/15"
+            >
+              Read selling tips
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 pb-16">
+        <div className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
           <div className="mb-4 flex items-center justify-between gap-4">
             <p className="text-xs uppercase tracking-[0.28em] text-bronze">Recently sold through CarNest</p>
             <Link href="/sold" className="text-sm font-medium text-ink/65 transition hover:text-bronze">

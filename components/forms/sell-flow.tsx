@@ -335,6 +335,9 @@ export function SellFlow() {
               <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
                 Images are automatically optimised for faster upload.
               </p>
+              <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
+                Images must not contain text, ads, or contact details.
+              </p>
               {processingImages ? <p className="mt-3 text-sm text-[#F5F5F5]/72">Preparing images...</p> : null}
             </div>
 

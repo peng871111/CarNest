@@ -231,6 +231,7 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
                                 ? draft.adminPermissions
                                 : createAdminPermissions({
                                     manageVehicles: false,
+                                    deleteListings: false,
                                     manageOffers: false,
                                     manageEnquiries: false,
                                     manageInspections: false,

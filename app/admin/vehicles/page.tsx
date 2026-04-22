@@ -23,7 +23,9 @@ export default async function AdminVehiclesPage({
           ? "Vehicle approved successfully"
           : params?.action === "rejected"
             ? "Vehicle rejected successfully"
-        : "Vehicle saved successfully"
+            : params?.action === "deleted"
+              ? "Vehicle soft deleted successfully"
+              : "Vehicle saved successfully"
       : params?.write === "mock"
         ? params?.action === "update"
           ? "Recent update completed"
@@ -86,6 +88,7 @@ export default async function AdminVehiclesPage({
                   </p>
                   <p className="mt-1 text-ink/55">{vehicle.description}</p>
                   <p className="mt-2 text-xs uppercase tracking-[0.18em] text-ink/45">{getVehicleLiveTimingLabel(vehicle)}</p>
+                  {vehicle.deleted ? <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Soft deleted</p> : null}
                   <Link href={`/admin/vehicles/${vehicle.id}`} className="mt-2 inline-block text-sm font-medium text-ink underline">
                     View details
                   </Link>

@@ -47,6 +47,20 @@ export default function SellPage() {
             Request Pricing Advice
           </ProtectedActionLink>
         </div>
+        <div className="mt-6 border-t border-black/5 pt-6">
+          <p className="text-sm leading-6 text-ink/65">
+            Want to strengthen your listing first? Read our practical seller guides on pricing, photos, paperwork, and writing a clearer description.
+          </p>
+          <div className="mt-4">
+            <ProtectedActionLink
+              href="/selling-tips"
+              action="pricing"
+              className="inline-flex rounded-full border border-black/10 bg-shell px-6 py-3 text-sm font-semibold text-ink transition hover:border-black/15"
+            >
+              Read Selling Tips
+            </ProtectedActionLink>
+          </div>
+        </div>
       </section>
 
       <section className="mt-10">

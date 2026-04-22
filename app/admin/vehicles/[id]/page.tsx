@@ -59,6 +59,8 @@ export default async function AdminVehicleDetailPage({
               ["Price", formatCurrency(vehicle.price)],
               ["Listing type", getListingLabel(vehicle.listingType)],
               ["Approval status", vehicle.status],
+              ["Soft deleted", vehicle.deleted ? "Yes" : "No"],
+              ["Deleted at", vehicle.deletedAt ? formatAdminDateTime(vehicle.deletedAt) : "—"],
               ["Live timing", getVehicleLiveTimingLabel(vehicle)],
               ["Location", formatLocation(vehicle.sellerLocationSuburb, vehicle.sellerLocationPostcode, vehicle.sellerLocationState)],
               ["Seller account", owner?.displayName || "Seller account on file"],
@@ -91,6 +93,11 @@ export default async function AdminVehicleDetailPage({
             <div className="mt-5">
               <VehicleStatusBadge status={vehicle.status} />
             </div>
+            {vehicle.deleted ? (
+              <div className="mt-3 rounded-full border border-[#B42318]/15 bg-[#FEF3F2] px-3 py-2 text-xs font-semibold text-[#B42318]">
+                Soft deleted
+              </div>
+            ) : null}
           </div>
 
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">

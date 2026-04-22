@@ -1,10 +1,12 @@
 "use client";
 
 const MAX_IMAGE_DIMENSION = 1600;
-const OUTPUT_QUALITY = 0.75;
-const MIN_OUTPUT_QUALITY = 0.6;
-const MAX_OUTPUT_BYTES = 800 * 1024;
-const QUALITY_STEP = 0.05;
+const OUTPUT_QUALITY = 0.72;
+const MIN_OUTPUT_QUALITY = 0.52;
+const MAX_OUTPUT_BYTES = 500 * 1024;
+const QUALITY_STEP = 0.04;
+const SCALE_STEP = 0.9;
+const MIN_IMAGE_DIMENSION = 960;
 
 function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -63,12 +65,38 @@ function jpegBlobToFile(blob: Blob, fileName: string) {
 }
 
 async function canvasToOptimizedJpegFile(canvas: HTMLCanvasElement, fileName: string) {
+  let workingCanvas = canvas;
   let quality = OUTPUT_QUALITY;
-  let blob = await canvasToJpegBlob(canvas, quality);
+  let blob = await canvasToJpegBlob(workingCanvas, quality);
 
-  while (blob.size > MAX_OUTPUT_BYTES && quality > MIN_OUTPUT_QUALITY) {
-    quality = Math.max(MIN_OUTPUT_QUALITY, Number((quality - QUALITY_STEP).toFixed(2)));
-    blob = await canvasToJpegBlob(canvas, quality);
+  while (blob.size > MAX_OUTPUT_BYTES) {
+    if (quality > MIN_OUTPUT_QUALITY) {
+      quality = Math.max(MIN_OUTPUT_QUALITY, Number((quality - QUALITY_STEP).toFixed(2)));
+      blob = await canvasToJpegBlob(workingCanvas, quality);
+      continue;
+    }
+
+    const nextWidth = Math.round(workingCanvas.width * SCALE_STEP);
+    const nextHeight = Math.round(workingCanvas.height * SCALE_STEP);
+    if (Math.max(nextWidth, nextHeight) < MIN_IMAGE_DIMENSION) {
+      break;
+    }
+
+    const resizedCanvas = document.createElement("canvas");
+    resizedCanvas.width = nextWidth;
+    resizedCanvas.height = nextHeight;
+    const resizedContext = resizedCanvas.getContext("2d");
+    if (!resizedContext) {
+      throw new Error("Unable to continue image compression.");
+    }
+
+    resizedContext.imageSmoothingEnabled = true;
+    resizedContext.imageSmoothingQuality = "high";
+    resizedContext.drawImage(workingCanvas, 0, 0, nextWidth, nextHeight);
+
+    workingCanvas = resizedCanvas;
+    quality = OUTPUT_QUALITY;
+    blob = await canvasToJpegBlob(workingCanvas, quality);
   }
 
   return jpegBlobToFile(blob, fileName);

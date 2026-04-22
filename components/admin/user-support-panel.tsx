@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { getUserSupportActionTarget, getUserSupportSuggestions, updateUserSupportStatus } from "@/lib/data";
+import { getUserSupportActionTarget, getUserSupportSuggestions, softDeleteVehicle, updateUserSupportStatus } from "@/lib/data";
+import { hasAdminPermission } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, UserSupportDealerRiskAccount, UserSupportHighActivityAccount, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
 
@@ -59,6 +60,7 @@ export function UserSupportPanel({
   const matchedVehicle = record.matchedVehicle;
   const ownedVehicles = record.ownedVehicles;
   const accountMetrics = record.metrics;
+  const canDeleteListings = hasAdminPermission(appUser, "deleteListings");
 
   useEffect(() => {
     setRecord(initialRecord);
@@ -157,6 +159,38 @@ export function UserSupportPanel({
       setSuccess(`Password reset link sent to ${targetUser.email}.`);
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : "Unable to send password reset link.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function handleDeleteVehicle(vehicleId: string) {
+    const actor = buildActor(appUser);
+    const targetVehicle =
+      (matchedVehicle?.id === vehicleId ? matchedVehicle : null)
+      ?? ownedVehicles.find((vehicle) => vehicle.id === vehicleId)
+      ?? null;
+
+    if (!actor || !targetVehicle || !canDeleteListings || targetVehicle.deleted) return;
+    if (!window.confirm("Soft delete this listing? It will be removed from normal public inventory.")) return;
+
+    const deleteReason = window.prompt("Optional delete reason", targetVehicle.deleteReason ?? "") ?? "";
+
+    setBusyAction(`delete-${vehicleId}`);
+    setSuccess("");
+    setError("");
+
+    try {
+      const result = await softDeleteVehicle(vehicleId, actor, targetVehicle, deleteReason);
+      setRecord((current) => ({
+        ...current,
+        matchedVehicle: current.matchedVehicle?.id === vehicleId ? result.vehicle : current.matchedVehicle,
+        ownedVehicles: current.ownedVehicles.map((vehicle) => (vehicle.id === vehicleId ? result.vehicle : vehicle))
+      }));
+      setSuccess("Listing soft deleted.");
+      router.refresh();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete listing.");
     } finally {
       setBusyAction("");
     }
@@ -451,6 +485,7 @@ export function UserSupportPanel({
                   <p className="mt-2 text-sm text-ink/70">
                     {formatCurrency(matchedVehicle.price)} · {matchedVehicle.status} · {matchedVehicle.sellerStatus}
                   </p>
+                  {matchedVehicle.deleted ? <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Soft deleted</p> : null}
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <Link
@@ -459,6 +494,16 @@ export function UserSupportPanel({
                   >
                     Open listing
                   </Link>
+                  {canDeleteListings ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteVehicle(matchedVehicle.id)}
+                      disabled={busyAction === `delete-${matchedVehicle.id}` || matchedVehicle.deleted}
+                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-red-800 transition hover:border-black/15 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {matchedVehicle.deleted ? "Deleted" : busyAction === `delete-${matchedVehicle.id}` ? "Deleting..." : "Delete listing"}
+                    </button>
+                  ) : null}
                   {matchedUser ? (
                     <Link
                       href={`/admin/user-support?q=${encodeURIComponent(matchedUser.email)}`}
@@ -597,6 +642,7 @@ export function UserSupportPanel({
                             </p>
                             <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
                             <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                            {vehicle.deleted ? <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Soft deleted</p> : null}
                           </div>
                           <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
                             <span>{formatCurrency(vehicle.price)}</span>
@@ -605,6 +651,16 @@ export function UserSupportPanel({
                             <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
                               Open listing
                             </Link>
+                            {canDeleteListings ? (
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteVehicle(vehicle.id)}
+                                disabled={busyAction === `delete-${vehicle.id}` || vehicle.deleted}
+                                className="font-semibold text-red-800 underline-offset-4 hover:underline disabled:no-underline disabled:opacity-60"
+                              >
+                                {vehicle.deleted ? "Deleted" : busyAction === `delete-${vehicle.id}` ? "Deleting..." : "Delete"}
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ))

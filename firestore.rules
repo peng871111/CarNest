@@ -474,7 +474,12 @@ service cloud.firestore {
       allow read: if isAdmin()
         || (signedIn() && resource.data.ownerUid == request.auth.uid)
         || (
-          resource.data.status == "approved"
+          (!("deleted" in resource.data) || resource.data.deleted == false)
+          && (
+            !("deletedAt" in resource.data)
+            || resource.data.deletedAt == null
+          )
+          && resource.data.status == "approved"
           && (
             resource.data.sellerStatus == "ACTIVE"
             || resource.data.sellerStatus == "UNDER_OFFER"
@@ -642,6 +647,10 @@ service cloud.firestore {
         && request.resource.data.respondedAt == null
         && request.resource.data.listingOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
         && request.resource.data.sellerOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
+        && (
+          !("deleted" in get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data)
+          || get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.deleted == false
+        )
         && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.status == "approved"
         && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.sellerStatus == "ACTIVE";
       allow read: if isAdmin()

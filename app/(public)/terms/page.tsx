@@ -20,21 +20,47 @@ export default function TermsPage() {
           </div>
 
           <div>
-            <h2 className="text-xl font-semibold text-ink">User responsibility</h2>
+            <h2 className="text-xl font-semibold text-ink">User responsibilities</h2>
             <p className="mt-3">
               Users are responsible for the accuracy, completeness, and legitimacy of the information they submit,
               including account details, listing content, pricing, and communication through the platform.
             </p>
             <p className="mt-3">
               Users must also comply with applicable Australian laws and regulatory requirements when listing or
-              selling vehicles. Repeated vehicle selling activity within a 12-month period may, depending on the
-              relevant jurisdiction and circumstances, require a dealer or motor trader licence or other regulatory
-              approval.
+              selling vehicles. In Victoria, dealing in 4 or more vehicles within a 12-month period may, depending on
+              the circumstances, require a motor car trader licence. Licensing requirements vary by jurisdiction and by
+              the surrounding facts, and are not determined solely by a single fixed threshold.
             </p>
             <p className="mt-3">
               Where account or listing activity suggests a potential compliance risk, CarNest may review, restrict,
               suspend, or remove listings or accounts while that activity is assessed.
             </p>
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-ink">Image Policy</h3>
+              <p className="mt-3">
+                All uploaded vehicle images are subject to review by CarNest. Images must clearly represent the
+                vehicle and must not contain any promotional text, watermarks, contact details, or misleading content.
+              </p>
+              <p className="mt-3">
+                CarNest reserves the right to remove, restrict, or take further action on any images or listings that
+                do not comply with platform standards.
+              </p>
+            </div>
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold text-ink">Privacy &amp; Communication</h3>
+              <p className="mt-3">
+                By using CarNest&apos;s listing and vehicle selling services, users agree that their submitted
+                information may be collected and used by CarNest for the purpose of facilitating communication between
+                buyers and sellers on the platform.
+              </p>
+              <p className="mt-3">
+                CarNest may also use this information, where permitted, to provide service updates, notifications, and
+                relevant marketing communications.
+              </p>
+              <p className="mt-3">
+                Users can manage their communication preferences in accordance with applicable privacy regulations.
+              </p>
+            </div>
           </div>
 
           <div>

@@ -5,6 +5,7 @@ export type DealerLicenceVerificationStatus = "verified" | "manual_review_requir
 export type DealerApplicationRiskLevel = "low" | "medium" | "high";
 export type AdminPermissionKey =
   | "manageVehicles"
+  | "deleteListings"
   | "manageOffers"
   | "manageEnquiries"
   | "manageInspections"
@@ -111,6 +112,10 @@ export interface Vehicle {
   submissionPreference?: "basic" | "service_quote";
   serviceQuoteNotes?: string;
   underOfferBuyerUid?: string;
+  deleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+  deleteReason?: string;
   soldAt?: string;
   createdAt?: string;
   updatedAt?: string;

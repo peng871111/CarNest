@@ -425,6 +425,10 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     status: normalizedVehicleStatus,
     sellerStatus: normalizedSellerStatus,
     approvedAt: serializeDate(data.approvedAt),
+    deleted: Boolean(data.deleted),
+    deletedAt: serializeDate(data.deletedAt),
+    deletedBy: typeof data.deletedBy === "string" ? data.deletedBy : "",
+    deleteReason: typeof data.deleteReason === "string" ? data.deleteReason : "",
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
@@ -1398,7 +1402,10 @@ export async function listPublishedVehicles() {
   const result = await getCollection<Vehicle>("vehicles", sampleVehicles, serializeVehicleDoc);
   return {
     vehicles: result.items.filter(
-      (vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
+      (vehicle) =>
+        !vehicle.deleted
+        && vehicle.status === "approved"
+        && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
     ),
     source: result.source,
     error: result.error
@@ -1408,7 +1415,7 @@ export async function listPublishedVehicles() {
 export async function listSoldVehicles() {
   const result = await getCollection<Vehicle>("vehicles", sampleVehicles, serializeVehicleDoc);
   return {
-    vehicles: result.items.filter((vehicle) => vehicle.sellerStatus === "SOLD"),
+    vehicles: result.items.filter((vehicle) => vehicle.sellerStatus === "SOLD" && !vehicle.deleted),
     source: result.source,
     error: result.error
   };
@@ -2371,6 +2378,7 @@ function buildManagedPermissions(role: UserRole, adminPermissions?: Partial<Admi
 
   return createAdminPermissions({
     manageVehicles: false,
+    deleteListings: false,
     manageOffers: false,
     manageEnquiries: false,
     manageInspections: false,
@@ -3060,6 +3068,54 @@ function assertAdminPermissionForActor(actor: VehicleActor, permission: keyof Ad
   if (!hasAdminPermission(actor as AppUser, permission)) {
     throw new Error(message);
   }
+}
+
+export async function softDeleteVehicle(
+  id: string,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle,
+  deleteReason?: string
+) {
+  assertAdminPermissionForActor(actor, "deleteListings", "You do not have access to delete listings.");
+
+  const targetVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!targetVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  const nextVehicle = {
+    ...targetVehicle,
+    deleted: true,
+    deletedAt: new Date().toISOString(),
+    deletedBy: actor.id,
+    deleteReason: deleteReason?.trim() ?? ""
+  } satisfies Vehicle;
+
+  if (!isFirebaseConfigured) {
+    return {
+      vehicle: nextVehicle,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "vehicles", id),
+    {
+      deleted: true,
+      deletedAt: serverTimestamp(),
+      deletedBy: actor.id,
+      deleteReason: deleteReason?.trim() ?? "",
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    vehicle: nextVehicle,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
 }
 
 function assertVehicleOwnership(actor: VehicleActor, vehicle: Vehicle) {

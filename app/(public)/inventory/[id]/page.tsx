@@ -22,7 +22,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
   try {
     const vehicle = await getVehicleById(id);
-    if (!vehicle) {
+    if (!vehicle || vehicle.deleted) {
       return {
         title: "Vehicle for sale",
         description: "Browse vehicle details, images, and next steps on CarNest.",
@@ -83,7 +83,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     );
   }
 
-  if (!vehicle || vehicle.status !== "approved" || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")) notFound();
+  if (!vehicle || vehicle.deleted || vehicle.status !== "approved" || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")) notFound();
 
   const sellerTrust = await getSellerTrustInfo(vehicle.ownerUid);
   const { vehicles: publishedVehicles } = await listPublishedVehicles();
