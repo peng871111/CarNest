@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { getUserSupportSuggestions, updateUserSupportStatus } from "@/lib/data";
+import { getUserSupportActionTarget, getUserSupportSuggestions, updateUserSupportStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
 
@@ -127,14 +127,26 @@ export function UserSupportPanel({
 
   async function handlePasswordReset() {
     if (!matchedUser?.email) return;
+    const actor = buildActor(appUser);
+    if (!actor) {
+      setError("You need to be signed in to use support actions.");
+      return;
+    }
 
     setBusyAction("password-reset");
     setSuccess("");
     setError("");
 
     try {
-      await requestPasswordReset(matchedUser.email);
-      setSuccess(`Password reset link sent to ${matchedUser.email}.`);
+      const targetUser = await getUserSupportActionTarget(matchedUser.id, actor, matchedUser);
+      console.log("SUPPORT_ACTION", {
+        action: "password_reset",
+        targetUserId: targetUser.id,
+        adminUserId: actor.id,
+        adminEmail: actor.email ?? ""
+      });
+      await requestPasswordReset(targetUser.email);
+      setSuccess(`Password reset link sent to ${targetUser.email}.`);
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : "Unable to send password reset link.");
     } finally {
@@ -228,8 +240,11 @@ export function UserSupportPanel({
                   <p className="font-semibold text-ink">
                     {matchedVehicle.year} {matchedVehicle.make} {matchedVehicle.model}
                   </p>
-                  <p className="mt-1 text-sm text-ink/60">{getVehicleDisplayReference(matchedVehicle)}</p>
-                  <p className="mt-2 text-sm text-ink/70">{formatCurrency(matchedVehicle.price)}</p>
+                  <p className="mt-1 text-sm text-ink/60">Listing ID: {getVehicleDisplayReference(matchedVehicle)}</p>
+                  <p className="mt-1 text-sm text-ink/60">Vehicle ID: {matchedVehicle.id}</p>
+                  <p className="mt-2 text-sm text-ink/70">
+                    {formatCurrency(matchedVehicle.price)} · {matchedVehicle.status} · {matchedVehicle.sellerStatus}
+                  </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
                   <Link
@@ -374,9 +389,11 @@ export function UserSupportPanel({
                             <p className="font-medium text-ink">
                               {vehicle.year} {vehicle.make} {vehicle.model}
                             </p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">{getVehicleDisplayReference(vehicle)}</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
                           </div>
                           <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
+                            <span>{formatCurrency(vehicle.price)}</span>
                             <span>{vehicle.status}</span>
                             <span>{vehicle.sellerStatus}</span>
                             <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">

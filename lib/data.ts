@@ -2253,12 +2253,7 @@ export async function updateUserSupportStatus(
   actor: VehicleActor,
   existingUser?: AppUser
 ) {
-  assertAdminPermissionForActor(actor, "manageUsers", "Only authorized admins can manage user support actions.");
-
-  const targetUser = existingUser ?? (await getAppUserById(userId));
-  if (!targetUser) {
-    throw new Error("User not found.");
-  }
+  const targetUser = await getUserSupportActionTarget(userId, actor, existingUser);
 
   const isBan = action === "ban";
   const isUnban = action === "unban";
@@ -2272,12 +2267,25 @@ export async function updateUserSupportStatus(
   } satisfies AppUser;
 
   if (!isFirebaseConfigured) {
+    console.log("SUPPORT_ACTION", {
+      action,
+      targetUserId: targetUser.id,
+      adminUserId: actor.id,
+      adminEmail: actor.email ?? ""
+    });
     return {
       user: nextUser,
       source: "mock" as const,
       writeSucceeded: false
     };
   }
+
+  console.log("SUPPORT_ACTION", {
+    action,
+    targetUserId: targetUser.id,
+    adminUserId: actor.id,
+    adminEmail: actor.email ?? ""
+  });
 
   await setDoc(
     doc(db, "users", userId),
@@ -2295,6 +2303,17 @@ export async function updateUserSupportStatus(
     source: "firestore" as const,
     writeSucceeded: true
   };
+}
+
+export async function getUserSupportActionTarget(userId: string, actor: VehicleActor, existingUser?: AppUser) {
+  assertAdminPermissionForActor(actor, "manageUsers", "Only authorized admins can manage user support actions.");
+
+  const targetUser = existingUser ?? (await getAppUserById(userId));
+  if (!targetUser) {
+    throw new Error("User not found.");
+  }
+
+  return targetUser;
 }
 
 export async function submitDealerApplication(input: DealerApplicationWriteInput, actor: VehicleActor) {
