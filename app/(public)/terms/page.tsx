@@ -25,6 +25,16 @@ export default function TermsPage() {
               Users are responsible for the accuracy, completeness, and legitimacy of the information they submit,
               including account details, listing content, pricing, and communication through the platform.
             </p>
+            <p className="mt-3">
+              Users must also comply with applicable Australian laws and regulatory requirements when listing or
+              selling vehicles. Repeated vehicle selling activity within a 12-month period may, depending on the
+              relevant jurisdiction and circumstances, require a dealer or motor trader licence or other regulatory
+              approval.
+            </p>
+            <p className="mt-3">
+              Where account or listing activity suggests a potential compliance risk, CarNest may review, restrict,
+              suspend, or remove listings or accounts while that activity is assessed.
+            </p>
           </div>
 
           <div>

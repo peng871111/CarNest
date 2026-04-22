@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { getUserSupportActionTarget, getUserSupportSuggestions, updateUserSupportStatus } from "@/lib/data";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
+import { AppUser, UserSupportDealerRiskAccount, UserSupportHighActivityAccount, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
 
 function normalizeQuery(value: string) {
   return value.trim().toLowerCase();
@@ -31,10 +31,14 @@ function buildActor(appUser: AppUser | null): VehicleActor | null {
 
 export function UserSupportPanel({
   initialQuery,
-  initialRecord
+  initialRecord,
+  initialHighActivityAccounts,
+  initialDealerRiskAccounts
 }: {
   initialQuery: string;
   initialRecord: UserSupportRecord;
+  initialHighActivityAccounts: UserSupportHighActivityAccount[];
+  initialDealerRiskAccounts: UserSupportDealerRiskAccount[];
 }) {
   const router = useRouter();
   const { appUser, requestPasswordReset } = useAuth();
@@ -43,6 +47,10 @@ export function UserSupportPanel({
   const [suggestions, setSuggestions] = useState<UserSupportSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [highActivityOpen, setHighActivityOpen] = useState(false);
+  const [expandedHighActivityUsers, setExpandedHighActivityUsers] = useState<Record<string, boolean>>({});
+  const [dealerRiskOpen, setDealerRiskOpen] = useState(false);
+  const [expandedDealerRiskUsers, setExpandedDealerRiskUsers] = useState<Record<string, boolean>>({});
   const [busyAction, setBusyAction] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -154,6 +162,16 @@ export function UserSupportPanel({
     }
   }
 
+  function getRiskBadgeClasses(riskLevel: UserSupportDealerRiskAccount["riskLevel"]) {
+    if (riskLevel === "high") {
+      return "border-[#B42318]/15 bg-[#FEF3F2] text-[#B42318]";
+    }
+    if (riskLevel === "medium") {
+      return "border-[#B54708]/15 bg-[#FFF7ED] text-[#B54708]";
+    }
+    return "border-[#067647]/15 bg-[#ECFDF3] text-[#067647]";
+  }
+
   return (
     <section className="space-y-6">
       <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
@@ -220,6 +238,194 @@ export function UserSupportPanel({
         ) : null}
         {success ? <p className="mt-4 text-sm text-emerald-700">{success}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      </div>
+
+      <div className="rounded-[28px] border border-black/5 bg-white shadow-panel">
+        <button
+          type="button"
+          onClick={() => setDealerRiskOpen((current) => !current)}
+          className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-bronze">Admin signal</p>
+            <h3 className="mt-2 text-xl font-semibold text-ink">Dealer Risk Monitoring</h3>
+            <p className="mt-2 text-sm text-ink/60">Risk-scored accounts based on recent selling activity, account overlap, and listing patterns.</p>
+          </div>
+          <span className={`text-xl text-ink/50 transition-transform ${dealerRiskOpen ? "rotate-180" : ""}`}>⌄</span>
+        </button>
+        {dealerRiskOpen ? (
+          <div className="border-t border-black/5 px-6 py-5">
+            {initialDealerRiskAccounts.length ? (
+              <div className="space-y-3">
+                {initialDealerRiskAccounts.map((account) => {
+                  const isExpanded = expandedDealerRiskUsers[account.user.id] ?? false;
+
+                  return (
+                    <div key={account.user.id} className="rounded-[24px] border border-black/8 bg-shell">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedDealerRiskUsers((current) => ({
+                            ...current,
+                            [account.user.id]: !isExpanded
+                          }))
+                        }
+                        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-ink">{account.user.displayName || account.user.name || account.user.email}</p>
+                            <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${getRiskBadgeClasses(account.riskLevel)}`}>
+                              {account.riskLevel} risk
+                            </span>
+                          </div>
+                          <p className="text-sm text-ink/65">{account.user.email}</p>
+                          <p className="text-sm text-ink/60">
+                            Risk score: {account.riskScore} · Sold listings (12 months): {account.soldListingsLast12Months} · Active listings: {account.activeListings}
+                            {" · "}Listings created last 30 days: {account.listingsCreatedLast30Days}
+                          </p>
+                        </div>
+                        <span className={`text-lg text-ink/45 transition-transform ${isExpanded ? "rotate-180" : ""}`}>⌄</span>
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="border-t border-black/8 px-5 py-4">
+                          <div className="mb-4 flex flex-wrap gap-3">
+                            <Link
+                              href={`/admin/user-support?q=${encodeURIComponent(account.user.email)}`}
+                              className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15"
+                            >
+                              Open support view
+                            </Link>
+                          </div>
+                          <div className="mb-4 rounded-[18px] bg-white px-4 py-3">
+                            <p className="text-xs uppercase tracking-[0.18em] text-bronze">Risk reasons</p>
+                            <div className="mt-3 space-y-2">
+                              {account.riskReasons.map((reason) => (
+                                <p key={reason} className="text-sm text-ink/70">
+                                  {reason}
+                                </p>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            {account.listings.map((vehicle) => (
+                              <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
+                                <div>
+                                  <p className="font-medium text-ink">
+                                    {vehicle.year} {vehicle.make} {vehicle.model}
+                                  </p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
+                                  <span>{formatCurrency(vehicle.price)}</span>
+                                  <span>{vehicle.status}</span>
+                                  <span>{vehicle.sellerStatus}</span>
+                                  <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
+                                    Open listing
+                                  </Link>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-ink/60">No elevated dealer-risk accounts were found from the current listing activity signals.</p>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="rounded-[28px] border border-black/5 bg-white shadow-panel">
+        <button
+          type="button"
+          onClick={() => setHighActivityOpen((current) => !current)}
+          className="flex w-full items-center justify-between gap-4 px-6 py-5 text-left"
+        >
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-bronze">Admin signal</p>
+            <h3 className="mt-2 text-xl font-semibold text-ink">High activity accounts (last 12 months)</h3>
+            <p className="mt-2 text-sm text-ink/60">Users with more than 4 sold listings in the last 12 months, ranked by sold volume.</p>
+          </div>
+          <span className={`text-xl text-ink/50 transition-transform ${highActivityOpen ? "rotate-180" : ""}`}>⌄</span>
+        </button>
+        {highActivityOpen ? (
+          <div className="border-t border-black/5 px-6 py-5">
+            {initialHighActivityAccounts.length ? (
+              <div className="space-y-3">
+                {initialHighActivityAccounts.map((account) => {
+                  const isExpanded = expandedHighActivityUsers[account.user.id] ?? false;
+
+                  return (
+                    <div key={account.user.id} className="rounded-[24px] border border-black/8 bg-shell">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedHighActivityUsers((current) => ({
+                            ...current,
+                            [account.user.id]: !isExpanded
+                          }))
+                        }
+                        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left"
+                      >
+                        <div className="space-y-1">
+                          <p className="font-semibold text-ink">{account.user.displayName || account.user.name || account.user.email}</p>
+                          <p className="text-sm text-ink/65">{account.user.email}</p>
+                          <p className="text-sm text-ink/60">
+                            Total listings: {account.totalListings} · Sold listings (12 months): {account.soldListingsLast12Months} · Member since:{" "}
+                            {account.user.createdAt ? formatAdminDateTime(account.user.createdAt) : "Not available"}
+                          </p>
+                        </div>
+                        <span className={`text-lg text-ink/45 transition-transform ${isExpanded ? "rotate-180" : ""}`}>⌄</span>
+                      </button>
+
+                      {isExpanded ? (
+                        <div className="border-t border-black/8 px-5 py-4">
+                          <div className="mb-4 flex flex-wrap gap-3">
+                            <Link
+                              href={`/admin/user-support?q=${encodeURIComponent(account.user.email)}`}
+                              className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15"
+                            >
+                              Open support view
+                            </Link>
+                          </div>
+                          <div className="space-y-3">
+                            {account.soldListings.map((vehicle) => (
+                              <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
+                                <div>
+                                  <p className="font-medium text-ink">
+                                    {vehicle.year} {vehicle.make} {vehicle.model}
+                                  </p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
+                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                                  <p className="mt-1 text-sm text-ink/60">Sold: {vehicle.soldAt ? formatAdminDateTime(vehicle.soldAt) : "Not available"}</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
+                                  <span>{formatCurrency(vehicle.price)}</span>
+                                  <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
+                                    Open listing
+                                  </Link>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-ink/60">No accounts currently have more than 4 sold listings in the last 12 months.</p>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {!normalizedQuery ? (

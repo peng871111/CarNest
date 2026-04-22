@@ -459,6 +459,24 @@ export interface UserSupportSuggestion {
   id: string;
 }
 
+export interface UserSupportHighActivityAccount {
+  user: AppUser;
+  totalListings: number;
+  soldListingsLast12Months: number;
+  soldListings: Vehicle[];
+}
+
+export interface UserSupportDealerRiskAccount {
+  user: AppUser;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+  soldListingsLast12Months: number;
+  activeListings: number;
+  listingsCreatedLast30Days: number;
+  riskReasons: string[];
+  listings: Vehicle[];
+}
+
 export interface PricingRequest {
   id: string;
   userId: string;

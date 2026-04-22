@@ -1,6 +1,6 @@
 import { AdminShell } from "@/components/layout/admin-shell";
 import { UserSupportPanel } from "@/components/admin/user-support-panel";
-import { getUserSupportRecord } from "@/lib/data";
+import { getDealerRiskSupportAccounts, getHighActivityUserSupportAccounts, getUserSupportRecord } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,11 @@ export default async function AdminUserSupportPage({
   searchParams?: Promise<{ q?: string }>;
 }) {
   const query = ((await searchParams)?.q ?? "").trim();
-  const record = await getUserSupportRecord(query);
+  const [record, highActivityAccounts, dealerRiskAccounts] = await Promise.all([
+    getUserSupportRecord(query),
+    getHighActivityUserSupportAccounts(20),
+    getDealerRiskSupportAccounts(20)
+  ]);
 
   return (
     <AdminShell
@@ -18,7 +22,12 @@ export default async function AdminUserSupportPage({
       description="Search a specific customer or listing, review account-linked activity, and perform support actions without scanning the full user base."
       requiredPermission="manageUsers"
     >
-      <UserSupportPanel initialQuery={query} initialRecord={record} />
+      <UserSupportPanel
+        initialQuery={query}
+        initialRecord={record}
+        initialHighActivityAccounts={highActivityAccounts}
+        initialDealerRiskAccounts={dealerRiskAccounts}
+      />
     </AdminShell>
   );
 }

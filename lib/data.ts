@@ -62,7 +62,9 @@ import {
   VehicleViewEvent,
   VehicleViewRole,
   VehicleDeviceType,
+  UserSupportDealerRiskAccount,
   UserSupportAccountMetrics,
+  UserSupportHighActivityAccount,
   UserSupportRecord,
   UserSupportSuggestion
 } from "@/types";
@@ -1696,6 +1698,198 @@ export async function getUserSupportSuggestions(searchQuery: string, maxResults 
   });
 
   return [...userSuggestions, ...listingSuggestions].slice(0, safeLimit);
+}
+
+export async function getHighActivityUserSupportAccounts(maxResults = 20) {
+  const safeLimit = Math.min(Math.max(maxResults, 1), 20);
+  const cutoffDate = new Date();
+  cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+  const cutoffIso = cutoffDate.toISOString();
+
+  const recentSoldVehicles = !isFirebaseConfigured
+    ? sampleVehicles.filter((vehicle) => {
+        if (vehicle.sellerStatus !== "SOLD" || !vehicle.soldAt) return false;
+        return vehicle.soldAt >= cutoffIso;
+      })
+    : (
+        await getDocs(
+          query(
+            collection(db, "vehicles"),
+            where("soldAt", ">=", cutoffIso),
+            orderBy("soldAt", "desc")
+          )
+        )
+      ).docs.map((item) => serializeVehicleDoc(item.id, item.data()));
+
+  const soldVehiclesByOwner = new Map<string, Vehicle[]>();
+  for (const vehicle of recentSoldVehicles) {
+    if (!vehicle.ownerUid || vehicle.sellerStatus !== "SOLD" || !vehicle.soldAt) continue;
+    const currentVehicles = soldVehiclesByOwner.get(vehicle.ownerUid) ?? [];
+    currentVehicles.push(vehicle);
+    soldVehiclesByOwner.set(vehicle.ownerUid, currentVehicles);
+  }
+
+  const topOwnerIds = Array.from(soldVehiclesByOwner.entries())
+    .filter(([, vehicles]) => vehicles.length > 4)
+    .sort((left, right) => {
+      if (right[1].length !== left[1].length) {
+        return right[1].length - left[1].length;
+      }
+
+      const rightLatest = right[1]
+        .map((vehicle) => vehicle.soldAt ?? "")
+        .sort()
+        .at(-1) ?? "";
+      const leftLatest = left[1]
+        .map((vehicle) => vehicle.soldAt ?? "")
+        .sort()
+        .at(-1) ?? "";
+
+      return rightLatest.localeCompare(leftLatest);
+    })
+    .slice(0, safeLimit)
+    .map(([ownerUid]) => ownerUid);
+
+  const accounts = await Promise.all(
+    topOwnerIds.map(async (ownerUid) => {
+      const user = await getAppUserById(ownerUid);
+      if (!user) return null;
+
+      const ownedVehicles = await findVehiclesByOwnerForSupport(ownerUid);
+      const soldListings = (soldVehiclesByOwner.get(ownerUid) ?? [])
+        .slice()
+        .sort((left, right) => (right.soldAt ?? "").localeCompare(left.soldAt ?? ""));
+
+      return {
+        user,
+        totalListings: ownedVehicles.length,
+        soldListingsLast12Months: soldListings.length,
+        soldListings
+      } satisfies UserSupportHighActivityAccount;
+    })
+  );
+
+  return accounts.filter((account): account is UserSupportHighActivityAccount => Boolean(account));
+}
+
+function normalizeSupportPhone(phone?: string) {
+  return (phone ?? "").replace(/\D/g, "");
+}
+
+function buildSellerLocationKey(vehicle: Pick<Vehicle, "sellerLocationSuburb" | "sellerLocationPostcode" | "sellerLocationState">) {
+  const suburb = (vehicle.sellerLocationSuburb ?? "").trim().toLowerCase();
+  const postcode = (vehicle.sellerLocationPostcode ?? "").trim();
+  const state = (vehicle.sellerLocationState ?? "").trim().toUpperCase();
+  if (!suburb && !postcode && !state) return "";
+  return `${suburb}|${postcode}|${state}`;
+}
+
+function isActiveSupportListing(vehicle: Vehicle) {
+  return vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER");
+}
+
+export async function getDealerRiskSupportAccounts(maxResults = 20) {
+  const safeLimit = Math.min(Math.max(maxResults, 1), 20);
+  const [users, vehiclesResult] = await Promise.all([listUsers(), getVehiclesData()]);
+  const vehicles = vehiclesResult.items;
+  const now = new Date();
+  const last12MonthsDate = new Date(now);
+  last12MonthsDate.setFullYear(last12MonthsDate.getFullYear() - 1);
+  const last30DaysDate = new Date(now);
+  last30DaysDate.setDate(last30DaysDate.getDate() - 30);
+  const last12MonthsIso = last12MonthsDate.toISOString();
+  const last30DaysIso = last30DaysDate.toISOString();
+
+  const phoneCounts = new Map<string, number>();
+  for (const user of users) {
+    const normalizedPhone = normalizeSupportPhone(user.phone);
+    if (!normalizedPhone) continue;
+    phoneCounts.set(normalizedPhone, (phoneCounts.get(normalizedPhone) ?? 0) + 1);
+  }
+
+  const vehiclesByOwner = new Map<string, Vehicle[]>();
+  for (const vehicle of vehicles) {
+    if (!vehicle.ownerUid) continue;
+    const ownedVehicles = vehiclesByOwner.get(vehicle.ownerUid) ?? [];
+    ownedVehicles.push(vehicle);
+    vehiclesByOwner.set(vehicle.ownerUid, ownedVehicles);
+  }
+
+  const accounts = users
+    .map((user) => {
+      const ownedVehicles = (vehiclesByOwner.get(user.id) ?? [])
+        .slice()
+        .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+
+      if (!ownedVehicles.length) return null;
+
+      const soldListingsLast12Months = ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD" && (vehicle.soldAt ?? "") >= last12MonthsIso).length;
+      const activeListings = ownedVehicles.filter(isActiveSupportListing).length;
+      const listingsCreatedLast30Days = ownedVehicles.filter((vehicle) => (vehicle.createdAt ?? "") >= last30DaysIso).length;
+
+      const normalizedPhone = normalizeSupportPhone(user.phone);
+      const hasDuplicatePhone = normalizedPhone ? (phoneCounts.get(normalizedPhone) ?? 0) > 1 : false;
+
+      const locationCounts = new Map<string, number>();
+      for (const vehicle of ownedVehicles) {
+        const locationKey = buildSellerLocationKey(vehicle);
+        if (!locationKey) continue;
+        locationCounts.set(locationKey, (locationCounts.get(locationKey) ?? 0) + 1);
+      }
+      const hasRepeatedLocation = Array.from(locationCounts.values()).some((count) => count > 1);
+
+      let riskScore = 0;
+      const riskReasons: string[] = [];
+
+      if (soldListingsLast12Months >= 5) {
+        riskScore += 40;
+        riskReasons.push(`+40: ${soldListingsLast12Months} sold listings in the last 12 months`);
+      }
+
+      if (activeListings >= 3) {
+        riskScore += 25;
+        riskReasons.push(`+25: ${activeListings} active listings`);
+      }
+
+      if (listingsCreatedLast30Days >= 3) {
+        riskScore += 15;
+        riskReasons.push(`+15: ${listingsCreatedLast30Days} listings created in the last 30 days`);
+      }
+
+      if (hasDuplicatePhone) {
+        riskScore += 10;
+        riskReasons.push("+10: phone number is shared across multiple accounts");
+      }
+
+      if (hasRepeatedLocation) {
+        riskScore += 10;
+        riskReasons.push("+10: multiple listings share the same postcode/location");
+      }
+
+      const riskLevel = riskScore >= 80 ? "high" : riskScore >= 50 ? "medium" : "low";
+
+      return {
+        user,
+        riskScore,
+        riskLevel,
+        soldListingsLast12Months,
+        activeListings,
+        listingsCreatedLast30Days,
+        riskReasons,
+        listings: ownedVehicles
+      } satisfies UserSupportDealerRiskAccount;
+    })
+    .filter((account): account is UserSupportDealerRiskAccount => account !== null && account.riskScore > 0)
+    .sort((left, right) => {
+      if (right.riskScore !== left.riskScore) return right.riskScore - left.riskScore;
+      if (right.soldListingsLast12Months !== left.soldListingsLast12Months) {
+        return right.soldListingsLast12Months - left.soldListingsLast12Months;
+      }
+      return (right.user.createdAt ?? "").localeCompare(left.user.createdAt ?? "");
+    })
+    .slice(0, safeLimit);
+
+  return accounts;
 }
 
 export async function getUserComplianceAssessment(
