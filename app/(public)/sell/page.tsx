@@ -22,9 +22,9 @@ export default function SellPage() {
               </p>
             </div>
             <div className="rounded-[24px] border border-white/10 bg-[#171717] p-5">
-              <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">Seller review queue</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">Serious buyer focus</p>
               <p className="mt-3 text-sm leading-6 text-[#F5F5F5]/72">
-                Submissions from this flow save as pending seller vehicles so the current admin approval workflow stays intact.
+                Designed to connect you with buyers who value well-presented vehicles.
               </p>
             </div>
           </div>
