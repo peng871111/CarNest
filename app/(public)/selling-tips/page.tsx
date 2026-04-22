@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Metadata } from "next";
+import { ProtectedActionLink } from "@/components/auth/protected-action-link";
 import { SELLING_TIPS } from "@/lib/selling-tips";
 
 export const metadata: Metadata = {
@@ -23,12 +24,13 @@ export default function SellingTipsPage() {
           <Link href="/sell" className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white transition hover:bg-ink/90">
             Start selling
           </Link>
-          <Link
+          <ProtectedActionLink
             href="/pricing-advice"
+            action="pricing"
             className="rounded-full border border-black/10 bg-white px-6 py-3 text-sm font-semibold text-ink transition hover:border-black/15 hover:bg-shell"
           >
             Request pricing advice
-          </Link>
+          </ProtectedActionLink>
         </div>
       </section>
 

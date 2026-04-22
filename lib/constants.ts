@@ -5,7 +5,6 @@ export const NAV_LINKS = [
   { href: "/inventory", label: "Browse Cars" },
   { href: "/sold", label: "Sold Cars" },
   { href: "/sell", label: "Sell Your Car" },
-  { href: "/selling-tips", label: "Selling Tips" },
   { href: "/about", label: "About Us" },
   { href: "/how-it-works", label: "How It Works" },
   { href: "/faq", label: "FAQ" },

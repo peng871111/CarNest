@@ -1,5 +1,6 @@
 import { SellFlow } from "@/components/forms/sell-flow";
 import { ProtectedActionLink } from "@/components/auth/protected-action-link";
+import Link from "next/link";
 
 export default function SellPage() {
   return (
@@ -52,13 +53,12 @@ export default function SellPage() {
             Want to strengthen your listing first? Read our practical seller guides on pricing, photos, paperwork, and writing a clearer description.
           </p>
           <div className="mt-4">
-            <ProtectedActionLink
+            <Link
               href="/selling-tips"
-              action="pricing"
               className="inline-flex rounded-full border border-black/10 bg-shell px-6 py-3 text-sm font-semibold text-ink transition hover:border-black/15"
             >
               Read Selling Tips
-            </ProtectedActionLink>
+            </Link>
           </div>
         </div>
       </section>

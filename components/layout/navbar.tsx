@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { NAV_LINKS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-
+import Image from "next/image";
 export default function Navbar() {
   const router = useRouter();
   const pathname = usePathname();
@@ -38,10 +38,16 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0F0F0F]/95 text-[#F5F5F5] backdrop-blur">
       <div className="mx-auto max-w-7xl px-6">
         <div className="flex min-h-[72px] items-center justify-between gap-6">
-          <Link href="/" className="font-display text-2xl tracking-[0.14em] text-[#F5F5F5] transition hover:text-[#C6A87D]">
-            CarNest
-          </Link>
-
+          
+<Link
+  href="/"
+  className="text-2xl font-black italic tracking-[0.11em] text-white transition duration-200 hover:opacity-80 hover:scale-105"
+  style={{
+    transform: "skewX(8deg) scaleY(0.85)"
+  }}
+>
+  CARNEST
+</Link>
           <div className="hidden items-center gap-4 lg:flex">
             {appUser ? (
               <details className="relative">
