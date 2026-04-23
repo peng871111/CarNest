@@ -5,12 +5,11 @@ import Link from "next/link";
 export default function SellPage() {
   return (
     <main className="mx-auto max-w-7xl px-6 py-16">
-      <section className="rounded-[36px] bg-[#111111] px-8 py-12 text-[#F5F5F5] shadow-panel md:px-12">
+      <section className="rounded-[36px] bg-[#111111] px-8 py-8 text-center text-[#F5F5F5] shadow-panel md:px-12 md:py-10">
         <p className="text-xs uppercase tracking-[0.32em] text-[#C6A87D]">Sell with CarNest</p>
-        <div className="mt-6 flex min-h-[220px] items-center justify-center text-center">
-          <h1 className="max-w-4xl font-display text-5xl leading-tight md:text-6xl">
-            Designed to connect you with serious buyers who value well-presented vehicles.
-          </h1>
+        <div className="mt-4">
+          <h1 className="font-display text-2xl leading-tight">Sell your car faster with serious buyers</h1>
+          <p className="mt-2 text-sm leading-6 text-[#F5F5F5]/68">Submit your vehicle in under 2 minutes</p>
         </div>
       </section>
 
