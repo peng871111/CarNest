@@ -1,4 +1,4 @@
-import { DealerApplicationForm } from "@/components/forms/dealer-application-form";
+import { DealerApplyGate } from "@/components/dealer/dealer-apply-gate";
 import { WorkspaceHeader } from "@/components/layout/workspace-header";
 
 export default function DealerApplyPage() {
@@ -13,7 +13,7 @@ export default function DealerApplyPage() {
             Submit your business details and LMCT proof so the CarNest team can review and verify your dealer account.
           </p>
           <div className="mt-8">
-            <DealerApplicationForm />
+            <DealerApplyGate />
           </div>
         </section>
       </main>

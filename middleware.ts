@@ -22,7 +22,7 @@ const adminPermissionRoutes = [
 
 function getRoleHome(role?: string, dealerStatus?: string) {
   if (role === "admin" || role === "super_admin") return "/admin/vehicles";
-  if (role === "dealer") return dealerStatus === "approved" ? "/dealer" : "/dealer/application-status";
+  if (role === "dealer") return dealerStatus === "approved" ? "/dealer/dashboard" : "/dealer/application-status";
   if (role === "seller") return "/seller/vehicles";
   return "/seller/vehicles";
 }
@@ -64,7 +64,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dealer/application-status", request.url));
   }
 
-  if (match.roles && !match.roles.includes(role ?? "")) {
+  if (match.roles && !match.roles.includes(role ?? "") && !(pathname.startsWith("/dealer") && dealerStatus === "approved")) {
     return NextResponse.redirect(new URL(getRoleHome(role, dealerStatus), request.url));
   }
 

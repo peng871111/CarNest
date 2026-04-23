@@ -2531,11 +2531,13 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
 
   const serviceVerification = await verifyDealerLicenceByState(input.licenceState, input.lmctNumber, input.legalBusinessName);
   const existingApplication = await getDealerApplicationByUserId(actor.id);
-  if (existingApplication && isDealerApplicationActive(existingApplication.status)) {
+  if (existingApplication && existingApplication.status !== "info_requested" && isDealerApplicationActive(existingApplication.status)) {
     throw new Error("You already have an active dealer application. Please wait for review or respond to the current information request before submitting again.");
   }
 
-  const cooldownRemaining = getDealerApplicationCooldownRemaining(existingApplication?.lastSubmittedAt);
+  const cooldownRemaining = existingApplication?.status === "info_requested"
+    ? 0
+    : getDealerApplicationCooldownRemaining(existingApplication?.lastSubmittedAt);
   if (cooldownRemaining > 0) {
     throw new Error(formatDealerApplicationCooldownMessage(cooldownRemaining));
   }
@@ -2621,7 +2623,10 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
       lastSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       reviewedAt: deleteField(),
-      reviewedByUid: deleteField()
+      reviewedByUid: deleteField(),
+      reviewedBy: deleteField(),
+      rejectReason: deleteField(),
+      infoRequestNote: deleteField()
     },
     { merge: true }
   );

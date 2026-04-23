@@ -82,7 +82,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         if (flow === "register") return "/dealer/apply";
         if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
         return user.dealerStatus === "approved"
-          ? "/dealer"
+          ? "/dealer/dashboard"
           : user.dealerStatus === "none"
             ? "/dealer/apply"
             : "/dealer/application-status";
