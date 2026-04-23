@@ -3,7 +3,7 @@ export type ComplianceStatus = "clear" | "possible_unlicensed_trader" | "verifie
 export type DealerStatus = "none" | "submitted_unverified" | "pending" | "pending_review" | "info_requested" | "approved" | "rejected";
 export type DealerLicenceVerificationStatus = "verified" | "manual_review_required" | "auto_failed";
 export type DealerApplicationRiskLevel = "low" | "medium" | "high";
-export type DealerPlanType = "free" | "tier1" | "tier2" | "tier3";
+export type DealerPlanType = "free" | "starter" | "growth" | "pro" | "tier1" | "tier2" | "tier3";
 export type AdminPermissionKey =
   | "manageVehicles"
   | "deleteListings"
@@ -64,11 +64,16 @@ export interface AppUser {
   dealerStatus?: DealerStatus;
   dealerVerified?: boolean;
   dealerApplicationId?: string;
+  agreedToDealerTerms?: boolean;
   agreedToTerms?: boolean;
   agreedAt?: string;
+  dealerPlan?: DealerPlanType;
   planType?: DealerPlanType;
   maxListings?: number;
+  shopPublicVisible?: boolean;
   shopVisible?: boolean;
+  brandingEnabled?: boolean;
+  contactDisplayEnabled?: boolean;
   listingRestricted?: boolean;
   createdAt?: string;
 }
@@ -185,11 +190,16 @@ export interface VehicleActor {
   listingRestricted?: boolean;
   possibleUnlicensedTrader?: boolean;
   dealerStatus?: DealerStatus;
+  agreedToDealerTerms?: boolean;
   agreedToTerms?: boolean;
   agreedAt?: string;
+  dealerPlan?: DealerPlanType;
   planType?: DealerPlanType;
   maxListings?: number;
+  shopPublicVisible?: boolean;
   shopVisible?: boolean;
+  brandingEnabled?: boolean;
+  contactDisplayEnabled?: boolean;
 }
 
 export interface Enquiry {
@@ -366,11 +376,16 @@ export interface DealerApplication {
   reviewedAt?: string;
   reviewedByUid?: string;
   reviewedBy?: string;
+  agreedToDealerTerms?: boolean;
   agreedToTerms?: boolean;
   agreedAt?: string;
+  dealerPlan: DealerPlanType;
   planType: DealerPlanType;
   maxListings: number;
+  shopPublicVisible: boolean;
   shopVisible: boolean;
+  brandingEnabled: boolean;
+  contactDisplayEnabled: boolean;
   adminNote?: string;
   infoRequested?: boolean;
   infoRequestedAt?: string;

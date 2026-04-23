@@ -45,9 +45,13 @@ export function DealerProfilePanel() {
           <p>Contact: {application?.contactEmail || appUser?.email || "Not provided"}</p>
           <p>Phone: {application?.contactPhone || appUser?.phone || "Not provided"}</p>
           <p>Licence: {[application?.lmctNumber, application?.licenceState].filter(Boolean).join(" · ") || "Not provided"}</p>
-          <p>Plan: {(application?.planType || appUser?.planType || "free").replaceAll("_", " ")}</p>
+          <p>Description / story: Internal profile story coming soon</p>
+          <p>Location: {[application?.businessSuburb, application?.businessState].filter(Boolean).join(", ") || "Not provided"}</p>
+          <p>Plan: {(application?.dealerPlan || appUser?.dealerPlan || "free").replaceAll("_", " ")}</p>
           <p>Max listings: {application?.maxListings ?? appUser?.maxListings ?? 3}</p>
-          <p>Shop visible: {application?.shopVisible || appUser?.shopVisible ? "Yes" : "No"}</p>
+          <p>Shop visible: {application?.shopPublicVisible || appUser?.shopPublicVisible ? "Yes" : "No"}</p>
+          <p>Branding enabled: {application?.brandingEnabled || appUser?.brandingEnabled ? "Yes" : "No"}</p>
+          <p>Contact display enabled: {application?.contactDisplayEnabled || appUser?.contactDisplayEnabled ? "Yes" : "No"}</p>
         </div>
       </section>
     </DealerTermsGate>

@@ -377,6 +377,7 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
     dealerStatus:
       existingData?.dealerStatus === "submitted_unverified"
       || existingData?.dealerStatus === "pending"
+      || existingData?.dealerStatus === "pending_review"
       || existingData?.dealerStatus === "info_requested"
       || existingData?.dealerStatus === "approved"
       || existingData?.dealerStatus === "rejected"
@@ -384,6 +385,24 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
         : "none",
     dealerVerified: Boolean(existingData?.dealerVerified),
     dealerApplicationId: typeof existingData?.dealerApplicationId === "string" ? existingData.dealerApplicationId : undefined,
+    agreedToDealerTerms: Boolean(existingData?.agreedToDealerTerms ?? existingData?.agreedToTerms),
+    agreedToTerms: Boolean(existingData?.agreedToDealerTerms ?? existingData?.agreedToTerms),
+    agreedAt: typeof existingData?.agreedAt === "string" ? existingData.agreedAt : undefined,
+    dealerPlan:
+      existingData?.dealerPlan === "starter" || existingData?.dealerPlan === "growth" || existingData?.dealerPlan === "pro"
+      || existingData?.dealerPlan === "tier1" || existingData?.dealerPlan === "tier2" || existingData?.dealerPlan === "tier3"
+        ? existingData.dealerPlan
+        : "free",
+    planType:
+      existingData?.dealerPlan === "starter" || existingData?.dealerPlan === "growth" || existingData?.dealerPlan === "pro"
+      || existingData?.dealerPlan === "tier1" || existingData?.dealerPlan === "tier2" || existingData?.dealerPlan === "tier3"
+        ? existingData.dealerPlan
+        : "free",
+    maxListings: typeof existingData?.maxListings === "number" ? existingData.maxListings : undefined,
+    shopPublicVisible: Boolean(existingData?.shopPublicVisible ?? existingData?.shopVisible),
+    shopVisible: Boolean(existingData?.shopPublicVisible ?? existingData?.shopVisible),
+    brandingEnabled: Boolean(existingData?.brandingEnabled),
+    contactDisplayEnabled: Boolean(existingData?.contactDisplayEnabled),
     listingRestricted: Boolean(existingData?.listingRestricted),
     createdAt: typeof existingData?.createdAt === "string" ? existingData.createdAt : undefined
   } satisfies AppUser;
@@ -403,6 +422,15 @@ async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { nam
     complianceStatus: "clear",
     dealerStatus: "none",
     dealerVerified: false,
+    agreedToDealerTerms: false,
+    agreedToTerms: false,
+    dealerPlan: "free",
+    planType: "free",
+    maxListings: 3,
+    shopPublicVisible: false,
+    shopVisible: false,
+    brandingEnabled: false,
+    contactDisplayEnabled: false,
     accountBanned: false,
     listingRestricted: false,
     createdAt: Timestamp.now(),
@@ -471,6 +499,12 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
         !("complianceStatus" in data) ||
         !("dealerStatus" in data) ||
         !("dealerVerified" in data) ||
+        !("agreedToDealerTerms" in data) ||
+        !("dealerPlan" in data) ||
+        !("maxListings" in data) ||
+        !("shopPublicVisible" in data) ||
+        !("brandingEnabled" in data) ||
+        !("contactDisplayEnabled" in data) ||
         !("accountBanned" in data) ||
         !("listingRestricted" in data) ||
         !("failedLoginAttempts" in data) ||
@@ -489,6 +523,15 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
           complianceStatus: user.complianceStatus ?? "clear",
           dealerStatus: user.dealerStatus ?? "none",
           dealerVerified: user.dealerVerified ?? false,
+          agreedToDealerTerms: user.agreedToDealerTerms ?? false,
+          agreedToTerms: user.agreedToDealerTerms ?? user.agreedToTerms ?? false,
+          dealerPlan: user.dealerPlan ?? "free",
+          planType: user.dealerPlan ?? user.planType ?? "free",
+          maxListings: user.maxListings ?? 3,
+          shopPublicVisible: user.shopPublicVisible ?? false,
+          shopVisible: user.shopPublicVisible ?? user.shopVisible ?? false,
+          brandingEnabled: user.brandingEnabled ?? false,
+          contactDisplayEnabled: user.contactDisplayEnabled ?? false,
           accountBanned: user.accountBanned ?? false,
           listingRestricted: user.listingRestricted ?? false,
           ...(user.dealerApplicationId ? { dealerApplicationId: user.dealerApplicationId } : {}),

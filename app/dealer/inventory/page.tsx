@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DealerInventoryPanel } from "@/components/dealer/dealer-inventory-panel";
-import { WorkspaceHeader } from "@/components/layout/workspace-header";
+import { DealerShell } from "@/components/layout/dealer-shell";
 
 export default async function DealerInventoryPage() {
   const cookieStore = await cookies();
@@ -13,11 +13,8 @@ export default async function DealerInventoryPage() {
   }
 
   return (
-    <div>
-      <WorkspaceHeader workspaceLabel="DEALER" />
-      <main className="mx-auto max-w-5xl px-6 py-16">
-        <DealerInventoryPanel />
-      </main>
-    </div>
+    <DealerShell title="Inventory" description="Manage multi-vehicle dealer stock and listing readiness.">
+      <DealerInventoryPanel />
+    </DealerShell>
   );
 }

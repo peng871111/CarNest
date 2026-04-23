@@ -131,6 +131,16 @@ service cloud.firestore {
         || status == "rejected";
     }
 
+    function isValidDealerPlan(plan) {
+      return plan == "free"
+        || plan == "starter"
+        || plan == "growth"
+        || plan == "pro"
+        || plan == "tier1"
+        || plan == "tier2"
+        || plan == "tier3";
+    }
+
     function isValidSellerVehicleStatus(status) {
       return status == "ACTIVE"
         || status == "UNDER_OFFER"
@@ -269,11 +279,16 @@ service cloud.firestore {
           "dealerStatus",
           "dealerVerified",
           "dealerApplicationId",
+          "agreedToDealerTerms",
           "agreedToTerms",
           "agreedAt",
+          "dealerPlan",
           "planType",
           "maxListings",
+          "shopPublicVisible",
           "shopVisible",
+          "brandingEnabled",
+          "contactDisplayEnabled",
           "listingRestricted",
           "failedLoginAttempts",
           "mustResetPassword"
@@ -309,6 +324,10 @@ service cloud.firestore {
           || request.resource.data.dealerApplicationId is string
         )
         && (
+          !("agreedToDealerTerms" in request.resource.data)
+          || request.resource.data.agreedToDealerTerms is bool
+        )
+        && (
           !("agreedToTerms" in request.resource.data)
           || request.resource.data.agreedToTerms is bool
         )
@@ -317,19 +336,32 @@ service cloud.firestore {
           || request.resource.data.agreedAt is timestamp
         )
         && (
+          !("dealerPlan" in request.resource.data)
+          || isValidDealerPlan(request.resource.data.dealerPlan)
+        )
+        && (
           !("planType" in request.resource.data)
-          || request.resource.data.planType == "free"
-          || request.resource.data.planType == "tier1"
-          || request.resource.data.planType == "tier2"
-          || request.resource.data.planType == "tier3"
+          || isValidDealerPlan(request.resource.data.planType)
         )
         && (
           !("maxListings" in request.resource.data)
           || request.resource.data.maxListings is int
         )
         && (
+          !("shopPublicVisible" in request.resource.data)
+          || request.resource.data.shopPublicVisible is bool
+        )
+        && (
           !("shopVisible" in request.resource.data)
           || request.resource.data.shopVisible is bool
+        )
+        && (
+          !("brandingEnabled" in request.resource.data)
+          || request.resource.data.brandingEnabled is bool
+        )
+        && (
+          !("contactDisplayEnabled" in request.resource.data)
+          || request.resource.data.contactDisplayEnabled is bool
         )
         && (
           !("listingRestricted" in request.resource.data)
@@ -374,6 +406,10 @@ service cloud.firestore {
             || request.resource.data.dealerApplicationId is string
           )
           && (
+            !("agreedToDealerTerms" in request.resource.data)
+            || request.resource.data.agreedToDealerTerms is bool
+          )
+          && (
             !("agreedToTerms" in request.resource.data)
             || request.resource.data.agreedToTerms is bool
           )
@@ -382,19 +418,32 @@ service cloud.firestore {
             || request.resource.data.agreedAt is timestamp
           )
           && (
+            !("dealerPlan" in request.resource.data)
+            || isValidDealerPlan(request.resource.data.dealerPlan)
+          )
+          && (
             !("planType" in request.resource.data)
-            || request.resource.data.planType == "free"
-            || request.resource.data.planType == "tier1"
-            || request.resource.data.planType == "tier2"
-            || request.resource.data.planType == "tier3"
+            || isValidDealerPlan(request.resource.data.planType)
           )
           && (
             !("maxListings" in request.resource.data)
             || request.resource.data.maxListings is int
           )
           && (
+            !("shopPublicVisible" in request.resource.data)
+            || request.resource.data.shopPublicVisible is bool
+          )
+          && (
             !("shopVisible" in request.resource.data)
             || request.resource.data.shopVisible is bool
+          )
+          && (
+            !("brandingEnabled" in request.resource.data)
+            || request.resource.data.brandingEnabled is bool
+          )
+          && (
+            !("contactDisplayEnabled" in request.resource.data)
+            || request.resource.data.contactDisplayEnabled is bool
           )
           && (
             !("listingRestricted" in request.resource.data)
@@ -452,11 +501,16 @@ service cloud.firestore {
             "reviewedAt",
             "reviewedByUid",
             "reviewedBy",
+            "agreedToDealerTerms",
             "agreedToTerms",
             "agreedAt",
+            "dealerPlan",
             "planType",
             "maxListings",
+            "shopPublicVisible",
             "shopVisible",
+            "brandingEnabled",
+            "contactDisplayEnabled",
             "adminNote",
             "infoRequested",
             "infoRequestedAt",
@@ -516,6 +570,10 @@ service cloud.firestore {
           && request.resource.data.trustIndicators is map
           && request.resource.data.rejectionHistoryCount is int
           && (
+            !("agreedToDealerTerms" in request.resource.data)
+            || request.resource.data.agreedToDealerTerms is bool
+          )
+          && (
             !("agreedToTerms" in request.resource.data)
             || request.resource.data.agreedToTerms is bool
           )
@@ -524,13 +582,33 @@ service cloud.firestore {
             || request.resource.data.agreedAt is timestamp
           )
           && (
-            request.resource.data.planType == "free"
-            || request.resource.data.planType == "tier1"
-            || request.resource.data.planType == "tier2"
-            || request.resource.data.planType == "tier3"
+            !("dealerPlan" in request.resource.data)
+            || isValidDealerPlan(request.resource.data.dealerPlan)
           )
-          && request.resource.data.maxListings is int
-          && request.resource.data.shopVisible is bool
+          && (
+            !("planType" in request.resource.data)
+            || isValidDealerPlan(request.resource.data.planType)
+          )
+          && (
+            !("maxListings" in request.resource.data)
+            || request.resource.data.maxListings is int
+          )
+          && (
+            !("shopPublicVisible" in request.resource.data)
+            || request.resource.data.shopPublicVisible is bool
+          )
+          && (
+            !("shopVisible" in request.resource.data)
+            || request.resource.data.shopVisible is bool
+          )
+          && (
+            !("brandingEnabled" in request.resource.data)
+            || request.resource.data.brandingEnabled is bool
+          )
+          && (
+            !("contactDisplayEnabled" in request.resource.data)
+            || request.resource.data.contactDisplayEnabled is bool
+          )
           && (
             !("infoRequested" in request.resource.data)
             || request.resource.data.infoRequested is bool

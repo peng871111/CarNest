@@ -7,17 +7,17 @@ import { acceptDealerTerms, getDealerApplicationByUserId } from "@/lib/data";
 
 const DEALER_TERMS = [
   "You hold a valid LMCT licence in your operating state.",
-  "All vehicles listed are legally owned or authorised for sale.",
-  "You will not publish misleading, false, or deceptive information.",
-  "You comply with Australian Consumer Law (ACL).",
-  "You will not engage in fake listings or price manipulation.",
-  "You agree CarNest may suspend accounts violating platform rules.",
-  "All transactions must comply with applicable laws."
+  "All vehicles listed are legally owned by you or listed with lawful authority to sell.",
+  "You will not publish false, misleading, or deceptive information.",
+  "You will comply with Australian Consumer Law and all applicable state and federal laws.",
+  "You will not publish unlawful, stolen, encumbered, fake, or duplicate listings.",
+  "You understand CarNest may suspend, restrict, or remove listings or dealer access where compliance concerns arise.",
+  "You agree to operate your account and listings in accordance with platform rules and applicable law."
 ];
 
 export function DealerTermsGate({ children }: { children: ReactNode }) {
   const { appUser, loading } = useAuth();
-  const [agreed, setAgreed] = useState(Boolean(appUser?.agreedToTerms));
+  const [agreed, setAgreed] = useState(Boolean(appUser?.agreedToDealerTerms || appUser?.agreedToTerms));
   const [checked, setChecked] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -29,7 +29,7 @@ export function DealerTermsGate({ children }: { children: ReactNode }) {
       if (!appUser?.id) return;
       const application = await getDealerApplicationByUserId(appUser.id).catch(() => null);
       if (!cancelled) {
-        setAgreed(Boolean(appUser.agreedToTerms || application?.agreedToTerms));
+        setAgreed(Boolean(appUser.agreedToDealerTerms || appUser.agreedToTerms || application?.agreedToDealerTerms || application?.agreedToTerms));
       }
     }
 
@@ -38,7 +38,7 @@ export function DealerTermsGate({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [appUser?.agreedToTerms, appUser?.id]);
+  }, [appUser?.agreedToDealerTerms, appUser?.agreedToTerms, appUser?.id]);
 
   async function handleAccept() {
     if (!appUser) {
@@ -76,7 +76,7 @@ export function DealerTermsGate({ children }: { children: ReactNode }) {
       </p>
 
       <div className="mt-6 rounded-[24px] border border-black/5 bg-shell px-5 py-4 text-sm leading-6 text-ink/70">
-        <p className="font-semibold text-ink">By creating a dealer account on CarNest, you confirm that:</p>
+        <p className="font-semibold text-ink">By creating and operating a dealer account on CarNest, you confirm that:</p>
         <ol className="mt-3 space-y-2">
           {DEALER_TERMS.map((term, index) => (
             <li key={term}>{index + 1}. {term}</li>

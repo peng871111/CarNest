@@ -9,6 +9,7 @@ import { canAccessRole, hasAdminPermission } from "@/lib/permissions";
 import {
   getComplianceAlertsData,
   getContactMessagesData,
+  getDealerApplicationsData,
   getInspectionRequestsData,
   getOffersData,
   getPricingRequestsData,
@@ -54,14 +55,15 @@ export function AdminShell({
     async function loadBadgeCounts() {
       if (loading || !hasWorkspaceAccess) return;
 
-      const [vehiclesResult, enquiriesResult, offersResult, inspectionsResult, quotesResult, pricingResult, complianceResult] = await Promise.all([
+      const [vehiclesResult, enquiriesResult, offersResult, inspectionsResult, quotesResult, pricingResult, complianceResult, dealerApplicationsResult] = await Promise.all([
         getVehiclesData(),
         getContactMessagesData(),
         getOffersData(),
         getInspectionRequestsData(),
         getQuotesData(),
         getPricingRequestsData(),
-        getComplianceAlertsData()
+        getComplianceAlertsData(),
+        getDealerApplicationsData()
       ]);
 
       if (cancelled) return;
@@ -73,6 +75,7 @@ export function AdminShell({
         "/admin/inspections": inspectionsResult.items.filter((item) => item.status === "NEW").length,
         "/admin/quotes": quotesResult.items.filter((item) => item.status === "NEW").length,
         "/admin/pricing": pricingResult.items.filter((item) => item.status === "NEW").length,
+        "/admin/dealer-applications": dealerApplicationsResult.items.filter((item) => item.status === "pending" || item.status === "info_requested").length,
         "/admin/users": complianceResult.items.filter((item) => item.status === "open").length
       });
     }

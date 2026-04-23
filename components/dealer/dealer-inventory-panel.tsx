@@ -5,11 +5,18 @@ import { useEffect, useState } from "react";
 import { DealerTermsGate } from "@/components/dealer/dealer-terms-gate";
 import { useAuth } from "@/lib/auth";
 import { getOwnedVehiclesData } from "@/lib/data";
-import { formatCurrency } from "@/lib/utils";
+import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { Vehicle } from "@/types";
 
 function getVehicleTitle(vehicle: Vehicle) {
   return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ");
+}
+
+function getDealerInventoryStatus(vehicle: Vehicle) {
+  if (vehicle.sellerStatus === "SOLD") return "sold";
+  if (vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")) return "live";
+  if (vehicle.status === "pending") return "pending";
+  return "draft";
 }
 
 export function DealerInventoryPanel() {
@@ -50,17 +57,25 @@ export function DealerInventoryPanel() {
           <Link href="/dealer/inventory/new" className="rounded-full bg-ink px-6 py-3 text-sm font-semibold text-white">
             Add vehicle
           </Link>
+          <button type="button" disabled className="rounded-full border border-black/10 bg-white px-6 py-3 text-sm font-semibold text-ink/40">
+            Bulk upload (coming soon)
+          </button>
         </div>
 
         <div className="mt-8 space-y-3">
           {vehicles.length ? vehicles.map((vehicle) => (
             <div key={vehicle.id} className="rounded-[24px] border border-black/5 bg-shell px-5 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="grid gap-3 md:grid-cols-[1.4fr,0.6fr,0.6fr,0.8fr,0.6fr] md:items-center">
                 <div>
                   <p className="font-semibold text-ink">{getVehicleTitle(vehicle) || vehicle.id}</p>
-                  <p className="mt-1 text-sm text-ink/60">{vehicle.id} · {vehicle.sellerStatus}</p>
+                  <p className="mt-1 text-sm text-ink/60">{vehicle.id}</p>
                 </div>
                 <p className="text-sm font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
+                <p className="text-sm capitalize text-ink/70">{getDealerInventoryStatus(vehicle)}</p>
+                <p className="text-sm text-ink/60">{formatAdminDateTime(vehicle.createdAt)}</p>
+                <Link href={`/inventory/${vehicle.id}`} className="text-sm font-semibold text-ink underline">
+                  Open
+                </Link>
               </div>
             </div>
           )) : (

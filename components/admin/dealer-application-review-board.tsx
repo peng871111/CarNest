@@ -74,6 +74,10 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
     if (!query) return applications;
 
     return applications.filter((application) => [
+      application.referenceId,
+      application.legalBusinessName,
+      application.tradingName,
+      application.contactPersonName,
       application.contactEmail,
       application.contactPhone,
       application.abn,
@@ -203,7 +207,9 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
             >
               <div>
                 <p className="font-semibold text-ink">{application.contactPersonName || "Unnamed applicant"}</p>
-                <p className="mt-1 text-sm text-ink/60">{application.contactEmail || "No email"}</p>
+                <p className="mt-1 text-sm text-ink/60">
+                  {application.contactEmail || "No email"} · {application.contactPhone || "No phone"}
+                </p>
                 <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/40">
                   Ref {application.referenceId} · Submitted {formatDateTime(application.requestedAt)}
                 </p>

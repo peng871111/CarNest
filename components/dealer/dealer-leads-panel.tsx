@@ -4,8 +4,14 @@ import { useEffect, useState } from "react";
 import { DealerTermsGate } from "@/components/dealer/dealer-terms-gate";
 import { useAuth } from "@/lib/auth";
 import { getSellerInspectionRequestsData, getSellerOffersData } from "@/lib/data";
-import { formatCurrency } from "@/lib/utils";
+import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
 import { InspectionRequest, Offer } from "@/types";
+
+function getLeadStatus(status: Offer["status"]) {
+  if (status === "accepted" || status === "buyer_confirmed") return "contacted";
+  if (status === "declined" || status === "rejected" || status === "buyer_declined") return "closed";
+  return "new";
+}
 
 export function DealerLeadsPanel() {
   const { appUser, loading } = useAuth();
@@ -61,8 +67,14 @@ export function DealerLeadsPanel() {
         <div className="mt-8 space-y-3">
           {offers.length ? offers.slice(0, 8).map((offer) => (
             <div key={offer.id} className="rounded-[24px] border border-black/5 bg-shell px-5 py-4 text-sm text-ink/70">
-              <p className="font-semibold text-ink">{offer.vehicleTitle}</p>
-              <p className="mt-1">{offer.buyerName} · {formatCurrency(offer.amount)} · {offer.status.replaceAll("_", " ")}</p>
+              <div className="grid gap-3 md:grid-cols-[1fr,1.2fr,0.8fr,0.6fr,0.8fr] md:items-center">
+                <p className="font-semibold text-ink">{offer.buyerName || "Buyer"}</p>
+                <p>{offer.vehicleTitle}</p>
+                <p>{formatAdminDateTime(offer.createdAt)}</p>
+                <p className="capitalize">{getLeadStatus(offer.status)}</p>
+                <p className="font-semibold text-ink">{formatCurrency(offer.amount)}</p>
+              </div>
+              <p className="mt-3 text-xs uppercase tracking-[0.18em] text-ink/40">Quick action tools coming soon</p>
             </div>
           )) : (
             <p className="rounded-[24px] border border-dashed border-black/10 bg-shell px-5 py-8 text-sm text-ink/60">

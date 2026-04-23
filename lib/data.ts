@@ -154,6 +154,7 @@ export interface DealerAdditionalInformationInput {
 }
 
 export interface DealerTermsAcceptanceResult {
+  agreedToDealerTerms: boolean;
   agreedToTerms: boolean;
   agreedAt: string;
 }
@@ -383,6 +384,14 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     storedPermissions: data.adminPermissions && typeof data.adminPermissions === "object" ? (data.adminPermissions as Record<string, boolean>) : undefined
   });
 
+  const dealerPlan = normalizeDealerPlan(data.dealerPlan ?? data.planType);
+  const agreedToDealerTerms = Boolean(data.agreedToDealerTerms ?? data.agreedToTerms);
+  const shopPublicVisible = typeof data.shopPublicVisible === "boolean"
+    ? data.shopPublicVisible
+    : typeof data.shopVisible === "boolean"
+      ? data.shopVisible
+      : undefined;
+
   return {
     id,
     email,
@@ -410,14 +419,16 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
         : "none",
     dealerVerified: Boolean(data.dealerVerified),
     dealerApplicationId: typeof data.dealerApplicationId === "string" ? data.dealerApplicationId : undefined,
-    agreedToTerms: Boolean(data.agreedToTerms),
+    agreedToDealerTerms,
+    agreedToTerms: agreedToDealerTerms,
     agreedAt: serializeDate(data.agreedAt),
-    planType:
-      data.planType === "tier1" || data.planType === "tier2" || data.planType === "tier3"
-        ? data.planType
-        : "free",
+    dealerPlan,
+    planType: dealerPlan,
     maxListings: typeof data.maxListings === "number" ? data.maxListings : undefined,
-    shopVisible: typeof data.shopVisible === "boolean" ? data.shopVisible : undefined,
+    shopPublicVisible,
+    shopVisible: shopPublicVisible,
+    brandingEnabled: typeof data.brandingEnabled === "boolean" ? data.brandingEnabled : undefined,
+    contactDisplayEnabled: typeof data.contactDisplayEnabled === "boolean" ? data.contactDisplayEnabled : undefined,
     listingRestricted: Boolean(data.listingRestricted),
     createdAt: serializeDate(data.createdAt)
   };
@@ -530,6 +541,13 @@ function serializeComplianceAlertDoc(id: string, data: Record<string, unknown>):
   };
 }
 
+function normalizeDealerPlan(value: unknown) {
+  if (value === "starter" || value === "growth" || value === "pro" || value === "tier1" || value === "tier2" || value === "tier3") {
+    return value;
+  }
+  return "free" as const;
+}
+
 function generateDealerReferenceId(source?: unknown) {
   const serialized = serializeDate(source);
   const timestamp = serialized ? new Date(serialized).getTime() : Date.now();
@@ -578,6 +596,17 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
           }]
         : [];
   const normalizedProofFiles = proofFiles.length ? proofFiles : singleProofFile;
+  const dealerPlan = normalizeDealerPlan(data.dealerPlan ?? data.planType);
+  const agreedToDealerTerms = typeof data.agreedToDealerTerms === "boolean"
+    ? data.agreedToDealerTerms
+    : typeof data.agreedToTerms === "boolean"
+      ? data.agreedToTerms
+      : undefined;
+  const shopPublicVisible = typeof data.shopPublicVisible === "boolean"
+    ? data.shopPublicVisible
+    : typeof data.shopVisible === "boolean"
+      ? data.shopVisible
+      : false;
   const additionalUploads = Array.isArray(data.additionalUploads)
     ? data.additionalUploads
         .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
@@ -705,14 +734,16 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
     reviewedAt: serializeDate(data.reviewedAt),
     reviewedByUid: typeof data.reviewedByUid === "string" ? data.reviewedByUid : undefined,
     reviewedBy: typeof data.reviewedBy === "string" ? data.reviewedBy : undefined,
-    agreedToTerms: typeof data.agreedToTerms === "boolean" ? data.agreedToTerms : undefined,
+    agreedToDealerTerms,
+    agreedToTerms: agreedToDealerTerms,
     agreedAt: serializeDate(data.agreedAt),
-    planType:
-      data.planType === "tier1" || data.planType === "tier2" || data.planType === "tier3"
-        ? data.planType
-        : "free",
+    dealerPlan,
+    planType: dealerPlan,
     maxListings: typeof data.maxListings === "number" ? data.maxListings : 3,
-    shopVisible: typeof data.shopVisible === "boolean" ? data.shopVisible : false,
+    shopPublicVisible,
+    shopVisible: shopPublicVisible,
+    brandingEnabled: typeof data.brandingEnabled === "boolean" ? data.brandingEnabled : false,
+    contactDisplayEnabled: typeof data.contactDisplayEnabled === "boolean" ? data.contactDisplayEnabled : false,
     adminNote: typeof data.adminNote === "string" ? data.adminNote : undefined,
     infoRequested: typeof data.infoRequested === "boolean" ? data.infoRequested : undefined,
     infoRequestedAt: serializeDate(data.infoRequestedAt),
@@ -2675,6 +2706,9 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
   });
   const lastSubmittedAt = new Date().toISOString();
   const referenceId = existingApplication?.referenceId ?? generateDealerReferenceId(lastSubmittedAt);
+  const dealerPlan = existingApplication?.dealerPlan ?? existingApplication?.planType ?? "free";
+  const shopPublicVisible = existingApplication?.shopPublicVisible ?? existingApplication?.shopVisible ?? false;
+  const agreedToDealerTerms = existingApplication?.agreedToDealerTerms ?? existingApplication?.agreedToTerms ?? false;
   const application = {
     id: actor.id,
     userId: actor.id,
@@ -2702,10 +2736,15 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     status: "pending" as const,
     infoRequested: false,
     additionalUploads: [],
-    planType: existingApplication?.planType ?? "free",
+    dealerPlan,
+    planType: dealerPlan,
     maxListings: existingApplication?.maxListings ?? 3,
-    shopVisible: existingApplication?.shopVisible ?? false,
-    agreedToTerms: existingApplication?.agreedToTerms ?? false,
+    shopPublicVisible,
+    shopVisible: shopPublicVisible,
+    brandingEnabled: existingApplication?.brandingEnabled ?? false,
+    contactDisplayEnabled: existingApplication?.contactDisplayEnabled ?? false,
+    agreedToDealerTerms,
+    agreedToTerms: agreedToDealerTerms,
     agreedAt: existingApplication?.agreedAt,
     requestedAt: existingApplication?.requestedAt ?? lastSubmittedAt,
     lastSubmittedAt,
@@ -2741,9 +2780,13 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
       status: "pending",
       infoRequested: false,
       additionalUploads: existingApplication?.additionalUploads ?? [],
-      planType: existingApplication?.planType ?? "free",
+      dealerPlan,
+      planType: dealerPlan,
       maxListings: existingApplication?.maxListings ?? 3,
-      shopVisible: existingApplication?.shopVisible ?? false,
+      shopPublicVisible,
+      shopVisible: shopPublicVisible,
+      brandingEnabled: existingApplication?.brandingEnabled ?? false,
+      contactDisplayEnabled: existingApplication?.contactDisplayEnabled ?? false,
       ...(existingApplication?.requestedAt ? { requestedAt: Timestamp.fromDate(new Date(existingApplication.requestedAt)) } : { requestedAt: serverTimestamp() }),
       lastSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -2762,9 +2805,13 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
       dealerStatus: "pending",
       dealerVerified: false,
       dealerApplicationId: actor.id,
-      planType: existingApplication?.planType ?? "free",
+      dealerPlan,
+      planType: dealerPlan,
       maxListings: existingApplication?.maxListings ?? 3,
-      shopVisible: existingApplication?.shopVisible ?? false,
+      shopPublicVisible,
+      shopVisible: shopPublicVisible,
+      brandingEnabled: existingApplication?.brandingEnabled ?? false,
+      contactDisplayEnabled: existingApplication?.contactDisplayEnabled ?? false,
       updatedAt: serverTimestamp()
     },
     { merge: true }
@@ -2880,6 +2927,7 @@ export async function acceptDealerTerms(actor: VehicleActor): Promise<DealerTerm
 
   if (!isFirebaseConfigured) {
     return {
+      agreedToDealerTerms: true,
       agreedToTerms: true,
       agreedAt
     };
@@ -2889,6 +2937,7 @@ export async function acceptDealerTerms(actor: VehicleActor): Promise<DealerTerm
     setDoc(
       doc(db, "users", actor.id),
       {
+        agreedToDealerTerms: true,
         agreedToTerms: true,
         agreedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -2898,6 +2947,7 @@ export async function acceptDealerTerms(actor: VehicleActor): Promise<DealerTerm
     setDoc(
       doc(db, "dealerApplications", actor.id),
       {
+        agreedToDealerTerms: true,
         agreedToTerms: true,
         agreedAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -2907,6 +2957,7 @@ export async function acceptDealerTerms(actor: VehicleActor): Promise<DealerTerm
   ]);
 
   return {
+    agreedToDealerTerms: true,
     agreedToTerms: true,
     agreedAt
   };
@@ -3081,9 +3132,13 @@ export async function reviewDealerApplication(
             role: "dealer",
             dealerStatus: "approved",
             dealerVerified: true,
-            planType: application.planType ?? "free",
+            dealerPlan: application.dealerPlan ?? application.planType ?? "free",
+            planType: application.dealerPlan ?? application.planType ?? "free",
             maxListings: application.maxListings ?? 3,
-            shopVisible: application.shopVisible ?? false,
+            shopPublicVisible: application.shopPublicVisible ?? application.shopVisible ?? false,
+            shopVisible: application.shopPublicVisible ?? application.shopVisible ?? false,
+            brandingEnabled: application.brandingEnabled ?? false,
+            contactDisplayEnabled: application.contactDisplayEnabled ?? false,
             listingRestricted: false,
             complianceStatus: "verified_dealer",
             complianceFlaggedAt: deleteField()
