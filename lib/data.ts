@@ -1503,6 +1503,41 @@ export async function listSoldVehicles() {
   };
 }
 
+export async function getPublicSoldVehicles() {
+  if (!isFirebaseConfigured) {
+    return {
+      vehicles: [] as Vehicle[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "vehicles"),
+        where("status", "==", "approved"),
+        where("sellerStatus", "==", "SOLD")
+      )
+    );
+
+    const vehicles = snapshot.docs
+      .map((item) => serializeVehicleDoc(item.id, item.data()))
+      .filter((vehicle) => !vehicle.deleted && vehicle.status === "approved" && vehicle.sellerStatus === "SOLD")
+      .sort((left, right) => (right.soldAt ?? right.updatedAt ?? right.createdAt ?? "").localeCompare(left.soldAt ?? left.updatedAt ?? left.createdAt ?? ""));
+
+    return {
+      vehicles,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      vehicles: [] as Vehicle[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
 export async function getVehicleById(id: string) {
   if (!isFirebaseConfigured) {
     return sampleVehicles.find((vehicle) => vehicle.id === id) ?? null;

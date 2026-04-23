@@ -2,10 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
-import { listSoldVehicles } from "@/lib/data";
+import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
 import { formatCurrency } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: {
@@ -40,7 +42,7 @@ const HOW_IT_WORKS_STEPS = [
 ];
 
 export default async function HomePage() {
-  const { vehicles: soldVehicles, error: soldVehiclesError } = await listSoldVehicles();
+  const { vehicles: soldVehicles, error: soldVehiclesError } = await getPublicSoldVehicles();
   const soldStripVehicles = soldVehicles.slice(0, 8);
   const organizationStructuredData = {
     "@context": "https://schema.org",

@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
-import { listSoldVehicles } from "@/lib/data";
+import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 };
 
 export default async function SoldVehiclesPage() {
-  const { vehicles, error } = await listSoldVehicles();
+  const { vehicles, error } = await getPublicSoldVehicles();
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-20">
