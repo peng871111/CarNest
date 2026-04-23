@@ -55,6 +55,34 @@ export async function uploadDealerProof(file: File, applicantUid: string) {
   return getDownloadURL(storageRef);
 }
 
+export async function uploadDealerAdditionalDocuments(files: File[], applicantUid: string) {
+  if (!files.length) return [];
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Document upload is temporarily unavailable. Please try again later.");
+  }
+
+  return Promise.all(
+    files.map(async (file) => {
+      if (!isAllowedDealerProofFile(file)) {
+        throw new Error("Additional documents must be PDF, JPG, JPEG, or PNG files.");
+      }
+
+      const sanitizedName = file.name.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "").toLowerCase();
+      const storageRef = ref(storage, `dealer-proofs/${applicantUid}/additional/${Date.now()}-${sanitizedName}`);
+      await uploadBytes(storageRef, file, {
+        contentType: file.type || undefined
+      });
+
+      return {
+        url: await getDownloadURL(storageRef),
+        name: file.name,
+        contentType: file.type || undefined
+      };
+    })
+  );
+}
+
 function isManagedVehicleImageUrl(imageUrl: string) {
   try {
     const parsedUrl = new URL(imageUrl);

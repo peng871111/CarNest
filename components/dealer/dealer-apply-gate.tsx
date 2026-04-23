@@ -46,7 +46,7 @@ export function DealerApplyGate() {
       return;
     }
 
-    if (application && application.status !== "info_requested") {
+    if (application) {
       router.replace("/dealer/application-status");
     }
   }, [appUser?.dealerStatus, application, loading, loadingApplication, router]);
@@ -55,7 +55,7 @@ export function DealerApplyGate() {
     return <p className="text-sm text-ink/60">Loading your dealer application details...</p>;
   }
 
-  if (application && application.status !== "info_requested") {
+  if (application) {
     return <p className="text-sm text-ink/60">Redirecting to your dealer application status...</p>;
   }
 

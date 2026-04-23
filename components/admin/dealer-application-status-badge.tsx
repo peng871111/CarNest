@@ -11,6 +11,7 @@ function getDealerApplicationStatusTone(status: DealerApplication["status"]) {
 
 function getDealerApplicationStatusLabel(status: DealerApplication["status"]) {
   if (status === "info_requested") return "Info requested";
+  if (status === "pending_review") return "Pending review";
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 

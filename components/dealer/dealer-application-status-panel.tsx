@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { DealerAdditionalInfoPanel } from "@/components/dealer/dealer-additional-info-panel";
 import { useAuth } from "@/lib/auth";
 import { getDealerApplicationByUserId } from "@/lib/data";
 import { formatAdminDateTime, formatCalendarDate } from "@/lib/utils";
@@ -44,6 +45,19 @@ function getStatusConfig(status: DealerStatus, application: DealerApplication | 
       eyebrow: "Dealer application",
       title: "Your application is under review",
       body: "We’re currently reviewing your dealer application.",
+      secondary: "We’ll notify you once a decision has been made.",
+      primaryHref: "/dealer/application-status",
+      primaryLabel: "View application status",
+      secondaryHref: "/",
+      secondaryLabel: "Back to site"
+    };
+  }
+
+  if (status === "pending_review") {
+    return {
+      eyebrow: "Dealer application",
+      title: "Your additional information has been submitted",
+      body: "Thanks for the update. Our team is reviewing the additional information you provided.",
       secondary: "We’ll notify you once a decision has been made.",
       primaryHref: "/dealer/application-status",
       primaryLabel: "View application status",
@@ -136,6 +150,10 @@ export function DealerApplicationStatusPanel({ justSubmitted = false }: { justSu
   }
 
   const status = normalizeDealerStatus(application, appUser?.dealerStatus);
+  if (status === "info_requested" && application) {
+    return <DealerAdditionalInfoPanel application={application} onUpdated={setApplication} />;
+  }
+
   const config = getStatusConfig(status, application, justSubmitted);
 
   return (

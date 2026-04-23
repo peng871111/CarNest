@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
-export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | "ACCOUNT" | "DASHBOARD" }) {
+export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | "ACCOUNT" | "DASHBOARD" | "DEALER" }) {
   const router = useRouter();
   const { appUser, logout } = useAuth();
 
@@ -19,7 +19,9 @@ export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | 
   const dashboardHref =
     appUser?.role === "admin" || appUser?.role === "super_admin"
       ? "/admin/vehicles"
-      : appUser?.role === "seller" || appUser?.role === "buyer" || appUser?.role === "dealer"
+      : appUser?.role === "dealer"
+        ? "/dealer/dashboard"
+        : appUser?.role === "seller" || appUser?.role === "buyer"
         ? "/seller/vehicles"
         : null;
 

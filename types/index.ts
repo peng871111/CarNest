@@ -1,8 +1,9 @@
 export type UserRole = "buyer" | "seller" | "dealer" | "admin" | "super_admin";
 export type ComplianceStatus = "clear" | "possible_unlicensed_trader" | "verified_dealer";
-export type DealerStatus = "none" | "submitted_unverified" | "pending" | "info_requested" | "approved" | "rejected";
+export type DealerStatus = "none" | "submitted_unverified" | "pending" | "pending_review" | "info_requested" | "approved" | "rejected";
 export type DealerLicenceVerificationStatus = "verified" | "manual_review_required" | "auto_failed";
 export type DealerApplicationRiskLevel = "low" | "medium" | "high";
+export type DealerPlanType = "free" | "tier1" | "tier2" | "tier3";
 export type AdminPermissionKey =
   | "manageVehicles"
   | "deleteListings"
@@ -63,6 +64,11 @@ export interface AppUser {
   dealerStatus?: DealerStatus;
   dealerVerified?: boolean;
   dealerApplicationId?: string;
+  agreedToTerms?: boolean;
+  agreedAt?: string;
+  planType?: DealerPlanType;
+  maxListings?: number;
+  shopVisible?: boolean;
   listingRestricted?: boolean;
   createdAt?: string;
 }
@@ -179,6 +185,11 @@ export interface VehicleActor {
   listingRestricted?: boolean;
   possibleUnlicensedTrader?: boolean;
   dealerStatus?: DealerStatus;
+  agreedToTerms?: boolean;
+  agreedAt?: string;
+  planType?: DealerPlanType;
+  maxListings?: number;
+  shopVisible?: boolean;
 }
 
 export interface Enquiry {
@@ -297,6 +308,7 @@ export interface DealerApplicationProofFile {
 export interface DealerApplication {
   id: string;
   userId: string;
+  referenceId: string;
   dealerStatus: Exclude<DealerStatus, "none">;
   legalBusinessName: string;
   tradingName: string;
@@ -354,6 +366,16 @@ export interface DealerApplication {
   reviewedAt?: string;
   reviewedByUid?: string;
   reviewedBy?: string;
+  agreedToTerms?: boolean;
+  agreedAt?: string;
+  planType: DealerPlanType;
+  maxListings: number;
+  shopVisible: boolean;
+  adminNote?: string;
+  infoRequested?: boolean;
+  infoRequestedAt?: string;
+  dealerResponseNote?: string;
+  additionalUploads: DealerApplicationProofFile[];
   rejectReason?: string;
   infoRequestNote?: string;
 }

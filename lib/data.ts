@@ -27,6 +27,7 @@ import {
   ContactMessageCategory,
   ContactMessageStatus,
   DealerApplication,
+  DealerApplicationProofFile,
   DealerApplicationRiskLevel,
   DealerLicenceVerificationStatus,
   DealerStatus,
@@ -145,6 +146,16 @@ export interface DealerApplicationWriteResult {
   application: DealerApplication;
   source: VehicleDataSource;
   writeSucceeded: boolean;
+}
+
+export interface DealerAdditionalInformationInput {
+  dealerResponseNote: string;
+  additionalUploads: DealerApplicationProofFile[];
+}
+
+export interface DealerTermsAcceptanceResult {
+  agreedToTerms: boolean;
+  agreedAt: string;
 }
 
 export interface InspectionRequestWriteInput {
@@ -391,6 +402,7 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     dealerStatus:
       data.dealerStatus === "submitted_unverified"
       || data.dealerStatus === "pending"
+      || data.dealerStatus === "pending_review"
       || data.dealerStatus === "info_requested"
       || data.dealerStatus === "approved"
       || data.dealerStatus === "rejected"
@@ -398,6 +410,14 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
         : "none",
     dealerVerified: Boolean(data.dealerVerified),
     dealerApplicationId: typeof data.dealerApplicationId === "string" ? data.dealerApplicationId : undefined,
+    agreedToTerms: Boolean(data.agreedToTerms),
+    agreedAt: serializeDate(data.agreedAt),
+    planType:
+      data.planType === "tier1" || data.planType === "tier2" || data.planType === "tier3"
+        ? data.planType
+        : "free",
+    maxListings: typeof data.maxListings === "number" ? data.maxListings : undefined,
+    shopVisible: typeof data.shopVisible === "boolean" ? data.shopVisible : undefined,
     listingRestricted: Boolean(data.listingRestricted),
     createdAt: serializeDate(data.createdAt)
   };
@@ -510,6 +530,12 @@ function serializeComplianceAlertDoc(id: string, data: Record<string, unknown>):
   };
 }
 
+function generateDealerReferenceId(source?: unknown) {
+  const serialized = serializeDate(source);
+  const timestamp = serialized ? new Date(serialized).getTime() : Date.now();
+  return `DN-${String(timestamp).slice(-4)}`;
+}
+
 function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>): DealerApplication {
   const legacyAcnOrAbn = typeof data.acnOrAbn === "string" ? data.acnOrAbn.replace(/\D/g, "") : "";
   const serializedAbn = typeof data.abn === "string" ? data.abn.replace(/\D/g, "") : "";
@@ -552,15 +578,27 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
           }]
         : [];
   const normalizedProofFiles = proofFiles.length ? proofFiles : singleProofFile;
+  const additionalUploads = Array.isArray(data.additionalUploads)
+    ? data.additionalUploads
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+        .map((entry) => ({
+          url: typeof entry.url === "string" ? entry.url : "",
+          name: typeof entry.name === "string" ? entry.name : undefined,
+          contentType: typeof entry.contentType === "string" ? entry.contentType : undefined
+        }))
+        .filter((entry) => Boolean(entry.url))
+    : [];
 
   return {
     id,
     userId: typeof data.userId === "string" ? data.userId : "",
+    referenceId: typeof data.referenceId === "string" ? data.referenceId : generateDealerReferenceId(data.requestedAt ?? data.createdAt),
     dealerStatus:
       data.dealerStatus === "approved"
       || data.dealerStatus === "rejected"
       || data.dealerStatus === "info_requested"
       || data.dealerStatus === "pending"
+      || data.dealerStatus === "pending_review"
       || data.dealerStatus === "submitted_unverified"
         ? data.dealerStatus
         : "pending",
@@ -658,7 +696,7 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
     },
     rejectionHistoryCount: Number(data.rejectionHistoryCount ?? 0),
     status:
-      data.status === "approved" || data.status === "rejected" || data.status === "info_requested"
+      data.status === "approved" || data.status === "rejected" || data.status === "info_requested" || data.status === "pending_review"
         ? data.status
         : "pending",
     requestedAt: serializeDate(data.requestedAt ?? data.createdAt),
@@ -667,6 +705,19 @@ function serializeDealerApplicationDoc(id: string, data: Record<string, unknown>
     reviewedAt: serializeDate(data.reviewedAt),
     reviewedByUid: typeof data.reviewedByUid === "string" ? data.reviewedByUid : undefined,
     reviewedBy: typeof data.reviewedBy === "string" ? data.reviewedBy : undefined,
+    agreedToTerms: typeof data.agreedToTerms === "boolean" ? data.agreedToTerms : undefined,
+    agreedAt: serializeDate(data.agreedAt),
+    planType:
+      data.planType === "tier1" || data.planType === "tier2" || data.planType === "tier3"
+        ? data.planType
+        : "free",
+    maxListings: typeof data.maxListings === "number" ? data.maxListings : 3,
+    shopVisible: typeof data.shopVisible === "boolean" ? data.shopVisible : false,
+    adminNote: typeof data.adminNote === "string" ? data.adminNote : undefined,
+    infoRequested: typeof data.infoRequested === "boolean" ? data.infoRequested : undefined,
+    infoRequestedAt: serializeDate(data.infoRequestedAt),
+    dealerResponseNote: typeof data.dealerResponseNote === "string" ? data.dealerResponseNote : undefined,
+    additionalUploads,
     rejectReason: typeof data.rejectReason === "string" ? data.rejectReason : undefined,
     infoRequestNote: typeof data.infoRequestNote === "string" ? data.infoRequestNote : undefined
   };
@@ -871,7 +922,7 @@ function computeDealerApplicationRiskLevel(input: {
 }
 
 function isDealerApplicationActive(status?: DealerApplication["status"]) {
-  return status === "pending" || status === "info_requested";
+  return status === "pending" || status === "pending_review" || status === "info_requested";
 }
 
 function getDealerApplicationCooldownRemaining(lastSubmittedAt?: string) {
@@ -2518,6 +2569,65 @@ export async function getUserSupportActionTarget(userId: string, actor: VehicleA
   return targetUser;
 }
 
+async function queueDealerApplicationEmail(
+  application: DealerApplication,
+  status: "info_requested" | "approved" | "rejected",
+  note: string
+) {
+  if (!isFirebaseConfigured) return;
+
+  const recipientEmail = application.contactEmail.trim().toLowerCase();
+  if (!recipientEmail || !isValidEmailAddress(recipientEmail)) {
+    console.warn("[dealer-email] No valid recipient email resolved for dealer info request.", {
+      applicationId: application.id,
+      recipientEmail: application.contactEmail
+    });
+    return;
+  }
+
+  const endpoint =
+    typeof window !== "undefined"
+      ? "/api/dealer-notifications"
+      : buildAbsoluteUrl("/api/dealer-notifications");
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        to: recipientEmail,
+        applicationId: application.id,
+        businessName: application.legalBusinessName || application.tradingName,
+        adminNote: note,
+        note,
+        status
+      }),
+      keepalive: true,
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error("[dealer-email] Failed to trigger dealer info request email", {
+        applicationId: application.id,
+        event: `dealer_${status}`,
+        recipientEmail,
+        status: response.status,
+        body
+      });
+    }
+  } catch (error) {
+    console.error("[dealer-email] Failed to reach dealer notification endpoint", {
+      applicationId: application.id,
+      event: `dealer_${status}`,
+      recipientEmail,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 export async function submitDealerApplication(input: DealerApplicationWriteInput, actor: VehicleActor) {
   if (!actor.id) {
     throw new Error("Sign in to apply for a dealer account.");
@@ -2564,9 +2674,11 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     trustIndicators
   });
   const lastSubmittedAt = new Date().toISOString();
+  const referenceId = existingApplication?.referenceId ?? generateDealerReferenceId(lastSubmittedAt);
   const application = {
     id: actor.id,
     userId: actor.id,
+    referenceId,
     dealerStatus: "pending" as const,
     ...normalized,
     licenceVerificationNote: normalized.licenceVerificationNote || undefined,
@@ -2588,6 +2700,13 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     trustIndicators,
     rejectionHistoryCount,
     status: "pending" as const,
+    infoRequested: false,
+    additionalUploads: [],
+    planType: existingApplication?.planType ?? "free",
+    maxListings: existingApplication?.maxListings ?? 3,
+    shopVisible: existingApplication?.shopVisible ?? false,
+    agreedToTerms: existingApplication?.agreedToTerms ?? false,
+    agreedAt: existingApplication?.agreedAt,
     requestedAt: existingApplication?.requestedAt ?? lastSubmittedAt,
     lastSubmittedAt,
     updatedAt: lastSubmittedAt
@@ -2605,6 +2724,7 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     doc(db, "dealerApplications", actor.id),
     {
       userId: actor.id,
+      referenceId,
       dealerStatus: "pending",
       ...normalized,
       ...(normalized.licenceVerificationNote ? { licenceVerificationNote: normalized.licenceVerificationNote } : {}),
@@ -2619,6 +2739,11 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
       trustIndicators,
       rejectionHistoryCount,
       status: "pending",
+      infoRequested: false,
+      additionalUploads: existingApplication?.additionalUploads ?? [],
+      planType: existingApplication?.planType ?? "free",
+      maxListings: existingApplication?.maxListings ?? 3,
+      shopVisible: existingApplication?.shopVisible ?? false,
       ...(existingApplication?.requestedAt ? { requestedAt: Timestamp.fromDate(new Date(existingApplication.requestedAt)) } : { requestedAt: serverTimestamp() }),
       lastSubmittedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -2637,6 +2762,9 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
       dealerStatus: "pending",
       dealerVerified: false,
       dealerApplicationId: actor.id,
+      planType: existingApplication?.planType ?? "free",
+      maxListings: existingApplication?.maxListings ?? 3,
+      shopVisible: existingApplication?.shopVisible ?? false,
       updatedAt: serverTimestamp()
     },
     { merge: true }
@@ -2647,6 +2775,141 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
     source: "firestore" as const,
     writeSucceeded: true
   } satisfies DealerApplicationWriteResult;
+}
+
+export async function submitDealerAdditionalInformation(
+  applicationId: string,
+  input: DealerAdditionalInformationInput,
+  actor: VehicleActor
+) {
+  if (!actor.id) {
+    throw new Error("Sign in to update your dealer application.");
+  }
+
+  if (actor.id !== applicationId && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only update your own dealer application.");
+  }
+
+  const application = await getDealerApplicationByUserId(applicationId);
+  if (!application) {
+    throw new Error("Dealer application not found.");
+  }
+
+  if (application.userId !== actor.id && !isAdminLikeRole(actor.role)) {
+    throw new Error("You can only update your own dealer application.");
+  }
+
+  if (application.status !== "info_requested") {
+    throw new Error("Additional information is only available when CarNest has requested more details.");
+  }
+
+  const dealerResponseNote = sanitizeMultilineText(input.dealerResponseNote ?? "");
+  const additionalUploads = input.additionalUploads
+    .filter((file) => file.url)
+    .map((file) => ({
+      url: sanitizeSingleLineText(file.url),
+      name: file.name ? sanitizeSingleLineText(file.name) : undefined,
+      contentType: file.contentType ? sanitizeSingleLineText(file.contentType).toLowerCase() : undefined
+    }));
+
+  if (!dealerResponseNote && !additionalUploads.length) {
+    throw new Error("Add a response note or upload at least one additional document.");
+  }
+
+  const nextAdditionalUploads = [...application.additionalUploads, ...additionalUploads];
+  const now = new Date().toISOString();
+  const nextApplication = {
+    ...application,
+    status: "pending_review" as const,
+    dealerStatus: "pending" as const,
+    infoRequested: false,
+    dealerResponseNote: dealerResponseNote || application.dealerResponseNote,
+    additionalUploads: nextAdditionalUploads,
+    updatedAt: now
+  } satisfies DealerApplication;
+
+  if (!isFirebaseConfigured) {
+    return {
+      application: nextApplication,
+      source: "mock" as const,
+      writeSucceeded: false
+    } satisfies DealerApplicationWriteResult;
+  }
+
+  await setDoc(
+    doc(db, "dealerApplications", applicationId),
+    {
+      status: "pending_review",
+      dealerStatus: "pending",
+      infoRequested: false,
+      dealerResponseNote: dealerResponseNote || deleteField(),
+      additionalUploads: nextAdditionalUploads,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "users", application.userId),
+    {
+      dealerStatus: "pending",
+      dealerVerified: false,
+      dealerApplicationId: applicationId,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    application: nextApplication,
+    source: "firestore" as const,
+    writeSucceeded: true
+  } satisfies DealerApplicationWriteResult;
+}
+
+export async function acceptDealerTerms(actor: VehicleActor): Promise<DealerTermsAcceptanceResult> {
+  if (!actor.id) {
+    throw new Error("Sign in to accept dealer terms.");
+  }
+
+  if (actor.role !== "dealer" || actor.dealerStatus !== "approved") {
+    throw new Error("Dealer terms can only be accepted by approved dealer accounts.");
+  }
+
+  const agreedAt = new Date().toISOString();
+
+  if (!isFirebaseConfigured) {
+    return {
+      agreedToTerms: true,
+      agreedAt
+    };
+  }
+
+  await Promise.all([
+    setDoc(
+      doc(db, "users", actor.id),
+      {
+        agreedToTerms: true,
+        agreedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    ),
+    setDoc(
+      doc(db, "dealerApplications", actor.id),
+      {
+        agreedToTerms: true,
+        agreedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    ).catch(() => undefined)
+  ]);
+
+  return {
+    agreedToTerms: true,
+    agreedAt
+  };
 }
 
 export async function reviewFlaggedUser(
@@ -2768,6 +3031,10 @@ export async function reviewDealerApplication(
         status,
         reviewedBy,
         reviewedByUid: actor.id,
+        adminNote: action === "request_info" ? infoRequestNote : application.adminNote,
+        infoRequested: action === "request_info" ? true : action === "approve" || action === "reject" ? false : application.infoRequested,
+        infoRequestedAt: action === "request_info" ? new Date().toISOString() : application.infoRequestedAt,
+        dealerResponseNote: action === "request_info" ? undefined : application.dealerResponseNote,
         rejectReason: action === "reject" ? rejectReason : undefined,
         infoRequestNote: action === "request_info" ? infoRequestNote : undefined,
         reviewedAt: new Date().toISOString(),
@@ -2786,9 +3053,20 @@ export async function reviewDealerApplication(
       ...(action === "reject" ? { rejectionHistoryCount: (application.rejectionHistoryCount ?? 0) + 1 } : {}),
       reviewedBy,
       reviewedByUid: actor.id,
-      ...(action === "reject" ? { rejectReason, infoRequestNote: deleteField() } : {}),
-      ...(action === "request_info" ? { infoRequestNote, rejectReason: deleteField() } : {}),
-      ...(action === "approve" ? { rejectReason: deleteField(), infoRequestNote: deleteField() } : {}),
+      ...(action === "reject" ? { rejectReason, infoRequested: false, infoRequestNote: deleteField() } : {}),
+      ...(action === "request_info" ? {
+        adminNote: infoRequestNote,
+        infoRequestNote,
+        infoRequested: true,
+        infoRequestedAt: serverTimestamp(),
+        dealerResponseNote: deleteField(),
+        rejectReason: deleteField()
+      } : {}),
+      ...(action === "approve" ? {
+        infoRequested: false,
+        rejectReason: deleteField(),
+        infoRequestNote: deleteField()
+      } : {}),
       reviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     },
@@ -2803,6 +3081,9 @@ export async function reviewDealerApplication(
             role: "dealer",
             dealerStatus: "approved",
             dealerVerified: true,
+            planType: application.planType ?? "free",
+            maxListings: application.maxListings ?? 3,
+            shopVisible: application.shopVisible ?? false,
             listingRestricted: false,
             complianceStatus: "verified_dealer",
             complianceFlaggedAt: deleteField()
@@ -2834,6 +3115,18 @@ export async function reviewDealerApplication(
     ).catch(() => undefined);
   }
 
+  if (action === "request_info") {
+    await queueDealerApplicationEmail(application, "info_requested", infoRequestNote);
+  }
+
+  if (action === "approve") {
+    await queueDealerApplicationEmail(application, "approved", "Your application has been approved. Please log in to continue.");
+  }
+
+  if (action === "reject") {
+    await queueDealerApplicationEmail(application, "rejected", rejectReason);
+  }
+
   return {
       application: {
         ...application,
@@ -2842,6 +3135,9 @@ export async function reviewDealerApplication(
         rejectionHistoryCount: action === "reject" ? (application.rejectionHistoryCount ?? 0) + 1 : application.rejectionHistoryCount,
         reviewedBy,
         reviewedByUid: actor.id,
+        adminNote: action === "request_info" ? infoRequestNote : application.adminNote,
+        infoRequested: action === "request_info" ? true : action === "approve" ? false : application.infoRequested,
+        infoRequestedAt: action === "request_info" ? new Date().toISOString() : application.infoRequestedAt,
         rejectReason: action === "reject" ? rejectReason : undefined,
         infoRequestNote: action === "request_info" ? infoRequestNote : undefined,
         reviewedAt: new Date().toISOString(),

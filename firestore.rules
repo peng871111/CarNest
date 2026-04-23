@@ -269,6 +269,11 @@ service cloud.firestore {
           "dealerStatus",
           "dealerVerified",
           "dealerApplicationId",
+          "agreedToTerms",
+          "agreedAt",
+          "planType",
+          "maxListings",
+          "shopVisible",
           "listingRestricted",
           "failedLoginAttempts",
           "mustResetPassword"
@@ -290,6 +295,7 @@ service cloud.firestore {
           || request.resource.data.dealerStatus == "none"
           || request.resource.data.dealerStatus == "submitted_unverified"
           || request.resource.data.dealerStatus == "pending"
+          || request.resource.data.dealerStatus == "pending_review"
           || request.resource.data.dealerStatus == "info_requested"
           || request.resource.data.dealerStatus == "approved"
           || request.resource.data.dealerStatus == "rejected"
@@ -301,6 +307,29 @@ service cloud.firestore {
         && (
           !("dealerApplicationId" in request.resource.data)
           || request.resource.data.dealerApplicationId is string
+        )
+        && (
+          !("agreedToTerms" in request.resource.data)
+          || request.resource.data.agreedToTerms is bool
+        )
+        && (
+          !("agreedAt" in request.resource.data)
+          || request.resource.data.agreedAt is timestamp
+        )
+        && (
+          !("planType" in request.resource.data)
+          || request.resource.data.planType == "free"
+          || request.resource.data.planType == "tier1"
+          || request.resource.data.planType == "tier2"
+          || request.resource.data.planType == "tier3"
+        )
+        && (
+          !("maxListings" in request.resource.data)
+          || request.resource.data.maxListings is int
+        )
+        && (
+          !("shopVisible" in request.resource.data)
+          || request.resource.data.shopVisible is bool
         )
         && (
           !("listingRestricted" in request.resource.data)
@@ -331,6 +360,7 @@ service cloud.firestore {
             || request.resource.data.dealerStatus == "none"
             || request.resource.data.dealerStatus == "submitted_unverified"
             || request.resource.data.dealerStatus == "pending"
+            || request.resource.data.dealerStatus == "pending_review"
             || request.resource.data.dealerStatus == "info_requested"
             || request.resource.data.dealerStatus == "approved"
             || request.resource.data.dealerStatus == "rejected"
@@ -342,6 +372,29 @@ service cloud.firestore {
           && (
             !("dealerApplicationId" in request.resource.data)
             || request.resource.data.dealerApplicationId is string
+          )
+          && (
+            !("agreedToTerms" in request.resource.data)
+            || request.resource.data.agreedToTerms is bool
+          )
+          && (
+            !("agreedAt" in request.resource.data)
+            || request.resource.data.agreedAt is timestamp
+          )
+          && (
+            !("planType" in request.resource.data)
+            || request.resource.data.planType == "free"
+            || request.resource.data.planType == "tier1"
+            || request.resource.data.planType == "tier2"
+            || request.resource.data.planType == "tier3"
+          )
+          && (
+            !("maxListings" in request.resource.data)
+            || request.resource.data.maxListings is int
+          )
+          && (
+            !("shopVisible" in request.resource.data)
+            || request.resource.data.shopVisible is bool
           )
           && (
             !("listingRestricted" in request.resource.data)
@@ -363,6 +416,7 @@ service cloud.firestore {
           && request.auth.uid == applicationId
           && request.resource.data.keys().hasOnly([
             "userId",
+            "referenceId",
             "dealerStatus",
             "legalBusinessName",
             "tradingName",
@@ -396,11 +450,28 @@ service cloud.firestore {
             "lastSubmittedAt",
             "updatedAt",
             "reviewedAt",
-            "reviewedByUid"
+            "reviewedByUid",
+            "reviewedBy",
+            "agreedToTerms",
+            "agreedAt",
+            "planType",
+            "maxListings",
+            "shopVisible",
+            "adminNote",
+            "infoRequested",
+            "infoRequestedAt",
+            "dealerResponseNote",
+            "additionalUploads",
+            "infoRequestNote",
+            "rejectReason"
           ])
           && request.resource.data.userId == request.auth.uid
+          && request.resource.data.referenceId is string
           && request.resource.data.dealerStatus == "pending"
-          && request.resource.data.status == "pending"
+          && (
+            request.resource.data.status == "pending"
+            || request.resource.data.status == "pending_review"
+          )
           && request.resource.data.legalBusinessName is string
           && request.resource.data.tradingName is string
           && request.resource.data.abn is string
@@ -444,6 +515,42 @@ service cloud.firestore {
           && request.resource.data.duplicateMatchedApplicationIds is list
           && request.resource.data.trustIndicators is map
           && request.resource.data.rejectionHistoryCount is int
+          && (
+            !("agreedToTerms" in request.resource.data)
+            || request.resource.data.agreedToTerms is bool
+          )
+          && (
+            !("agreedAt" in request.resource.data)
+            || request.resource.data.agreedAt is timestamp
+          )
+          && (
+            request.resource.data.planType == "free"
+            || request.resource.data.planType == "tier1"
+            || request.resource.data.planType == "tier2"
+            || request.resource.data.planType == "tier3"
+          )
+          && request.resource.data.maxListings is int
+          && request.resource.data.shopVisible is bool
+          && (
+            !("infoRequested" in request.resource.data)
+            || request.resource.data.infoRequested is bool
+          )
+          && (
+            !("infoRequestedAt" in request.resource.data)
+            || request.resource.data.infoRequestedAt is timestamp
+          )
+          && (
+            !("adminNote" in request.resource.data)
+            || request.resource.data.adminNote is string
+          )
+          && (
+            !("dealerResponseNote" in request.resource.data)
+            || request.resource.data.dealerResponseNote is string
+          )
+          && (
+            !("additionalUploads" in request.resource.data)
+            || request.resource.data.additionalUploads is list
+          )
           && request.resource.data.lastSubmittedAt is timestamp
           && (
             !("lmctProofUploadName" in request.resource.data)
@@ -456,10 +563,24 @@ service cloud.firestore {
           && (
             !("reviewedAt" in request.resource.data)
             || request.resource.data.reviewedAt == null
+            || request.resource.data.reviewedAt is timestamp
+          )
+          && (
+            !("infoRequestNote" in request.resource.data)
+            || request.resource.data.infoRequestNote is string
+          )
+          && (
+            !("rejectReason" in request.resource.data)
+            || request.resource.data.rejectReason is string
           )
           && (
             !("reviewedByUid" in request.resource.data)
             || request.resource.data.reviewedByUid == null
+            || request.resource.data.reviewedByUid is string
+          )
+          && (
+            !("reviewedBy" in request.resource.data)
+            || request.resource.data.reviewedBy is string
           )
         );
       allow delete: if isAdmin();

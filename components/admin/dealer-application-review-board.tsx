@@ -60,12 +60,26 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [pendingAction, setPendingAction] = useState<PendingReviewAction>(null);
+  const [searchText, setSearchText] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
 
   const summary = useMemo(() => ({
-    pending: applications.filter((item) => item.status === "pending").length,
+    pending: applications.filter((item) => item.status === "pending" || item.status === "pending_review").length,
     infoRequested: applications.filter((item) => item.status === "info_requested").length,
     approved: applications.filter((item) => item.status === "approved").length
   }), [applications]);
+
+  const filteredApplications = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return applications;
+
+    return applications.filter((application) => [
+      application.contactEmail,
+      application.contactPhone,
+      application.abn,
+      application.lmctNumber
+    ].some((value) => value.toLowerCase().includes(query)));
+  }, [applications, searchText]);
 
   function getActionLabel(action: ReviewAction) {
     if (action === "request_info") return "Request more info";
@@ -136,6 +150,13 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
     setPendingAction(null);
   }
 
+  function toggleExpanded(applicationId: string) {
+    setExpandedIds((current) => ({
+      ...current,
+      [applicationId]: !current[applicationId]
+    }));
+  }
+
   if (!applications.length) {
     return (
       <section className="rounded-[32px] border border-black/5 bg-white p-10 shadow-panel">
@@ -159,16 +180,45 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
       {notice ? <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</div> : null}
       {error ? <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div> : null}
 
+      <label className="block rounded-[28px] border border-black/5 bg-white p-4 shadow-panel">
+        <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Search applications</span>
+        <input
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          placeholder="Search by email, phone, ABN, or LMCT"
+          className="mt-3 w-full rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+        />
+      </label>
+
       <section className="space-y-4">
-        {applications.map((application) => (
+        {filteredApplications.length ? filteredApplications.map((application) => {
+          const expanded = Boolean(expandedIds[application.id]);
+
+          return (
           <article key={application.id} className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
-            <div className="flex flex-wrap items-start justify-between gap-4">
+            <button
+              type="button"
+              onClick={() => toggleExpanded(application.id)}
+              className="flex w-full flex-wrap items-start justify-between gap-4 text-left"
+            >
               <div>
                 <p className="font-semibold text-ink">{application.contactPersonName || "Unnamed applicant"}</p>
-                <p className="mt-1 text-sm text-ink/60">{application.contactEmail || "No email"} · {application.contactPhone || "No phone"}</p>
+                <p className="mt-1 text-sm text-ink/60">{application.contactEmail || "No email"}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/40">
+                  Ref {application.referenceId} · Submitted {formatDateTime(application.requestedAt)}
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <DealerApplicationStatusBadge status={application.status} />
+                <span className="rounded-full border border-black/10 px-3 py-1 text-xs font-semibold text-ink/60">
+                  {expanded ? "Collapse" : "Expand"}
+                </span>
+              </div>
+            </button>
+
+            {expanded ? (
+              <>
+            <div className="mt-6 flex flex-wrap gap-2">
                 <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getVerificationTone(application.licenceVerificationStatus)}`}>
                   {application.licenceVerificationStatus.replaceAll("_", " ")}
                 </span>
@@ -176,7 +226,6 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
                   {application.riskLevel} risk
                 </span>
               </div>
-            </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-1 text-sm text-ink/70">
@@ -198,6 +247,7 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
               </div>
               <div className="space-y-1 text-sm text-ink/70">
                 <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Submitted</p>
+                <p>Reference: {application.referenceId}</p>
                 <p>{formatDateTime(application.requestedAt)}</p>
                 <p>Reviewed {formatDateTime(application.reviewedAt)}</p>
                 <p>{application.reviewedBy ? `By ${application.reviewedBy}` : "Not reviewed yet"}</p>
@@ -233,7 +283,7 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
                 <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Duplicate flags</p>
                 <p>{application.duplicateMatchFlags.hasAny ? "Potential duplicate matches found" : "No duplicate matches detected"}</p>
                 {application.duplicateMatchedApplicationIds.length ? (
-                  <p className="text-xs text-ink/50">Related ids: {application.duplicateMatchedApplicationIds.join(", ")}</p>
+                  <p className="text-xs text-ink/50">Related application matches: {application.duplicateMatchedApplicationIds.length}</p>
                 ) : null}
               </div>
             </div>
@@ -253,8 +303,21 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
             {application.rejectReason ? (
               <p className="mt-4 text-sm text-red-700">Reject reason: {application.rejectReason}</p>
             ) : null}
-            {application.infoRequestNote ? (
-              <p className="mt-2 text-sm text-amber-700">Info requested: {application.infoRequestNote}</p>
+            {application.adminNote || application.infoRequestNote ? (
+              <p className="mt-2 text-sm text-amber-700">Info requested: {application.adminNote || application.infoRequestNote}</p>
+            ) : null}
+            {application.dealerResponseNote ? (
+              <p className="mt-2 text-sm text-ink/70">Dealer response: {application.dealerResponseNote}</p>
+            ) : null}
+            {application.additionalUploads.length ? (
+              <div className="mt-3 space-y-2 text-sm text-ink/70">
+                <p className="font-medium text-ink">Additional documents</p>
+                {application.additionalUploads.map((file, index) => (
+                  <Link key={`${application.id}-additional-${file.url}-${index}`} href={file.url} target="_blank" className="block font-medium text-ink underline">
+                    {file.name || `Open additional document ${index + 1}`}
+                  </Link>
+                ))}
+              </div>
             ) : null}
 
             <div className="mt-6 space-y-3">
@@ -316,8 +379,14 @@ export function DealerApplicationReviewBoard({ initialApplications }: { initialA
                 </div>
               ) : null}
             </div>
+            </>
+            ) : null}
           </article>
-        ))}
+        )}) : (
+          <div className="rounded-[32px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">
+            No dealer applications match that search.
+          </div>
+        )}
       </section>
     </div>
   );
