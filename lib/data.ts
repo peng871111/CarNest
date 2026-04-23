@@ -3506,6 +3506,54 @@ export async function softDeleteVehicle(
   };
 }
 
+export async function restoreSoftDeletedVehicle(
+  id: string,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle
+) {
+  assertAdminPermissionForActor(actor, "deleteListings", "You do not have access to restore listings.");
+
+  const targetVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!targetVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  const restoredVehicle = {
+    ...targetVehicle,
+    deleted: false,
+    deletedAt: "",
+    deletedBy: "",
+    deleteReason: "",
+    updatedAt: new Date().toISOString()
+  } satisfies Vehicle;
+
+  if (!isFirebaseConfigured) {
+    return {
+      vehicle: restoredVehicle,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "vehicles", id),
+    {
+      deleted: false,
+      deletedAt: deleteField(),
+      deletedBy: deleteField(),
+      deleteReason: deleteField(),
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    vehicle: restoredVehicle,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 function assertVehicleOwnership(actor: VehicleActor, vehicle: Vehicle) {
   if (isAdminLikeRole(actor.role)) return;
   if (vehicle.ownerUid !== actor.id) {
