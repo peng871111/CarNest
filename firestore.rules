@@ -5,10 +5,6 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function emailVerified() {
-      return signedIn() && request.auth.token.email_verified == true;
-    }
-
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
@@ -364,7 +360,6 @@ service cloud.firestore {
       allow create, update: if isAdmin()
         || (
           signedIn()
-          && emailVerified()
           && request.auth.uid == applicationId
           && request.resource.data.keys().hasOnly([
             "userId",

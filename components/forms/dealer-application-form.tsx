@@ -258,11 +258,6 @@ export function DealerApplicationForm() {
     setSubmitting(true);
 
     try {
-      await firebaseUser.reload();
-      if (!firebaseUser.emailVerified) {
-        throw new Error("Please verify your email address before submitting a dealer application.");
-      }
-
       const verificationResult = await runLicenceVerification(normalized, { force: true });
       if (!verificationResult) {
         setErrors((current) => ({ ...current, lmctNumber: "Enter the LMCT number." }));
@@ -310,7 +305,6 @@ export function DealerApplicationForm() {
       <div className="rounded-[24px] border border-black/5 bg-shell px-5 py-4 text-sm leading-6 text-ink/65">
         <p>{DEALER_ACCOUNT_NOTE}</p>
         <p className="mt-1">{DEALER_ACCOUNT_TIMELINE_NOTE}</p>
-        {!firebaseUser?.emailVerified ? <p className="mt-2 text-red-600">Please verify your email address before submitting a dealer application.</p> : null}
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">

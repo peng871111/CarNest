@@ -2525,9 +2525,6 @@ export async function submitDealerApplication(input: DealerApplicationWriteInput
   if (isAdminLikeRole(actor.role)) {
     throw new Error("Admin accounts do not need a dealer application.");
   }
-  if (!actor.emailVerified) {
-    throw new Error("Please verify your email address before submitting a dealer application.");
-  }
   if (actor.dealerStatus === "approved" || actor.dealerVerified) {
     throw new Error("This account is already approved as a dealer.");
   }
