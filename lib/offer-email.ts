@@ -18,7 +18,7 @@ export interface OfferEmailPayload {
 }
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "";
+const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-AU", {
