@@ -25,6 +25,12 @@ interface ImagePreviewItem {
   fullUrl?: string;
 }
 
+interface VehicleFormDraft {
+  formValues: VehicleFormFieldsValue;
+  listingType: Vehicle["listingType"];
+  imageMode: "append" | "replace";
+}
+
 function getListingModeLabel(listingType: Vehicle["listingType"]) {
   return listingType === "warehouse" ? "WAREHOUSE MANAGED" : "ONLINE LISTING ONLY";
 }
@@ -65,7 +71,12 @@ export function VehicleForm({
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const currentVehicle = activeVehicle ?? vehicle;
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
   const isSellerManagedUser = appUser?.role === "seller" || appUser?.role === "dealer";
+  const draftStorageKey = useMemo(
+    () => `draft:vehicle-form:${vehicle?.id ?? "new"}:${appUser?.id ?? "anonymous"}`,
+    [appUser?.id, vehicle?.id]
+  );
 
   useEffect(() => {
     setActiveVehicle(vehicle);
@@ -77,7 +88,51 @@ export function VehicleForm({
         appUser?.role === "seller" && vehicle?.pendingDescription ? vehicle.pendingDescription : undefined
       )
     );
+    setImageMode("append");
+    setDraftReady(false);
   }, [appUser?.role, vehicle]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const savedDraft = window.localStorage.getItem(draftStorageKey);
+    if (!savedDraft) {
+      setDraftReady(true);
+      return;
+    }
+
+    try {
+      const parsedDraft = JSON.parse(savedDraft) as Partial<VehicleFormDraft>;
+
+      if (parsedDraft.formValues) {
+        setFormValues((current) => ({ ...current, ...parsedDraft.formValues }));
+      }
+
+      if (!listingTypeReadOnly && (parsedDraft.listingType === "warehouse" || parsedDraft.listingType === "private")) {
+        setListingType(parsedDraft.listingType);
+      }
+
+      if (parsedDraft.imageMode === "append" || parsedDraft.imageMode === "replace") {
+        setImageMode(parsedDraft.imageMode);
+      }
+    } catch {
+      window.localStorage.removeItem(draftStorageKey);
+    } finally {
+      setDraftReady(true);
+    }
+  }, [draftStorageKey, listingTypeReadOnly]);
+
+  useEffect(() => {
+    if (!draftReady || typeof window === "undefined") return;
+
+    const draftPayload: VehicleFormDraft = {
+      formValues,
+      listingType,
+      imageMode
+    };
+
+    window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+  }, [draftReady, draftStorageKey, formValues, imageMode, listingType]);
 
   useEffect(() => {
     return () => {
@@ -333,6 +388,10 @@ export function VehicleForm({
         setMessage(result.writeSucceeded ? "Vehicle created successfully." : "Vehicle created successfully.");
       }
 
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+
       const basePath =
         isSellerManagedUser && currentVehicle
           ? `/seller/vehicles/${result.vehicle.id}/edit`
@@ -351,7 +410,13 @@ export function VehicleForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 rounded-[32px] border border-black/5 bg-white p-8 shadow-panel">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        void handleSubmit(event);
+      }}
+      className="space-y-6 rounded-[32px] border border-black/5 bg-white p-8 shadow-panel"
+    >
       {currentVehicle && isSellerManagedUser && currentVehicle.ownerUid !== appUser.id ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-900">
           You cannot edit a vehicle you do not own.
@@ -435,6 +500,7 @@ export function VehicleForm({
             name="images"
             accept="image/*"
             multiple
+            disabled={processingImages}
             onChange={(event) => void handleImageSelection(event.target.files)}
             className="block w-full rounded-2xl border border-dashed border-black/15 bg-shell px-4 py-4 text-sm text-ink/65"
           />
@@ -445,7 +511,7 @@ export function VehicleForm({
         <p className="text-xs uppercase tracking-[0.22em] text-ink/45">
           Images must not contain text, ads, or contact details.
         </p>
-        {processingImages ? <p className="text-sm text-ink/60">Preparing images...</p> : null}
+        {processingImages ? <p className="text-sm text-ink/60">Processing images...</p> : null}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {previewItems.map((image, index) => (
             <div key={image.key} className="relative h-44 overflow-hidden rounded-[24px] border border-black/5 bg-shell">
@@ -506,7 +572,7 @@ export function VehicleForm({
       {message ? <p className="rounded-[24px] bg-shell px-4 py-3 text-sm leading-6 text-ink/70">{message}</p> : null}
 
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" disabled={saving || deletingImageUrl !== "" || loading || !appUser || (currentVehicle ? isSellerManagedUser && currentVehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
+        <Button type="submit" disabled={saving || processingImages || deletingImageUrl !== "" || loading || !appUser || (currentVehicle ? isSellerManagedUser && currentVehicle.ownerUid !== appUser.id : appUser.role === "buyer")}>
           {saving && selectedImages.length && isFirebaseStorageConfigured
             ? "Uploading images..."
             : saving

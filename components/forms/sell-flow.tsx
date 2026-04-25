@@ -35,6 +35,11 @@ interface SellFlowState extends VehicleFormFieldsValue {
   serviceQuoteNotes: string;
 }
 
+interface SellFlowDraft {
+  form: SellFlowState;
+  currentStep: number;
+}
+
 const initialState: SellFlowState = {
   ...buildVehicleFormFieldsValue(),
   listingChoice: "basic",
@@ -56,6 +61,8 @@ export function SellFlow() {
   const [error, setError] = useState("");
   const [form, setForm] = useState<SellFlowState>(initialState);
   const [selectedImages, setSelectedImages] = useState<PreparedVehicleImageUpload[]>([]);
+  const [draftReady, setDraftReady] = useState(false);
+  const draftStorageKey = useMemo(() => `draft:sell-flow:${appUser?.id ?? "anonymous"}`, [appUser?.id]);
 
   const previewImages = useMemo(
     () => (selectedImages.length ? selectedImages.map((image) => image.previewUrl) : [VEHICLE_PLACEHOLDER_IMAGE]),
@@ -67,6 +74,42 @@ export function SellFlow() {
       selectedImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
     };
   }, [selectedImages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const savedDraft = window.localStorage.getItem(draftStorageKey);
+    if (!savedDraft) {
+      setDraftReady(true);
+      return;
+    }
+
+    try {
+      const parsedDraft = JSON.parse(savedDraft) as Partial<SellFlowDraft>;
+      if (parsedDraft.form) {
+        setForm((current) => ({ ...current, ...parsedDraft.form }));
+      }
+
+      if (typeof parsedDraft.currentStep === "number") {
+        setCurrentStep(Math.min(Math.max(parsedDraft.currentStep, 1), 4));
+      }
+    } catch {
+      window.localStorage.removeItem(draftStorageKey);
+    } finally {
+      setDraftReady(true);
+    }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftReady || typeof window === "undefined") return;
+
+    const draftPayload: SellFlowDraft = {
+      form,
+      currentStep
+    };
+
+    window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
+  }, [currentStep, draftReady, draftStorageKey, form]);
 
   const isApprovedDealer = appUser?.role === "dealer" && appUser.dealerStatus === "approved";
   const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
@@ -228,6 +271,10 @@ export function SellFlow() {
           : "Vehicle captured in mock mode only. Configure Firebase to persist live submissions."
       );
 
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(draftStorageKey);
+      }
+
       router.replace(`/seller/vehicles?write=${result.writeSucceeded ? "success" : "mock"}&action=create&vehicleId=${result.vehicle.id}`);
       router.refresh();
     } catch (submitError) {
@@ -354,7 +401,7 @@ export function SellFlow() {
               <p className="mt-2 text-xs uppercase tracking-[0.22em] text-[#F5F5F5]/45">
                 Images must not contain text, ads, or contact details.
               </p>
-              {processingImages ? <p className="mt-3 text-sm text-[#F5F5F5]/72">Preparing images...</p> : null}
+              {processingImages ? <p className="mt-3 text-sm text-[#F5F5F5]/72">Processing images...</p> : null}
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -537,11 +584,11 @@ export function SellFlow() {
             </Button>
           ) : null}
           {currentStep < 4 ? (
-            <Button type="button" className="bg-[#C6A87D] text-[#111111] hover:opacity-90" onClick={handleNext}>
+            <Button type="button" className="bg-[#C6A87D] text-[#111111] hover:opacity-90" onClick={handleNext} disabled={processingImages}>
               Continue
             </Button>
           ) : (
-            <Button type="button" className="bg-[#C6A87D] text-[#111111] hover:opacity-90" disabled={saving || !canSubmit} onClick={() => void handleSubmit()}>
+            <Button type="button" className="bg-[#C6A87D] text-[#111111] hover:opacity-90" disabled={saving || processingImages || !canSubmit} onClick={() => void handleSubmit()}>
               {saving ? "Submitting..." : "Submit vehicle"}
             </Button>
           )}
