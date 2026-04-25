@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { createVehicle, deleteVehicleImage, updateVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
-import { prepareVehicleImageUploads, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
+import { prepareVehicleImageUpload, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
 import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { PreparedVehicleImageUpload, Vehicle, VehicleFormFieldsValue, VehicleFormInput, VehicleImageAsset } from "@/types";
@@ -24,6 +24,10 @@ interface ImagePreviewItem {
   selectedImageId?: string;
   fullUrl?: string;
 }
+
+const MAX_FILES = 21;
+const BATCH_SIZE = 5;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 interface VehicleFormDraft {
   formValues: VehicleFormFieldsValue;
@@ -48,6 +52,16 @@ function buildVehicleImageAssets(vehicle?: Vehicle) {
     thumbnailUrl: url,
     fullUrl: url
   })) satisfies VehicleImageAsset[];
+}
+
+function buildFallbackPreparedImage(file: File): PreparedVehicleImageUpload {
+  return {
+    id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    sourceName: file.name,
+    thumbnailFile: file,
+    fullFile: file,
+    previewUrl: URL.createObjectURL(file)
+  };
 }
 
 export function VehicleForm({
@@ -170,14 +184,41 @@ export function VehicleForm({
     try {
       const existingImageUrls = existingImageAssets.map((imageAsset) => imageAsset.fullUrl);
       const existingImageCount = currentVehicle && imageMode === "append" ? existingImageUrls.length : 0;
-      const remainingSlots = Math.max(0, VEHICLE_IMAGE_UPLOAD_LIMIT - existingImageCount);
+      const remainingSlots = Math.max(0, Math.min(VEHICLE_IMAGE_UPLOAD_LIMIT, MAX_FILES) - existingImageCount);
       const acceptedFiles = Array.from(files).slice(0, remainingSlots);
 
       if (files.length > remainingSlots) {
         setMessage("Maximum 21 images allowed");
       }
 
-      const nextImages = await prepareVehicleImageUploads(acceptedFiles);
+      const oversizedFile = acceptedFiles.find((file) => file.size > MAX_IMAGE_BYTES);
+      if (oversizedFile) {
+        window.alert("Each image must be under 5MB");
+        return;
+      }
+
+      const chunks: File[][] = [];
+      for (let index = 0; index < acceptedFiles.length; index += BATCH_SIZE) {
+        chunks.push(acceptedFiles.slice(index, index + BATCH_SIZE));
+      }
+
+      let nextImages: PreparedVehicleImageUpload[] = [];
+
+      for (const chunk of chunks) {
+        const processed = await Promise.all(
+          chunk.map(async (file) => {
+            try {
+              return await prepareVehicleImageUpload(file);
+            } catch (imageError) {
+              console.error("Image compression failed:", imageError);
+              return buildFallbackPreparedImage(file);
+            }
+          })
+        );
+
+        nextImages = [...nextImages, ...processed];
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      }
 
       setSelectedImages((current) => {
         current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
@@ -501,15 +542,17 @@ export function VehicleForm({
             accept="image/*"
             multiple
             disabled={processingImages}
-            onChange={(event) => void handleImageSelection(event.target.files)}
+            onChange={(event) => {
+              event.preventDefault();
+              if (event.target.files) {
+                void handleImageSelection(event.target.files);
+              }
+            }}
             className="block w-full rounded-2xl border border-dashed border-black/15 bg-shell px-4 py-4 text-sm text-ink/65"
           />
         </label>
         <p className="text-xs uppercase tracking-[0.22em] text-ink/45">
-          Maximum 21 images allowed. Images are automatically optimised for faster upload and local previews still work even when cloud upload is disabled.
-        </p>
-        <p className="text-xs uppercase tracking-[0.22em] text-ink/45">
-          Images must not contain text, ads, or contact details.
+          Maximum 21 images allowed.
         </p>
         {processingImages ? <p className="text-sm text-ink/60">Processing images...</p> : null}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
