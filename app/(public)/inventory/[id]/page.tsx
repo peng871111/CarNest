@@ -86,6 +86,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
   if (!vehicle || vehicle.deleted || vehicle.status !== "approved" || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")) notFound();
 
   const sellerTrust = await getSellerTrustInfo(vehicle.ownerUid);
+  const isCarnestManaged = Boolean(vehicle.isManagedByCarnest);
   const { vehicles: publishedVehicles } = await listPublishedVehicles();
   const moreVehicles = publishedVehicles
     .filter((candidate) => candidate.id !== vehicle.id)
@@ -208,27 +209,37 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             <h2 className="text-xl font-semibold text-ink">Description</h2>
             <p className="mt-4 text-ink/70">{vehicle.description}</p>
           </div>
-          <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-            <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller trust</p>
-            <h2 className="mt-2 text-2xl font-semibold text-ink">Seller information</h2>
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Seller type</p>
-                <p className="mt-2 text-base text-ink">{sellerTrust.sellerType}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Member since</p>
-                <p className="mt-2 text-base text-ink">{formatMonthYear(sellerTrust.memberSince)}</p>
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Vehicles sold through CarNest</p>
-                <p className="mt-2 text-base text-ink">{sellerTrust.vehiclesSoldCount}</p>
-              </div>
+          {isCarnestManaged ? (
+            <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Management Status</p>
+              <h2 className="mt-2 text-2xl font-semibold text-ink">CarNest Managed Vehicle</h2>
+              <p className="mt-5 text-sm leading-6 text-ink/65">
+                This vehicle is managed through CarNest&apos;s vehicle presentation and enquiry workflow.
+              </p>
             </div>
-            <p className="mt-5 text-sm leading-6 text-ink/65">
-              Seller contact details stay private. Communication and inspection coordination remain managed through the platform workflow in {locationSummary}.
-            </p>
-          </div>
+          ) : (
+            <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller trust</p>
+              <h2 className="mt-2 text-2xl font-semibold text-ink">Seller information</h2>
+              <div className="mt-5 grid gap-4 md:grid-cols-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Seller type</p>
+                  <p className="mt-2 text-base text-ink">{sellerTrust.sellerType}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Member since</p>
+                  <p className="mt-2 text-base text-ink">{formatMonthYear(sellerTrust.memberSince)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Vehicles sold through CarNest</p>
+                  <p className="mt-2 text-base text-ink">{sellerTrust.vehiclesSoldCount}</p>
+                </div>
+              </div>
+              <p className="mt-5 text-sm leading-6 text-ink/65">
+                Seller contact details stay private. Communication and inspection coordination remain managed through the platform workflow in {locationSummary}.
+              </p>
+            </div>
+          )}
         </section>
         <aside className="space-y-6">
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">

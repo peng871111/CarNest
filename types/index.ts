@@ -101,6 +101,7 @@ export interface Vehicle {
   sellerStatus: SellerVehicleStatus;
   ownershipVerified: boolean;
   publishAuthorized: boolean;
+  isManagedByCarnest?: boolean;
   approvedAt?: string;
   storedInWarehouse: boolean;
   warehouseAddress?: string;

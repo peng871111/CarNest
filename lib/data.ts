@@ -460,12 +460,20 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
       : imageAssets[0]?.fullUrl || coverImage;
   const normalizedVehicleStatus = normalizeVehicleStatus(data.status);
   const normalizedSellerStatus = normalizeSellerVehicleStatus(data.sellerStatus, data.status);
+  const isManagedByCarnest =
+    data.isManagedByCarnest === true
+    || data.managedBy === "carnest"
+    || data.sellerType === "warehouse"
+    || data.source === "admin"
+    || data.ownerRole === "admin"
+    || data.listingType === "warehouse";
 
   return {
     id,
     ...data,
     status: normalizedVehicleStatus,
     sellerStatus: normalizedSellerStatus,
+    isManagedByCarnest,
     approvedAt: serializeDate(data.approvedAt),
     deleted: Boolean(data.deleted),
     deletedAt: serializeDate(data.deletedAt),
