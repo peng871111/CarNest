@@ -195,24 +195,17 @@ export function VehicleForm({
       let failedImageCount = 0;
 
       for (const chunk of chunks) {
-        const processed = await Promise.all(
-          chunk.map(async (file) => {
-            try {
-              return await prepareVehicleImageUpload(file);
-            } catch (imageError) {
-              console.error("Image compression failed:", imageError);
-              failedImageCount += 1;
-              return null;
-            } finally {
-              setProcessingCount((current) => current + 1);
-            }
-          })
-        );
-
-        nextImages = [
-          ...nextImages,
-          ...processed.filter((image): image is PreparedVehicleImageUpload => Boolean(image))
-        ];
+        for (const file of chunk) {
+          try {
+            const processedImage = await prepareVehicleImageUpload(file);
+            nextImages = [...nextImages, processedImage];
+          } catch (imageError) {
+            console.error("Image compression failed:", imageError);
+            failedImageCount += 1;
+          } finally {
+            setProcessingCount((current) => current + 1);
+          }
+        }
         await new Promise((resolve) => window.setTimeout(resolve, 50));
       }
 

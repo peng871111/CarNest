@@ -45,6 +45,12 @@ function loadImage(file: File) {
   });
 }
 
+function releaseCanvas(canvas?: HTMLCanvasElement | null) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
 function getScaledDimensions(width: number, height: number, maxWidth: number) {
   const longestSide = Math.max(width, height);
   if (longestSide <= maxWidth) {
@@ -121,12 +127,19 @@ async function canvasToOptimizedFile(canvas: HTMLCanvasElement, fileName: string
     resizedContext.imageSmoothingQuality = "high";
     resizedContext.drawImage(workingCanvas, 0, 0, nextWidth, nextHeight);
 
+    if (workingCanvas !== canvas) {
+      releaseCanvas(workingCanvas);
+    }
     workingCanvas = resizedCanvas;
     quality = options.quality;
     blob = await canvasToBlob(workingCanvas, mimeType, quality);
   }
 
-  return blobToOutputFile(blob, fileName, mimeType);
+  const outputFile = blobToOutputFile(blob, fileName, mimeType);
+  if (workingCanvas !== canvas) {
+    releaseCanvas(workingCanvas);
+  }
+  return outputFile;
 }
 
 export async function compressVehicleImage(file: File, options: CompressVehicleImageOptions) {
@@ -137,36 +150,40 @@ export async function compressVehicleImage(file: File, options: CompressVehicleI
   const { width, height } = getScaledDimensions(image.naturalWidth, image.naturalHeight, options.maxWidth);
 
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
 
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error("Unable to prepare image processing context.");
+  try {
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Unable to prepare image processing context.");
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, width, height);
+
+    return await canvasToOptimizedFile(canvas, file.name, options);
+  } finally {
+    image.src = "";
+    releaseCanvas(canvas);
   }
-
-  context.imageSmoothingEnabled = true;
-  context.imageSmoothingQuality = "high";
-  context.drawImage(image, 0, 0, width, height);
-
-  return canvasToOptimizedFile(canvas, file.name, options);
 }
 
 export async function prepareVehicleImageUpload(file: File): Promise<PreparedVehicleImageUpload> {
-  const [thumbnailFile, fullFile] = await Promise.all([
-    compressVehicleImage(file, {
-      maxWidth: THUMBNAIL_MAX_WIDTH,
-      quality: THUMBNAIL_OUTPUT_QUALITY,
-      minQuality: THUMBNAIL_MIN_OUTPUT_QUALITY,
-      maxBytes: THUMBNAIL_MAX_OUTPUT_BYTES
-    }),
-    compressVehicleImage(file, {
-      maxWidth: FULL_MAX_WIDTH,
-      quality: FULL_OUTPUT_QUALITY,
-      minQuality: FULL_MIN_OUTPUT_QUALITY,
-      maxBytes: FULL_MAX_OUTPUT_BYTES
-    })
-  ]);
+  const thumbnailFile = await compressVehicleImage(file, {
+    maxWidth: THUMBNAIL_MAX_WIDTH,
+    quality: THUMBNAIL_OUTPUT_QUALITY,
+    minQuality: THUMBNAIL_MIN_OUTPUT_QUALITY,
+    maxBytes: THUMBNAIL_MAX_OUTPUT_BYTES
+  });
+  const fullFile = await compressVehicleImage(file, {
+    maxWidth: FULL_MAX_WIDTH,
+    quality: FULL_OUTPUT_QUALITY,
+    minQuality: FULL_MIN_OUTPUT_QUALITY,
+    maxBytes: FULL_MAX_OUTPUT_BYTES
+  });
 
   return {
     id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -178,7 +195,11 @@ export async function prepareVehicleImageUpload(file: File): Promise<PreparedVeh
 }
 
 export async function prepareVehicleImageUploads(files: File[]) {
-  return Promise.all(files.map((file) => prepareVehicleImageUpload(file)));
+  const preparedUploads = [] as PreparedVehicleImageUpload[];
+  for (const file of files) {
+    preparedUploads.push(await prepareVehicleImageUpload(file));
+  }
+  return preparedUploads;
 }
 
 export async function optimizeVehicleImage(file: File) {
@@ -186,7 +207,11 @@ export async function optimizeVehicleImage(file: File) {
 }
 
 export async function optimizeVehicleImages(files: File[]) {
-  return Promise.all(files.map((file) => optimizeVehicleImage(file)));
+  const optimizedImages = [] as File[];
+  for (const file of files) {
+    optimizedImages.push(await optimizeVehicleImage(file));
+  }
+  return optimizedImages;
 }
 
 export const VEHICLE_IMAGE_UPLOAD_LIMIT = 21;
