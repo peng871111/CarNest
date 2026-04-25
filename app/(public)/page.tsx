@@ -5,7 +5,6 @@ import { ImageWatermark } from "@/components/vehicles/image-watermark";
 import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
-import { formatCurrency } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -140,14 +139,11 @@ export default async function HomePage() {
                     <ImageWatermark />
                   </div>
                   <div className="space-y-2 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-bronze">Sold</p>
-                        <h2 className="mt-1 text-sm font-semibold text-ink">
-                          {vehicle.year} {vehicle.make} {vehicle.model}
-                        </h2>
-                      </div>
-                      <p className="text-sm font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-bronze">Sold</p>
+                      <h2 className="mt-1 text-sm font-semibold text-ink">
+                        {vehicle.year} {vehicle.make} {vehicle.model}
+                      </h2>
                     </div>
                   </div>
                 </article>

@@ -27,7 +27,6 @@ interface ImagePreviewItem {
 
 const MAX_FILES = 21;
 const BATCH_SIZE = 5;
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 interface VehicleFormDraft {
   formValues: VehicleFormFieldsValue;
@@ -54,16 +53,6 @@ function buildVehicleImageAssets(vehicle?: Vehicle) {
   })) satisfies VehicleImageAsset[];
 }
 
-function buildFallbackPreparedImage(file: File): PreparedVehicleImageUpload {
-  return {
-    id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    sourceName: file.name,
-    thumbnailFile: file,
-    fullFile: file,
-    previewUrl: URL.createObjectURL(file)
-  };
-}
-
 export function VehicleForm({
   vehicle,
   listingTypeReadOnly = false
@@ -75,6 +64,8 @@ export function VehicleForm({
   const { appUser, loading } = useAuth();
   const [saving, setSaving] = useState(false);
   const [processingImages, setProcessingImages] = useState(false);
+  const [processingCount, setProcessingCount] = useState(0);
+  const [totalProcessing, setTotalProcessing] = useState(0);
   const [deletingImageUrl, setDeletingImageUrl] = useState("");
   const [message, setMessage] = useState("");
   const [selectedImages, setSelectedImages] = useState<PreparedVehicleImageUpload[]>([]);
@@ -171,6 +162,8 @@ export function VehicleForm({
 
   async function handleImageSelection(files: FileList | null) {
     if (!files?.length) {
+      setProcessingCount(0);
+      setTotalProcessing(0);
       setSelectedImages((current) => {
         current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
         return [];
@@ -179,6 +172,7 @@ export function VehicleForm({
     }
 
     setProcessingImages(true);
+    setProcessingCount(0);
     setMessage("");
 
     try {
@@ -186,15 +180,10 @@ export function VehicleForm({
       const existingImageCount = currentVehicle && imageMode === "append" ? existingImageUrls.length : 0;
       const remainingSlots = Math.max(0, Math.min(VEHICLE_IMAGE_UPLOAD_LIMIT, MAX_FILES) - existingImageCount);
       const acceptedFiles = Array.from(files).slice(0, remainingSlots);
+      setTotalProcessing(acceptedFiles.length);
 
       if (files.length > remainingSlots) {
         setMessage("Maximum 21 images allowed");
-      }
-
-      const oversizedFile = acceptedFiles.find((file) => file.size > MAX_IMAGE_BYTES);
-      if (oversizedFile) {
-        window.alert("Each image must be under 5MB");
-        return;
       }
 
       const chunks: File[][] = [];
@@ -203,6 +192,7 @@ export function VehicleForm({
       }
 
       let nextImages: PreparedVehicleImageUpload[] = [];
+      let failedImageCount = 0;
 
       for (const chunk of chunks) {
         const processed = await Promise.all(
@@ -211,12 +201,18 @@ export function VehicleForm({
               return await prepareVehicleImageUpload(file);
             } catch (imageError) {
               console.error("Image compression failed:", imageError);
-              return buildFallbackPreparedImage(file);
+              failedImageCount += 1;
+              return null;
+            } finally {
+              setProcessingCount((current) => current + 1);
             }
           })
         );
 
-        nextImages = [...nextImages, ...processed];
+        nextImages = [
+          ...nextImages,
+          ...processed.filter((image): image is PreparedVehicleImageUpload => Boolean(image))
+        ];
         await new Promise((resolve) => window.setTimeout(resolve, 50));
       }
 
@@ -224,10 +220,16 @@ export function VehicleForm({
         current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
         return nextImages;
       });
+
+      if (failedImageCount > 0) {
+        setMessage("Some images could not be processed. Please try again with fewer photos.");
+      }
     } catch (imageError) {
       setMessage("Something went wrong. Please try again.");
     } finally {
       setProcessingImages(false);
+      setProcessingCount(0);
+      setTotalProcessing(0);
     }
   }
 
@@ -554,7 +556,11 @@ export function VehicleForm({
         <p className="text-xs uppercase tracking-[0.22em] text-ink/45">
           Maximum 21 images allowed.
         </p>
-        {processingImages ? <p className="text-sm text-ink/60">Processing images...</p> : null}
+        {processingImages ? (
+          <p className="text-sm text-ink/60">
+            Processing images {processingCount} / {totalProcessing || 0}
+          </p>
+        ) : null}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {previewItems.map((image, index) => (
             <div key={image.key} className="relative h-44 overflow-hidden rounded-[24px] border border-black/5 bg-shell">
