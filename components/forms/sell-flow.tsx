@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 import { createVehicle } from "@/lib/data";
 import { db, isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
-import { optimizeVehicleImages } from "@/lib/image-processing";
-import { uploadVehicleImages } from "@/lib/storage";
+import { prepareVehicleImageUploads } from "@/lib/image-processing";
+import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
-import { VehicleFormFieldsValue, VehicleFormInput } from "@/types";
+import { PreparedVehicleImageUpload, VehicleFormFieldsValue, VehicleFormInput } from "@/types";
 import {
   VehicleFormFields,
   buildVehicleFormFieldsValue,
@@ -55,12 +55,18 @@ export function SellFlow() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [form, setForm] = useState<SellFlowState>(initialState);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [selectedImages, setSelectedImages] = useState<PreparedVehicleImageUpload[]>([]);
 
   const previewImages = useMemo(
-    () => (selectedFiles.length ? selectedFiles.map((file) => URL.createObjectURL(file)) : [VEHICLE_PLACEHOLDER_IMAGE]),
-    [selectedFiles]
+    () => (selectedImages.length ? selectedImages.map((image) => image.previewUrl) : [VEHICLE_PLACEHOLDER_IMAGE]),
+    [selectedImages]
   );
+
+  useEffect(() => {
+    return () => {
+      selectedImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    };
+  }, [selectedImages]);
 
   const isApprovedDealer = appUser?.role === "dealer" && appUser.dealerStatus === "approved";
   const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
@@ -99,12 +105,15 @@ export function SellFlow() {
   }
 
   function setSelectedFileAsCover(index: number) {
-    setSelectedFiles((current) => moveItemToFront(current, index));
+    setSelectedImages((current) => moveItemToFront(current, index));
   }
 
   async function handleImageSelection(files: FileList | null) {
     if (!files?.length) {
-      setSelectedFiles([]);
+      setSelectedImages((current) => {
+        current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+        return [];
+      });
       return;
     }
 
@@ -112,8 +121,11 @@ export function SellFlow() {
     setError("");
 
     try {
-      const processedFiles = await optimizeVehicleImages(Array.from(files));
-      setSelectedFiles(processedFiles);
+      const processedFiles = await prepareVehicleImageUploads(Array.from(files));
+      setSelectedImages((current) => {
+        current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+        return processedFiles;
+      });
     } catch {
       setError("We couldn't prepare your photos right now. Please try again.");
     } finally {
@@ -136,8 +148,9 @@ export function SellFlow() {
     setMessage("");
 
     try {
-      const imageUrls =
-        selectedFiles.length && isFirebaseStorageConfigured ? await uploadVehicleImages(selectedFiles, appUser.id) : [];
+      const imageAssets =
+        selectedImages.length && isFirebaseStorageConfigured ? await uploadVehicleImageAssets(selectedImages, appUser.id) : [];
+      const imageUrls = imageAssets.map((item) => item.fullUrl);
 
       const payload: VehicleFormInput = {
         listingType: "private",
@@ -158,7 +171,9 @@ export function SellFlow() {
         sellerLocationPostcode: form.sellerLocationPostcode,
         sellerLocationState: form.sellerLocationState,
         description: form.description,
-        coverImageUrl: imageUrls[0] || "",
+        coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || "",
+        coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || "",
+        imageAssets,
         imageUrls,
         images: imageUrls,
         submissionPreference: form.listingChoice,
@@ -199,7 +214,7 @@ export function SellFlow() {
             postcode: form.sellerLocationPostcode,
             state: form.sellerLocationState,
             description: form.description,
-            imageCount: selectedFiles.length
+            imageCount: selectedImages.length
           },
 
           status: "NEW",
@@ -346,7 +361,7 @@ export function SellFlow() {
               {previewImages.map((image, index) => (
                 <div key={`${image}-${index}`} className="relative h-48 overflow-hidden rounded-[24px] border border-white/10 bg-[#181818]">
                   <Image src={image} alt={`Vehicle preview ${index + 1}`} fill className="object-cover" unoptimized={image.startsWith("blob:")} />
-                  {selectedFiles[index] ? (
+                  {selectedImages[index] ? (
                     <>
                       {index === 0 ? (
                         <span className="absolute left-3 top-3 rounded-full bg-[#C6A87D] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#111111]">
@@ -497,7 +512,7 @@ export function SellFlow() {
                 <div className="rounded-[28px] border border-white/10 bg-[#161616] p-6">
                   <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">Photos</p>
                   <p className="mt-3 text-sm leading-6 text-[#F5F5F5]/72">
-                    {selectedFiles.length ? `${selectedFiles.length} photo${selectedFiles.length === 1 ? "" : "s"} ready for upload` : "No photos selected. Placeholder imagery will be used until images are added later."}
+                    {selectedImages.length ? `${selectedImages.length} photo${selectedImages.length === 1 ? "" : "s"} ready for upload` : "No photos selected. Placeholder imagery will be used until images are added later."}
                   </p>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">

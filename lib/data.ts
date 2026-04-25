@@ -16,7 +16,7 @@ import {
   resolveManagedUserAccess
 } from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
-import { deleteVehicleImageFile } from "@/lib/storage";
+import { deleteVehicleImageFiles } from "@/lib/storage";
 import {
   AdminPermissions,
   AppUser,
@@ -59,6 +59,7 @@ import {
   VehicleAnalytics,
   VehicleAnalyticsBreakdown,
   VehicleFormInput,
+  VehicleImageAsset,
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
@@ -437,16 +438,26 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
 function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle {
   const legacyImages = Array.isArray(data.images) ? (data.images as string[]) : [];
   const imageUrls = Array.isArray(data.imageUrls) ? (data.imageUrls as string[]) : legacyImages;
+  const imageAssets = Array.isArray(data.imageAssets)
+    ? (data.imageAssets as Array<Record<string, unknown>>)
+        .map((item) => ({
+          thumbnailUrl: typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : "",
+          fullUrl: typeof item.fullUrl === "string" ? item.fullUrl : ""
+        }))
+        .filter((item): item is VehicleImageAsset => Boolean(item.thumbnailUrl) && Boolean(item.fullUrl))
+    : [];
   const coverImage =
     typeof data.coverImage === "string" && data.coverImage
       ? (data.coverImage as string)
+      : imageAssets[0]?.thumbnailUrl
+        ? imageAssets[0].thumbnailUrl
       : typeof data.coverImageUrl === "string" && data.coverImageUrl
         ? (data.coverImageUrl as string)
         : imageUrls[0];
   const coverImageUrl =
     typeof data.coverImageUrl === "string" && data.coverImageUrl
       ? (data.coverImageUrl as string)
-      : coverImage;
+      : imageAssets[0]?.fullUrl || coverImage;
   const normalizedVehicleStatus = normalizeVehicleStatus(data.status);
   const normalizedSellerStatus = normalizeSellerVehicleStatus(data.sellerStatus, data.status);
 
@@ -465,6 +476,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     coverImage,
     coverImageUrl,
+    imageAssets,
     imageUrls,
     images: imageUrls,
     soldAt: serializeDate(data.soldAt),
@@ -3825,6 +3837,9 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     sellerLocationPostcode: typeof input.sellerLocationPostcode === "string" ? input.sellerLocationPostcode.replace(/\D/g, "").slice(0, 4) : "",
     sellerLocationState: toUppercaseValue(input.sellerLocationState),
     description: sanitizeMultilineText(input.description),
+    imageAssets: Array.isArray(input.imageAssets)
+      ? input.imageAssets.filter((item) => Boolean(item?.thumbnailUrl) && Boolean(item?.fullUrl))
+      : [],
     serviceQuoteNotes: sanitizeMultilineText(input.serviceQuoteNotes ?? "")
   };
 }
@@ -3833,12 +3848,16 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
   const normalizedInput = normalizeVehicleInput(input);
   const ownerUid = existingVehicle?.ownerUid ?? actor.id;
   const ownerRole = existingVehicle?.ownerRole ?? (isAdminLikeRole(actor.role) ? "admin" : "seller");
-  const galleryImages = normalizedInput.imageUrls.length ? normalizedInput.imageUrls : normalizedInput.images;
+  const imageAssets = normalizedInput.imageAssets ?? [];
+  const galleryImages = imageAssets.length
+    ? imageAssets.map((item) => item.fullUrl)
+    : normalizedInput.imageUrls.length
+      ? normalizedInput.imageUrls
+      : normalizedInput.images;
+  const coverThumbnail = imageAssets[0]?.thumbnailUrl || normalizedInput.coverImage || normalizedInput.coverImageUrl || galleryImages[0] || "";
+  const coverFull = imageAssets[0]?.fullUrl || normalizedInput.coverImageUrl || normalizedInput.coverImage || galleryImages[0] || "";
   const coverImage =
-    normalizedInput.coverImage ||
-    normalizedInput.coverImageUrl ||
-    galleryImages[0] ||
-    "";
+    coverThumbnail;
 
   return {
     sellerId: ownerUid,
@@ -3874,7 +3893,8 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
     serviceHistory: normalizedInput.serviceHistory,
     keyCount: normalizedInput.keyCount,
     coverImage,
-    coverImageUrl: normalizedInput.coverImageUrl || coverImage,
+    coverImageUrl: coverFull,
+    imageAssets,
     imageUrls: galleryImages,
     images: galleryImages,
     submissionPreference: normalizedInput.submissionPreference ?? "basic",
@@ -3918,6 +3938,13 @@ function removeVehicleImageUrl(imageUrls: string[], imageUrl: string) {
   if (imageIndex < 0) return imageUrls;
 
   return [...imageUrls.slice(0, imageIndex), ...imageUrls.slice(imageIndex + 1)];
+}
+
+function removeVehicleImageAsset(imageAssets: VehicleImageAsset[], imageUrl: string) {
+  const imageIndex = imageAssets.findIndex((item) => item.fullUrl === imageUrl || item.thumbnailUrl === imageUrl);
+  if (imageIndex < 0) return imageAssets;
+
+  return [...imageAssets.slice(0, imageIndex), ...imageAssets.slice(imageIndex + 1)];
 }
 
 export async function createVehicle(input: VehicleFormInput, actor: VehicleActor) {
@@ -4295,6 +4322,7 @@ export async function deleteVehicleImage(
 
   assertVehicleOwnership(actor, baseVehicle);
 
+  const existingImageAssets = baseVehicle.imageAssets ?? [];
   const existingImageUrls = baseVehicle.imageUrls?.length ? baseVehicle.imageUrls : baseVehicle.images ?? [];
   if (!existingImageUrls.includes(imageUrl)) {
     throw new Error("Image not found on this vehicle.");
@@ -4305,13 +4333,17 @@ export async function deleteVehicleImage(
   }
 
   const nextImageUrls = removeVehicleImageUrl(existingImageUrls, imageUrl);
-  const nextCoverImage = nextImageUrls[0] ?? "";
+  const nextImageAssets = removeVehicleImageAsset(existingImageAssets, imageUrl);
+  const nextCoverImage = nextImageAssets[0]?.thumbnailUrl ?? nextImageUrls[0] ?? "";
+  const nextCoverImageUrl = nextImageAssets[0]?.fullUrl ?? nextImageUrls[0] ?? "";
+  const removedAsset = existingImageAssets.find((item) => item.fullUrl === imageUrl || item.thumbnailUrl === imageUrl);
 
   if (!isFirebaseConfigured) {
     const vehicle = {
       ...baseVehicle,
       coverImage: nextCoverImage,
-      coverImageUrl: nextCoverImage,
+      coverImageUrl: nextCoverImageUrl,
+      imageAssets: nextImageAssets,
       imageUrls: nextImageUrls,
       images: nextImageUrls,
       updatedAt: new Date().toISOString()
@@ -4327,18 +4359,22 @@ export async function deleteVehicleImage(
 
   await updateDoc(doc(db, "vehicles", id), {
     coverImage: nextCoverImage,
-    coverImageUrl: nextCoverImage,
+    coverImageUrl: nextCoverImageUrl,
+    imageAssets: nextImageAssets,
     imageUrls: nextImageUrls,
     images: nextImageUrls,
     updatedAt: serverTimestamp()
   });
 
-  const storageDeleteSucceeded = await deleteVehicleImageFile(imageUrl);
+  const storageDeleteSucceeded = await deleteVehicleImageFiles(
+    removedAsset ? [removedAsset.fullUrl, removedAsset.thumbnailUrl] : [imageUrl]
+  );
 
   const vehicle = {
     ...baseVehicle,
     coverImage: nextCoverImage,
-    coverImageUrl: nextCoverImage,
+    coverImageUrl: nextCoverImageUrl,
+    imageAssets: nextImageAssets,
     imageUrls: nextImageUrls,
     images: nextImageUrls,
     updatedAt: new Date().toISOString()

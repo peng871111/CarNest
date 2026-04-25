@@ -7,27 +7,22 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { createVehicle, deleteVehicleImage, updateVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
-import { optimizeVehicleImages, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
-import { uploadVehicleImages } from "@/lib/storage";
+import { prepareVehicleImageUploads, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
+import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
-import { Vehicle, VehicleFormFieldsValue, VehicleFormInput } from "@/types";
+import { PreparedVehicleImageUpload, Vehicle, VehicleFormFieldsValue, VehicleFormInput, VehicleImageAsset } from "@/types";
 import {
   VehicleFormFields,
   buildVehicleFormFieldsValue,
   validateVehicleFormFields
 } from "@/components/forms/vehicle-form-fields";
 
-interface SelectedImage {
-  id: string;
-  file: File;
-  previewUrl: string;
-}
-
 interface ImagePreviewItem {
   key: string;
   src: string;
   source: "existing" | "selected";
   selectedImageId?: string;
+  fullUrl?: string;
 }
 
 function getListingModeLabel(listingType: Vehicle["listingType"]) {
@@ -37,6 +32,16 @@ function getListingModeLabel(listingType: Vehicle["listingType"]) {
 function moveItemToFront<T>(items: T[], index: number) {
   if (index <= 0 || index >= items.length) return items;
   return [items[index], ...items.slice(0, index), ...items.slice(index + 1)];
+}
+
+function buildVehicleImageAssets(vehicle?: Vehicle) {
+  if (vehicle?.imageAssets?.length) return vehicle.imageAssets;
+
+  const fallbackUrls = vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? [];
+  return fallbackUrls.map((url) => ({
+    thumbnailUrl: url,
+    fullUrl: url
+  })) satisfies VehicleImageAsset[];
 }
 
 export function VehicleForm({
@@ -52,9 +57,9 @@ export function VehicleForm({
   const [processingImages, setProcessingImages] = useState(false);
   const [deletingImageUrl, setDeletingImageUrl] = useState("");
   const [message, setMessage] = useState("");
-  const [selectedImages, setSelectedImages] = useState<SelectedImage[]>([]);
+  const [selectedImages, setSelectedImages] = useState<PreparedVehicleImageUpload[]>([]);
   const [formValues, setFormValues] = useState<VehicleFormFieldsValue>(buildVehicleFormFieldsValue(vehicle));
-  const [existingImageUrls, setExistingImageUrls] = useState<string[]>(vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? []);
+  const [existingImageAssets, setExistingImageAssets] = useState<VehicleImageAsset[]>(buildVehicleImageAssets(vehicle));
   const [listingType, setListingType] = useState<Vehicle["listingType"]>(vehicle?.listingType ?? "warehouse");
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
@@ -64,7 +69,7 @@ export function VehicleForm({
 
   useEffect(() => {
     setActiveVehicle(vehicle);
-    setExistingImageUrls(vehicle?.imageUrls?.length ? vehicle.imageUrls : vehicle?.images ?? []);
+    setExistingImageAssets(buildVehicleImageAssets(vehicle));
     setCoverImageKey(null);
     setFormValues(
       buildVehicleFormFieldsValue(
@@ -84,7 +89,7 @@ export function VehicleForm({
     const visibleKeys = new Set(
       (imageMode === "append"
         ? [
-            ...existingImageUrls.map((imageUrl) => `existing:${imageUrl}`),
+            ...existingImageAssets.map((imageAsset) => `existing:${imageAsset.fullUrl}`),
             ...selectedImages.map((image) => `selected:${image.id}`)
           ]
         : selectedImages.map((image) => `selected:${image.id}`))
@@ -93,7 +98,7 @@ export function VehicleForm({
     if (coverImageKey && !visibleKeys.has(coverImageKey)) {
       setCoverImageKey(null);
     }
-  }, [coverImageKey, existingImageUrls, imageMode, selectedImages]);
+  }, [coverImageKey, existingImageAssets, imageMode, selectedImages]);
 
   async function handleImageSelection(files: FileList | null) {
     if (!files?.length) {
@@ -108,6 +113,7 @@ export function VehicleForm({
     setMessage("");
 
     try {
+      const existingImageUrls = existingImageAssets.map((imageAsset) => imageAsset.fullUrl);
       const existingImageCount = currentVehicle && imageMode === "append" ? existingImageUrls.length : 0;
       const remainingSlots = Math.max(0, VEHICLE_IMAGE_UPLOAD_LIMIT - existingImageCount);
       const acceptedFiles = Array.from(files).slice(0, remainingSlots);
@@ -116,12 +122,7 @@ export function VehicleForm({
         setMessage("Maximum 21 images allowed");
       }
 
-      const processedFiles = await optimizeVehicleImages(acceptedFiles);
-      const nextImages = processedFiles.map((file, index) => ({
-        id: `${file.name}-${index}-${Date.now()}`,
-        file,
-        previewUrl: URL.createObjectURL(file)
-      }));
+      const nextImages = await prepareVehicleImageUploads(acceptedFiles);
 
       setSelectedImages((current) => {
         current.forEach((image) => URL.revokeObjectURL(image.previewUrl));
@@ -145,6 +146,7 @@ export function VehicleForm({
   async function handleDeleteExistingImage(imageUrl: string) {
     if (loading || !appUser || !currentVehicle) return;
 
+    const existingImageUrls = existingImageAssets.map((imageAsset) => imageAsset.fullUrl);
     if (existingImageUrls.length <= 1) {
       setMessage("Upload a replacement before removing the final saved image.");
       return;
@@ -159,7 +161,7 @@ export function VehicleForm({
     try {
       const result = await deleteVehicleImage(currentVehicle.id, imageUrl, appUser, currentVehicle);
       setActiveVehicle(result.vehicle);
-      setExistingImageUrls(result.vehicle.imageUrls?.length ? result.vehicle.imageUrls : result.vehicle.images);
+      setExistingImageAssets(buildVehicleImageAssets(result.vehicle));
       setMessage(
         result.writeSucceeded && !result.storageDeleteSucceeded
           ? "Image removed from the listing. The storage file could not be deleted automatically."
@@ -185,11 +187,16 @@ export function VehicleForm({
   }
 
   const previewItems = useMemo<ImagePreviewItem[]>(() => {
-    const items =
+    const items: ImagePreviewItem[] =
       selectedImages.length
         ? currentVehicle && imageMode === "append"
           ? [
-              ...existingImageUrls.map((imageUrl) => ({ key: `existing:${imageUrl}`, src: imageUrl, source: "existing" as const })),
+              ...existingImageAssets.map((imageAsset) => ({
+                key: `existing:${imageAsset.fullUrl}`,
+                src: imageAsset.thumbnailUrl || imageAsset.fullUrl,
+                fullUrl: imageAsset.fullUrl,
+                source: "existing" as const
+              })),
               ...selectedImages.map((image) => ({
                 key: `selected:${image.id}`,
                 src: image.previewUrl,
@@ -203,15 +210,20 @@ export function VehicleForm({
               source: "selected" as const,
               selectedImageId: image.id
             }))
-        : existingImageUrls.length
-          ? existingImageUrls.map((imageUrl) => ({ key: `existing:${imageUrl}`, src: imageUrl, source: "existing" as const }))
-          : [{ key: "placeholder", src: VEHICLE_PLACEHOLDER_IMAGE, source: "existing" as const }];
+        : existingImageAssets.length
+          ? existingImageAssets.map((imageAsset) => ({
+              key: `existing:${imageAsset.fullUrl}`,
+              src: imageAsset.thumbnailUrl || imageAsset.fullUrl,
+              fullUrl: imageAsset.fullUrl,
+              source: "existing" as const
+            }))
+          : [{ key: "placeholder", src: VEHICLE_PLACEHOLDER_IMAGE, source: "existing" as const, fullUrl: undefined }];
 
     if (!coverImageKey) return items;
 
     const coverIndex = items.findIndex((item) => item.key === coverImageKey);
     return coverIndex > 0 ? moveItemToFront(items, coverIndex) : items;
-  }, [coverImageKey, currentVehicle, existingImageUrls, imageMode, selectedImages]);
+  }, [coverImageKey, currentVehicle, existingImageAssets, imageMode, selectedImages]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,37 +237,47 @@ export function VehicleForm({
     setMessage("");
 
     try {
-      const files = selectedImages.map((image) => image.file);
-      let imageUrls = [...existingImageUrls];
+      let imageAssets = [...existingImageAssets];
+      let imageUrls = imageAssets.map((imageAsset) => imageAsset.fullUrl);
 
-      if (files.length && isFirebaseStorageConfigured) {
-        const uploadedUrls = await uploadVehicleImages(files, currentVehicle?.ownerUid ?? appUser.id);
+      if (selectedImages.length && isFirebaseStorageConfigured) {
+        const uploadedAssets = await uploadVehicleImageAssets(selectedImages, currentVehicle?.ownerUid ?? appUser.id);
+        const uploadedUrls = uploadedAssets.map((imageAsset) => imageAsset.fullUrl);
         if (currentVehicle && imageMode === "append") {
           if (coverImageKey?.startsWith("selected:")) {
             const selectedId = coverImageKey.replace("selected:", "");
             const coverIndex = selectedImages.findIndex((image) => image.id === selectedId);
-            const coverUrl = coverIndex >= 0 ? uploadedUrls[coverIndex] : "";
-            imageUrls = coverUrl
-              ? [coverUrl, ...existingImageUrls, ...uploadedUrls.filter((_, index) => index !== coverIndex)]
-              : [...existingImageUrls, ...uploadedUrls];
+            const coverAsset = coverIndex >= 0 ? uploadedAssets[coverIndex] : undefined;
+            imageAssets = coverAsset
+              ? [coverAsset, ...existingImageAssets, ...uploadedAssets.filter((_, index) => index !== coverIndex)]
+              : [...existingImageAssets, ...uploadedAssets];
           } else if (coverImageKey?.startsWith("existing:")) {
             const coverUrl = coverImageKey.replace("existing:", "");
-            imageUrls = [coverUrl, ...existingImageUrls.filter((imageUrl) => imageUrl !== coverUrl), ...uploadedUrls];
+            imageAssets = [
+              ...existingImageAssets.filter((imageAsset) => imageAsset.fullUrl === coverUrl),
+              ...existingImageAssets.filter((imageAsset) => imageAsset.fullUrl !== coverUrl),
+              ...uploadedAssets
+            ];
           } else {
-            imageUrls = [...existingImageUrls, ...uploadedUrls];
+            imageAssets = [...existingImageAssets, ...uploadedAssets];
           }
         } else if (coverImageKey?.startsWith("selected:")) {
           const selectedId = coverImageKey.replace("selected:", "");
           const coverIndex = selectedImages.findIndex((image) => image.id === selectedId);
-          const coverUrl = coverIndex >= 0 ? uploadedUrls[coverIndex] : "";
-          imageUrls = coverUrl ? [coverUrl, ...uploadedUrls.filter((_, index) => index !== coverIndex)] : uploadedUrls;
+          const coverAsset = coverIndex >= 0 ? uploadedAssets[coverIndex] : undefined;
+          imageAssets = coverAsset ? [coverAsset, ...uploadedAssets.filter((_, index) => index !== coverIndex)] : uploadedAssets;
         } else {
-          imageUrls = uploadedUrls;
+          imageAssets = uploadedAssets;
         }
       } else if (coverImageKey?.startsWith("existing:")) {
         const coverUrl = coverImageKey.replace("existing:", "");
-        imageUrls = [coverUrl, ...existingImageUrls.filter((imageUrl) => imageUrl !== coverUrl)];
+        imageAssets = [
+          ...existingImageAssets.filter((imageAsset) => imageAsset.fullUrl === coverUrl),
+          ...existingImageAssets.filter((imageAsset) => imageAsset.fullUrl !== coverUrl)
+        ];
       }
+
+      imageUrls = imageAssets.length ? imageAssets.map((imageAsset) => imageAsset.fullUrl) : imageUrls;
 
       const payload: VehicleFormInput = {
         listingType,
@@ -276,8 +298,9 @@ export function VehicleForm({
         sellerLocationPostcode: formValues.sellerLocationPostcode,
         sellerLocationState: formValues.sellerLocationState,
         description: formValues.description,
-        coverImage: imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
-        coverImageUrl: imageUrls[0] || currentVehicle?.coverImageUrl || "",
+        coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
+        coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || currentVehicle?.coverImageUrl || "",
+        imageAssets,
         imageUrls,
         images: imageUrls
       };
@@ -290,7 +313,7 @@ export function VehicleForm({
 
       if (currentVehicle) {
         setActiveVehicle(result.vehicle);
-        setExistingImageUrls(result.vehicle.imageUrls?.length ? result.vehicle.imageUrls : result.vehicle.images);
+        setExistingImageAssets(buildVehicleImageAssets(result.vehicle));
         setCoverImageKey(null);
         setFormValues(
           buildVehicleFormFieldsValue(
@@ -444,7 +467,7 @@ export function VehicleForm({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setExistingImageAsCover(image.src)}
+                      onClick={() => setExistingImageAsCover(image.fullUrl || image.src)}
                       className="absolute left-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-semibold text-white transition hover:bg-black/80"
                     >
                       Set as cover
@@ -463,11 +486,11 @@ export function VehicleForm({
               ) : image.key !== "placeholder" ? (
                 <button
                   type="button"
-                  onClick={() => void handleDeleteExistingImage(image.src)}
-                  disabled={deletingImageUrl === image.src}
+                  onClick={() => void handleDeleteExistingImage(image.fullUrl || image.src)}
+                  disabled={deletingImageUrl === (image.fullUrl || image.src)}
                   className="absolute right-3 top-3 rounded-full bg-black/65 px-3 py-1 text-xs font-semibold text-white transition hover:bg-black/80 disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  {deletingImageUrl === image.src ? "..." : "×"}
+                  {deletingImageUrl === (image.fullUrl || image.src) ? "..." : "×"}
                 </button>
               ) : null}
               {image.key !== "placeholder" ? (

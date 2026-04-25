@@ -48,6 +48,19 @@ export type PricingNextAction = "Recommend warehouse" | "Follow up later" | "Not
 export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
 
+export interface VehicleImageAsset {
+  thumbnailUrl: string;
+  fullUrl: string;
+}
+
+export interface PreparedVehicleImageUpload {
+  id: string;
+  sourceName: string;
+  thumbnailFile: File;
+  fullFile: File;
+  previewUrl: string;
+}
+
 export interface AppUser {
   id: string;
   email: string;
@@ -118,6 +131,7 @@ export interface Vehicle {
   displayReference?: string;
   coverImage?: string;
   coverImageUrl?: string;
+  imageAssets?: VehicleImageAsset[];
   imageUrls: string[];
   images: string[];
   submissionPreference?: "basic" | "service_quote";
@@ -153,6 +167,7 @@ export interface VehicleFormInput {
   description: string;
   coverImage?: string;
   coverImageUrl?: string;
+  imageAssets?: VehicleImageAsset[];
   imageUrls: string[];
   images: string[];
   submissionPreference?: "basic" | "service_quote";

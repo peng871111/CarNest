@@ -232,16 +232,36 @@ export function getListingDescriptionLines(vehicle: Vehicle) {
 }
 
 export function getVehicleImage(vehicle: Vehicle) {
-  return vehicle.coverImage || vehicle.coverImageUrl || vehicle.imageUrls[0] || vehicle.images[0] || VEHICLE_PLACEHOLDER_IMAGE;
+  return (
+    vehicle.imageAssets?.[0]?.thumbnailUrl
+    || vehicle.coverImage
+    || vehicle.imageAssets?.[0]?.fullUrl
+    || vehicle.coverImageUrl
+    || vehicle.imageUrls[0]
+    || vehicle.images[0]
+    || VEHICLE_PLACEHOLDER_IMAGE
+  );
 }
 
 export function getVehicleImageCandidates(vehicle: Vehicle) {
-  return [vehicle.coverImage, vehicle.coverImageUrl, vehicle.imageUrls?.[0], vehicle.images?.[0], VEHICLE_PLACEHOLDER_IMAGE].filter(
-    (value): value is string => Boolean(value)
+  return Array.from(
+    new Set(
+      [
+        vehicle.imageAssets?.[0]?.thumbnailUrl,
+        vehicle.coverImage,
+        vehicle.imageAssets?.[0]?.fullUrl,
+        vehicle.coverImageUrl,
+        vehicle.imageUrls?.[0],
+        vehicle.images?.[0],
+        VEHICLE_PLACEHOLDER_IMAGE
+      ].filter((value): value is string => Boolean(value))
+    )
   );
 }
 
 export function getVehicleGallery(vehicle: Vehicle) {
+  const optimizedUrls = vehicle.imageAssets?.map((item) => item.fullUrl).filter(Boolean) ?? [];
+  if (optimizedUrls.length) return optimizedUrls;
   const urls = vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images;
   return urls.length ? urls : [getVehicleImage(vehicle)];
 }

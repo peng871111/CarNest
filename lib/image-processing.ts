@@ -1,12 +1,30 @@
 "use client";
 
-const MAX_IMAGE_DIMENSION = 1600;
-const OUTPUT_QUALITY = 0.72;
-const MIN_OUTPUT_QUALITY = 0.52;
-const MAX_OUTPUT_BYTES = 500 * 1024;
+import { PreparedVehicleImageUpload } from "@/types";
+
+const WEBP_MIME_TYPE = "image/webp";
+const JPEG_MIME_TYPE = "image/jpeg";
+
+const FULL_MAX_WIDTH = 1600;
+const FULL_OUTPUT_QUALITY = 0.75;
+const FULL_MIN_OUTPUT_QUALITY = 0.6;
+const FULL_MAX_OUTPUT_BYTES = 400 * 1024;
+
+const THUMBNAIL_MAX_WIDTH = 900;
+const THUMBNAIL_OUTPUT_QUALITY = 0.6;
+const THUMBNAIL_MIN_OUTPUT_QUALITY = 0.5;
+const THUMBNAIL_MAX_OUTPUT_BYTES = 150 * 1024;
+
 const QUALITY_STEP = 0.04;
 const SCALE_STEP = 0.9;
-const MIN_IMAGE_DIMENSION = 960;
+const MIN_IMAGE_DIMENSION = 720;
+
+export interface CompressVehicleImageOptions {
+  maxWidth: number;
+  quality: number;
+  maxBytes: number;
+  minQuality: number;
+}
 
 function loadImage(file: File) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -27,20 +45,20 @@ function loadImage(file: File) {
   });
 }
 
-function getScaledDimensions(width: number, height: number) {
+function getScaledDimensions(width: number, height: number, maxWidth: number) {
   const longestSide = Math.max(width, height);
-  if (longestSide <= MAX_IMAGE_DIMENSION) {
+  if (longestSide <= maxWidth) {
     return { width, height };
   }
 
-  const scale = MAX_IMAGE_DIMENSION / longestSide;
+  const scale = maxWidth / longestSide;
   return {
     width: Math.round(width * scale),
     height: Math.round(height * scale)
   };
 }
 
-function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number) {
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -51,28 +69,37 @@ function canvasToJpegBlob(canvas: HTMLCanvasElement, quality: number) {
 
         resolve(blob);
       },
-      "image/jpeg",
+      mimeType,
       quality
     );
   });
 }
 
-function jpegBlobToFile(blob: Blob, fileName: string) {
-  return new Promise<File>((resolve, reject) => {
-    const sanitizedName = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "-").toLowerCase();
-    resolve(new File([blob], `${sanitizedName}.jpg`, { type: "image/jpeg" }));
-  });
+function supportsWebPOutput() {
+  const canvas = document.createElement("canvas");
+  return canvas.toDataURL(WEBP_MIME_TYPE).startsWith(`data:${WEBP_MIME_TYPE}`);
 }
 
-async function canvasToOptimizedJpegFile(canvas: HTMLCanvasElement, fileName: string) {
-  let workingCanvas = canvas;
-  let quality = OUTPUT_QUALITY;
-  let blob = await canvasToJpegBlob(workingCanvas, quality);
+function getOutputMimeType() {
+  return supportsWebPOutput() ? WEBP_MIME_TYPE : JPEG_MIME_TYPE;
+}
 
-  while (blob.size > MAX_OUTPUT_BYTES) {
-    if (quality > MIN_OUTPUT_QUALITY) {
-      quality = Math.max(MIN_OUTPUT_QUALITY, Number((quality - QUALITY_STEP).toFixed(2)));
-      blob = await canvasToJpegBlob(workingCanvas, quality);
+function blobToOutputFile(blob: Blob, fileName: string, mimeType: string) {
+  const sanitizedName = fileName.replace(/\.[^.]+$/, "").replace(/\s+/g, "-").toLowerCase();
+  const extension = mimeType === WEBP_MIME_TYPE ? "webp" : "jpg";
+  return new File([blob], `${sanitizedName}.${extension}`, { type: mimeType });
+}
+
+async function canvasToOptimizedFile(canvas: HTMLCanvasElement, fileName: string, options: CompressVehicleImageOptions) {
+  const mimeType = getOutputMimeType();
+  let workingCanvas = canvas;
+  let quality = options.quality;
+  let blob = await canvasToBlob(workingCanvas, mimeType, quality);
+
+  while (blob.size > options.maxBytes) {
+    if (quality > options.minQuality) {
+      quality = Math.max(options.minQuality, Number((quality - QUALITY_STEP).toFixed(2)));
+      blob = await canvasToBlob(workingCanvas, mimeType, quality);
       continue;
     }
 
@@ -95,20 +122,19 @@ async function canvasToOptimizedJpegFile(canvas: HTMLCanvasElement, fileName: st
     resizedContext.drawImage(workingCanvas, 0, 0, nextWidth, nextHeight);
 
     workingCanvas = resizedCanvas;
-    quality = OUTPUT_QUALITY;
-    blob = await canvasToJpegBlob(workingCanvas, quality);
+    quality = options.quality;
+    blob = await canvasToBlob(workingCanvas, mimeType, quality);
   }
 
-  return jpegBlobToFile(blob, fileName);
+  return blobToOutputFile(blob, fileName, mimeType);
 }
 
-export async function optimizeVehicleImage(file: File) {
+export async function compressVehicleImage(file: File, options: CompressVehicleImageOptions) {
   // TODO: Public licence-plate blur is not implemented yet.
-  // The current client-side upload path only resizes/compresses images.
-  // Proper plate blur needs a server-side detection + blurred-derivative pipeline
-  // before public inventory/detail pages can safely serve blurred images.
+  // The current client-side upload path only creates resized optimized derivatives.
+  // Proper plate blur needs a server-side detection + blurred-derivative pipeline.
   const image = await loadImage(file);
-  const { width, height } = getScaledDimensions(image.naturalWidth, image.naturalHeight);
+  const { width, height } = getScaledDimensions(image.naturalWidth, image.naturalHeight, options.maxWidth);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -123,7 +149,40 @@ export async function optimizeVehicleImage(file: File) {
   context.imageSmoothingQuality = "high";
   context.drawImage(image, 0, 0, width, height);
 
-  return canvasToOptimizedJpegFile(canvas, file.name);
+  return canvasToOptimizedFile(canvas, file.name, options);
+}
+
+export async function prepareVehicleImageUpload(file: File): Promise<PreparedVehicleImageUpload> {
+  const [thumbnailFile, fullFile] = await Promise.all([
+    compressVehicleImage(file, {
+      maxWidth: THUMBNAIL_MAX_WIDTH,
+      quality: THUMBNAIL_OUTPUT_QUALITY,
+      minQuality: THUMBNAIL_MIN_OUTPUT_QUALITY,
+      maxBytes: THUMBNAIL_MAX_OUTPUT_BYTES
+    }),
+    compressVehicleImage(file, {
+      maxWidth: FULL_MAX_WIDTH,
+      quality: FULL_OUTPUT_QUALITY,
+      minQuality: FULL_MIN_OUTPUT_QUALITY,
+      maxBytes: FULL_MAX_OUTPUT_BYTES
+    })
+  ]);
+
+  return {
+    id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    sourceName: file.name,
+    thumbnailFile,
+    fullFile,
+    previewUrl: URL.createObjectURL(fullFile)
+  };
+}
+
+export async function prepareVehicleImageUploads(files: File[]) {
+  return Promise.all(files.map((file) => prepareVehicleImageUpload(file)));
+}
+
+export async function optimizeVehicleImage(file: File) {
+  return (await prepareVehicleImageUpload(file)).fullFile;
 }
 
 export async function optimizeVehicleImages(files: File[]) {
@@ -131,7 +190,9 @@ export async function optimizeVehicleImages(files: File[]) {
 }
 
 export const VEHICLE_IMAGE_UPLOAD_LIMIT = 21;
-export const VEHICLE_IMAGE_MAX_DIMENSION = MAX_IMAGE_DIMENSION;
-export const VEHICLE_IMAGE_OUTPUT_QUALITY = OUTPUT_QUALITY;
-export const VEHICLE_IMAGE_MIN_OUTPUT_QUALITY = MIN_OUTPUT_QUALITY;
-export const VEHICLE_IMAGE_MAX_OUTPUT_BYTES = MAX_OUTPUT_BYTES;
+export const VEHICLE_IMAGE_FULL_MAX_DIMENSION = FULL_MAX_WIDTH;
+export const VEHICLE_IMAGE_FULL_MAX_OUTPUT_BYTES = FULL_MAX_OUTPUT_BYTES;
+export const VEHICLE_IMAGE_FULL_OUTPUT_QUALITY = FULL_OUTPUT_QUALITY;
+export const VEHICLE_IMAGE_THUMBNAIL_MAX_DIMENSION = THUMBNAIL_MAX_WIDTH;
+export const VEHICLE_IMAGE_THUMBNAIL_MAX_OUTPUT_BYTES = THUMBNAIL_MAX_OUTPUT_BYTES;
+export const VEHICLE_IMAGE_THUMBNAIL_OUTPUT_QUALITY = THUMBNAIL_OUTPUT_QUALITY;

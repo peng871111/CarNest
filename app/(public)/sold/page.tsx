@@ -3,7 +3,6 @@ import Link from "next/link";
 import { Metadata } from "next";
 import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
-import { formatCurrency } from "@/lib/utils";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
 
 export const dynamic = "force-dynamic";
@@ -30,10 +29,10 @@ export default async function SoldVehiclesPage() {
 
       <section className="mt-12">
         {vehicles.length ? (
-          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {vehicles.map((vehicle) => (
               <article key={vehicle.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-white shadow-panel">
-                <div className="relative aspect-[4/3]">
+                <div className="relative h-48">
                   <Image
                     src={getVehicleImage(vehicle)}
                     alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} sold vehicle image`}
@@ -43,15 +42,12 @@ export default async function SoldVehiclesPage() {
                   <ImageWatermark />
                 </div>
                 <div className="space-y-3 p-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.24em] text-bronze">Sold</p>
-                      <h2 className="mt-2 text-xl font-semibold text-ink">
-                        {vehicle.year} {vehicle.make} {vehicle.model}
-                      </h2>
-                      <p className="mt-1 text-sm text-ink/55">{vehicle.variant}</p>
-                    </div>
-                    <p className="text-base font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-bronze">Sold</p>
+                    <h2 className="mt-2 text-xl font-semibold text-ink">
+                      {vehicle.year} {vehicle.make} {vehicle.model}
+                    </h2>
+                    <p className="mt-1 text-sm text-ink/55">{vehicle.variant}</p>
                   </div>
                   <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] uppercase tracking-[0.12em] text-ink/58">
                     <span>{vehicle.mileage.toLocaleString()} km</span>
