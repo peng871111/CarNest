@@ -482,6 +482,9 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
+    viewCount: Number(data.viewCount ?? 0),
+    uniqueViewCount: Number(data.uniqueViewCount ?? 0),
+    lastViewedAt: serializeDate(data.lastViewedAt),
     coverImage,
     coverImageUrl,
     imageAssets,
@@ -494,13 +497,35 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
 }
 
 function serializeVehicleActivityEventDoc(id: string, data: Record<string, unknown>): VehicleActivityEvent {
+  const type = typeof data.type === "string" ? data.type : "offer_created";
+
   return {
     id,
     vehicleId: typeof data.vehicleId === "string" ? data.vehicleId : "",
-    type: data.type === "offer_created" ? "offer_created" : "offer_created",
+    type:
+      type === "vehicle_submitted"
+      || type === "approved"
+      || type === "rejected"
+      || type === "edited"
+      || type === "marked_as_sold"
+      || type === "undo_sold"
+      || type === "deleted"
+      || type === "restored"
+      || type === "admin_note_added"
+      || type === "warehouse_activity_added"
+      ? type
+      : "offer_created",
     message: typeof data.message === "string" ? data.message : "",
+    createdBy:
+      typeof data.createdBy === "string"
+        ? data.createdBy
+        : typeof data.actorUid === "string"
+          ? data.actorUid
+          : "CarNest",
+    createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : undefined,
     actorUid: typeof data.actorUid === "string" ? data.actorUid : undefined,
-    createdAt: serializeDate(data.createdAt)
+    createdAt: serializeDate(data.createdAt),
+    visibility: data.visibility === "seller" ? "seller" : "admin"
   };
 }
 
@@ -1093,6 +1118,7 @@ function serializeVehicleViewEventDoc(id: string, data: Record<string, unknown>)
     viewedAt: serializeDate(data.viewedAt),
     sessionId: String(data.sessionId ?? ""),
     userId: typeof data.userId === "string" ? data.userId : undefined,
+    visitorKeyHash: typeof data.visitorKeyHash === "string" ? data.visitorKeyHash : undefined,
     role: (data.role as VehicleViewRole) ?? "guest",
     source: String(data.source ?? "direct"),
     referrer: String(data.referrer ?? ""),
@@ -2336,6 +2362,113 @@ async function getVehicleActivityEventsForVehicleIds(vehicleIds: string[]) {
     .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
 }
 
+function getVehicleActivityActorLabel(actor?: Pick<VehicleActor, "displayName" | "name" | "email" | "id">) {
+  if (!actor) return "CarNest";
+  return actor.displayName?.trim() || actor.name?.trim() || actor.email?.trim() || actor.id || "CarNest";
+}
+
+async function writeVehicleActivityEvent(
+  vehicleId: string,
+  type: VehicleActivityEvent["type"],
+  message: string,
+  actor?: Pick<VehicleActor, "id" | "displayName" | "name" | "email">,
+  visibility: VehicleActivityEvent["visibility"] = "admin"
+) {
+  const payloadBase = {
+    vehicleId,
+    type,
+    message: message.trim(),
+    createdBy: getVehicleActivityActorLabel(actor),
+    ...(actor?.id ? { createdByUid: actor.id, actorUid: actor.id } : {}),
+    visibility
+  };
+
+  if (!payloadBase.message) {
+    return null;
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      id: `mock-vehicle-activity-${Date.now()}`,
+      ...payloadBase,
+      createdAt: new Date().toISOString()
+    } satisfies VehicleActivityEvent;
+  }
+
+  const ref = await addDoc(collection(db, "vehicleActivityEvents"), {
+    ...payloadBase,
+    createdAt: serverTimestamp()
+  });
+
+  return {
+    id: ref.id,
+    ...payloadBase,
+    createdAt: new Date().toISOString()
+  } satisfies VehicleActivityEvent;
+}
+
+export async function getVehicleActivityLog(vehicleId: string) {
+  if (!vehicleId) {
+    return {
+      items: [] as VehicleActivityEvent[],
+      source: "mock" as const
+    };
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as VehicleActivityEvent[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(query(collection(db, "vehicleActivityEvents"), where("vehicleId", "==", vehicleId)));
+    const items = snapshot.docs
+      .map((item) => serializeVehicleActivityEventDoc(item.id, item.data()))
+      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as VehicleActivityEvent[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function addVehicleActivityNote(
+  vehicleId: string,
+  message: string,
+  actor: VehicleActor,
+  options?: { visibility?: VehicleActivityEvent["visibility"]; type?: Extract<VehicleActivityEvent["type"], "admin_note_added" | "warehouse_activity_added"> }
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can add manual vehicle activity notes.");
+
+  const note = sanitizeMultilineText(message);
+  if (!note) {
+    throw new Error("Enter a note before saving to the vehicle activity log.");
+  }
+
+  const event = await writeVehicleActivityEvent(
+    vehicleId,
+    options?.type ?? "admin_note_added",
+    note,
+    actor,
+    options?.visibility ?? "admin"
+  );
+
+  return {
+    event,
+    source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
+    writeSucceeded: isFirebaseConfigured
+  };
+}
+
 export async function markSavedVehicleActivityViewed(userId: string, vehicleId: string, activityCreatedAt: string) {
   if (!isFirebaseConfigured) return;
 
@@ -3519,6 +3652,14 @@ export async function softDeleteVehicle(
     { merge: true }
   );
 
+  await writeVehicleActivityEvent(
+    id,
+    "deleted",
+    deleteReason?.trim() ? `Listing deleted. Reason: ${deleteReason.trim()}` : "Listing deleted by admin.",
+    actor,
+    "admin"
+  ).catch(() => null);
+
   return {
     vehicle: nextVehicle,
     source: "firestore" as const,
@@ -3565,6 +3706,10 @@ export async function restoreSoftDeletedVehicle(
       updatedAt: serverTimestamp()
     },
     { merge: true }
+  );
+
+  await writeVehicleActivityEvent(id, "restored", "Listing restored and made available for moderation again.", actor, "admin").catch(
+    () => null
   );
 
   return {
@@ -4026,6 +4171,16 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
     updatedAt: createdAt
   };
 
+  await writeVehicleActivityEvent(
+    ref.id,
+    "vehicle_submitted",
+    isAdminLikeRole(actor.role)
+      ? "Vehicle listing created in the admin workspace."
+      : "Vehicle submitted for review.",
+    actor,
+    "admin"
+  ).catch(() => null);
+
   if (isSellerWorkspaceActor(actor)) {
     const assessment = await syncUserComplianceState(actor.id, [vehicle], vehicle.id);
     if (assessment?.status === "possible_unlicensed_trader") {
@@ -4189,6 +4344,16 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     updatedAt: serverTimestamp()
   });
   await syncVehiclePendingDescription(id, baseVehicle.ownerUid, adminDescriptionChanged ? "" : pendingDescription);
+
+  await writeVehicleActivityEvent(
+    id,
+    "edited",
+    isAdminLikeRole(actor.role)
+      ? "Vehicle details were updated in the admin workspace."
+      : "Vehicle details were updated by the seller.",
+    actor,
+    "admin"
+  ).catch(() => null);
 
   const vehicle = {
     id,
@@ -4427,6 +4592,13 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
   });
 
   await syncUserComplianceState(baseVehicle.ownerUid, [], baseVehicle.id);
+  await writeVehicleActivityEvent(
+    id,
+    status === "approved" ? "approved" : "rejected",
+    status === "approved" ? "Listing approved for public visibility." : "Listing rejected during moderation.",
+    actor,
+    "admin"
+  ).catch(() => null);
 
   const approvedAt = status === "approved" ? baseVehicle.approvedAt || new Date().toISOString() : "";
   const vehicle = {
@@ -4492,6 +4664,13 @@ export async function updateSellerVehicleStatus(
   });
 
   await syncUserComplianceState(baseVehicle.ownerUid, [], baseVehicle.id);
+  await writeVehicleActivityEvent(
+    id,
+    sellerStatus === "SOLD" ? "marked_as_sold" : "undo_sold",
+    sellerStatus === "SOLD" ? "Listing marked as sold." : "Sold status removed and listing returned to available.",
+    actor,
+    "admin"
+  ).catch(() => null);
 
   const vehicle = {
     ...baseVehicle,
@@ -4661,13 +4840,17 @@ export async function createOffer(input: OfferWriteInput) {
 
   const ref = await addDoc(collection(db, "offers"), payload);
   try {
-    await addDoc(collection(db, "vehicleActivityEvents"), {
-      vehicleId: input.vehicleId,
-      type: "offer_created",
-      message: "Activity update: a new offer has been made on a vehicle you saved.",
-      actorUid: input.userId,
-      createdAt: serverTimestamp()
-    });
+    await writeVehicleActivityEvent(
+      input.vehicleId,
+      "offer_created",
+      "Activity update: a new offer has been made on a vehicle you saved.",
+      {
+        id: input.userId,
+        email: buyerEmail,
+        name: buyerName
+      },
+      "seller"
+    );
   } catch {
     // Offer submission should still succeed even if the activity feed event cannot be written.
   }

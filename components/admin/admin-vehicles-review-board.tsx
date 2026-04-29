@@ -3,10 +3,17 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { restoreSoftDeletedVehicle, softDeleteVehicle, updateSellerVehicleStatus, updateVehicleStatus } from "@/lib/data";
+import {
+  addVehicleActivityNote,
+  getVehicleActivityLog,
+  restoreSoftDeletedVehicle,
+  softDeleteVehicle,
+  updateSellerVehicleStatus,
+  updateVehicleStatus
+} from "@/lib/data";
 import { hasAdminPermission, getListingLabel } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, formatLocation, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, SellerVehicleStatus, Vehicle } from "@/types";
+import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEvent } from "@/types";
 
 type ModerationFilter = "all" | "pending" | "active" | "rejected" | "sold" | "deleted";
 type ModerationGroup = Exclude<ModerationFilter, "all">;
@@ -174,6 +181,9 @@ export function AdminVehiclesReviewBoard({
   const [notice, setNotice] = useState(writeStatus ?? "");
   const [localError, setLocalError] = useState(error ?? "");
   const [pendingBulkAction, setPendingBulkAction] = useState<BulkAction | null>(null);
+  const [activityLogsByVehicleId, setActivityLogsByVehicleId] = useState<Record<string, VehicleActivityEvent[]>>({});
+  const [activityLoadingByVehicleId, setActivityLoadingByVehicleId] = useState<Record<string, boolean>>({});
+  const [manualActivityNotes, setManualActivityNotes] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -261,6 +271,7 @@ export function AdminVehiclesReviewBoard({
     try {
       const result = await updateSellerVehicleStatus(vehicle.id, sellerStatus, appUser, vehicle);
       setVehicles((current) => current.map((item) => (item.id === vehicle.id ? result.vehicle : item)));
+      await loadVehicleActivityLog(vehicle.id, true);
       setNotice(sellerStatus === "SOLD" ? "Vehicle marked as sold." : "Vehicle restored to available.");
     } catch (actionError) {
       setLocalError(actionError instanceof Error ? actionError.message : "Unable to update the vehicle sale status.");
@@ -279,6 +290,7 @@ export function AdminVehiclesReviewBoard({
     try {
       const nextVehicle = await runSingleAction(vehicle, action);
       setVehicles((current) => current.map((item) => (item.id === vehicle.id ? nextVehicle : item)));
+      await loadVehicleActivityLog(vehicle.id, true);
       setNotice(
         action === "approve"
           ? "Vehicle approved."
@@ -319,6 +331,7 @@ export function AdminVehiclesReviewBoard({
 
       const updates = new Map(updatedVehicles.map((entry) => [entry.id, entry.vehicle]));
       setVehicles((current) => current.map((vehicle) => updates.get(vehicle.id) ?? vehicle));
+      await Promise.all(updatedVehicles.map((entry) => loadVehicleActivityLog(entry.id, true)));
       setSelectedIds({});
       setPendingBulkAction(null);
       setNotice(
@@ -337,11 +350,70 @@ export function AdminVehiclesReviewBoard({
     }
   }
 
+  async function loadVehicleActivityLog(vehicleId: string, force = false) {
+    if (activityLoadingByVehicleId[vehicleId] || (!force && activityLogsByVehicleId[vehicleId])) {
+      return;
+    }
+
+    setActivityLoadingByVehicleId((current) => ({
+      ...current,
+      [vehicleId]: true
+    }));
+
+    try {
+      const result = await getVehicleActivityLog(vehicleId);
+      setActivityLogsByVehicleId((current) => ({
+        ...current,
+        [vehicleId]: result.items
+      }));
+    } catch (activityError) {
+      setLocalError(activityError instanceof Error ? activityError.message : "Unable to load the vehicle activity log.");
+    } finally {
+      setActivityLoadingByVehicleId((current) => ({
+        ...current,
+        [vehicleId]: false
+      }));
+    }
+  }
+
+  async function handleAddActivityNote(vehicleId: string) {
+    if (!appUser) return;
+
+    const message = manualActivityNotes[vehicleId] ?? "";
+    if (!message.trim()) {
+      setLocalError("Enter a note before saving it to the vehicle activity log.");
+      return;
+    }
+
+    setBusyAction(`note-${vehicleId}`);
+    setLocalError("");
+    setNotice("");
+
+    try {
+      await addVehicleActivityNote(vehicleId, message, appUser);
+      setManualActivityNotes((current) => ({
+        ...current,
+        [vehicleId]: ""
+      }));
+      await loadVehicleActivityLog(vehicleId, true);
+      setNotice("Vehicle activity note added.");
+    } catch (actionError) {
+      setLocalError(actionError instanceof Error ? actionError.message : "Unable to save the vehicle activity note.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function toggleExpanded(vehicleId: string) {
+    const shouldExpand = !expandedIds[vehicleId];
     setExpandedIds((current) => ({
       ...current,
-      [vehicleId]: !current[vehicleId]
+      [vehicleId]: shouldExpand
     }));
+
+    if (shouldExpand) {
+      void loadVehicleActivityLog(vehicleId);
+    }
   }
 
   function toggleGroup(group: ModerationGroup) {
@@ -466,6 +538,8 @@ export function AdminVehiclesReviewBoard({
                       const isDeleted = moderationStatus === "deleted";
                       const canMarkSold = canMarkVehicleAsSold(vehicle);
                       const canUndoSold = canUndoVehicleSold(vehicle);
+                      const activityEvents = activityLogsByVehicleId[vehicle.id] ?? [];
+                      const activityLoading = Boolean(activityLoadingByVehicleId[vehicle.id]);
 
                       return (
                         <article
@@ -552,20 +626,79 @@ export function AdminVehiclesReviewBoard({
                                   </div>
 
                                   <div className="rounded-[22px] bg-shell px-4 py-4">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-bronze">Moderation history</p>
+                                    <p className="text-xs uppercase tracking-[0.18em] text-bronze">Listing performance</p>
                                     <div className="mt-3 space-y-2 text-sm text-ink/70">
-                                      <p>Submitted: {formatAdminDateTime(vehicle.createdAt)}</p>
-                                      <p>Approved: {vehicle.approvedAt ? formatAdminDateTime(vehicle.approvedAt) : "—"}</p>
-                                      <p>Updated: {formatAdminDateTime(vehicle.updatedAt)}</p>
-                                      <p>Sold: {vehicle.soldAt ? formatAdminDateTime(vehicle.soldAt) : "—"}</p>
-                                      <p>Deleted: {vehicle.deletedAt ? formatAdminDateTime(vehicle.deletedAt) : "—"}</p>
+                                      <p>Total views: {(vehicle.viewCount ?? 0).toLocaleString()}</p>
+                                      <p>Unique visitors: {(vehicle.uniqueViewCount ?? 0).toLocaleString()}</p>
+                                      <p>Last viewed: {vehicle.lastViewedAt ? formatAdminDateTime(vehicle.lastViewedAt) : "—"}</p>
                                     </div>
                                   </div>
 
                                   <div className="rounded-[22px] bg-shell px-4 py-4">
-                                    <p className="text-xs uppercase tracking-[0.18em] text-bronze">Admin notes</p>
-                                    <div className="mt-3 space-y-2 text-sm text-ink/70">
-                                      <p>Delete reason: {vehicle.deleteReason || "No admin note recorded."}</p>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div>
+                                        <p className="text-xs uppercase tracking-[0.18em] text-bronze">Vehicle Activity Log</p>
+                                        <p className="mt-2 text-sm text-ink/60">
+                                          Submitted, moderation, edits, sold status, deletes, restores, and manual admin notes.
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => void loadVehicleActivityLog(vehicle.id, true)}
+                                        className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-ink"
+                                      >
+                                        Refresh
+                                      </button>
+                                    </div>
+
+                                    <div className="mt-4 space-y-3">
+                                      <textarea
+                                        value={manualActivityNotes[vehicle.id] ?? ""}
+                                        onChange={(event) =>
+                                          setManualActivityNotes((current) => ({
+                                            ...current,
+                                            [vehicle.id]: event.target.value
+                                          }))
+                                        }
+                                        placeholder="Add a manual admin activity note"
+                                        className="min-h-[96px] w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+                                      />
+                                      <div className="flex justify-end">
+                                        <button
+                                          type="button"
+                                          disabled={busyAction === `note-${vehicle.id}`}
+                                          onClick={() => void handleAddActivityNote(vehicle.id)}
+                                          className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                                        >
+                                          {busyAction === `note-${vehicle.id}` ? "Saving..." : "Add note"}
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-4 space-y-3">
+                                      {activityLoading ? (
+                                        <p className="text-sm text-ink/60">Loading activity log...</p>
+                                      ) : activityEvents.length ? (
+                                        activityEvents.map((event) => (
+                                          <div key={event.id} className="rounded-[18px] border border-black/5 bg-white px-4 py-3">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <p className="text-xs uppercase tracking-[0.16em] text-ink/45">
+                                                {event.type.replace(/_/g, " ")}
+                                              </p>
+                                              <span className="text-xs text-ink/45">{formatAdminDateTime(event.createdAt)}</span>
+                                            </div>
+                                            <p className="mt-2 text-sm leading-6 text-ink/72">{event.message}</p>
+                                            <p className="mt-2 text-xs text-ink/45">
+                                              {event.createdBy || event.actorUid || "CarNest"} · {event.visibility}
+                                            </p>
+                                          </div>
+                                        ))
+                                      ) : (
+                                        <p className="text-sm text-ink/60">No activity has been logged for this listing yet.</p>
+                                      )}
+                                      {vehicle.deleteReason ? (
+                                        <p className="text-xs text-ink/45">Delete reason recorded on listing: {vehicle.deleteReason}</p>
+                                      ) : null}
                                     </div>
                                   </div>
 

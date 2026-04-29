@@ -35,6 +35,7 @@ export const SELLER_LINKS = [
 ];
 
 export const VEHICLE_PLACEHOLDER_IMAGE = "/vehicle-placeholder.svg";
+export const DEFAULT_FINANCE_INTEREST_RATE = 8.99;
 
 export const sampleVehicles: Vehicle[] = [
   {

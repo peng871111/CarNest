@@ -9,6 +9,7 @@ import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "
 import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
 import { ListingSummary } from "@/components/vehicles/listing-summary";
+import { FinanceCalculator } from "@/components/vehicles/finance-calculator";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { SaveVehicleButton } from "@/components/vehicles/save-vehicle-button";
@@ -261,6 +262,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           </div>
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
+          <FinanceCalculator defaultVehiclePrice={vehicle.price} />
         </aside>
       </div>
 

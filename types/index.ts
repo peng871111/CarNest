@@ -47,6 +47,19 @@ export type PricingLeadRating = "HOT" | "WARM" | "COLD";
 export type PricingNextAction = "Recommend warehouse" | "Follow up later" | "Not suitable";
 export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
+export type VehicleActivityVisibility = "admin" | "seller";
+export type VehicleActivityType =
+  | "offer_created"
+  | "vehicle_submitted"
+  | "approved"
+  | "rejected"
+  | "edited"
+  | "marked_as_sold"
+  | "undo_sold"
+  | "deleted"
+  | "restored"
+  | "admin_note_added"
+  | "warehouse_activity_added";
 
 export interface VehicleImageAsset {
   thumbnailUrl: string;
@@ -142,6 +155,9 @@ export interface Vehicle {
   deletedAt?: string;
   deletedBy?: string;
   deleteReason?: string;
+  viewCount?: number;
+  uniqueViewCount?: number;
+  lastViewedAt?: string;
   soldAt?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -198,6 +214,8 @@ export interface VehicleFormFieldsValue {
 export interface VehicleActor {
   id: string;
   role: UserRole;
+  displayName?: string;
+  name?: string;
   email?: string;
   emailVerified?: boolean;
   accountBanned?: boolean;
@@ -292,10 +310,13 @@ export interface SavedVehicle {
 export interface VehicleActivityEvent {
   id: string;
   vehicleId: string;
-  type: "offer_created";
+  type: VehicleActivityType;
   message: string;
   createdAt?: string;
+  createdBy?: string;
+  createdByUid?: string;
   actorUid?: string;
+  visibility: VehicleActivityVisibility;
 }
 
 export interface ComplianceVehicleActivity {
@@ -417,6 +438,7 @@ export interface VehicleViewEvent {
   viewedAt?: string;
   sessionId: string;
   userId?: string;
+  visitorKeyHash?: string;
   role: VehicleViewRole;
   source: string;
   referrer: string;

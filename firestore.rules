@@ -1478,13 +1478,40 @@ service cloud.firestore {
           "vehicleId",
           "type",
           "message",
+          "createdBy",
+          "createdByUid",
           "actorUid",
-          "createdAt"
+          "createdAt",
+          "visibility"
         ])
         && request.resource.data.vehicleId is string
-        && request.resource.data.type == "offer_created"
+        && (
+          request.resource.data.type == "offer_created"
+          || request.resource.data.type == "vehicle_submitted"
+          || request.resource.data.type == "approved"
+          || request.resource.data.type == "rejected"
+          || request.resource.data.type == "edited"
+          || request.resource.data.type == "marked_as_sold"
+          || request.resource.data.type == "undo_sold"
+          || request.resource.data.type == "deleted"
+          || request.resource.data.type == "restored"
+          || request.resource.data.type == "admin_note_added"
+          || request.resource.data.type == "warehouse_activity_added"
+        )
         && request.resource.data.message is string
-        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.createdBy is string
+        && (
+          !("createdByUid" in request.resource.data)
+          || request.resource.data.createdByUid == request.auth.uid
+        )
+        && (
+          !("actorUid" in request.resource.data)
+          || request.resource.data.actorUid == request.auth.uid
+        )
+        && (
+          request.resource.data.visibility == "admin"
+          || request.resource.data.visibility == "seller"
+        )
         && request.resource.data.createdAt is timestamp;
       allow read: if signedIn();
       allow update, delete: if false;

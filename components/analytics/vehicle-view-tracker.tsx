@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { recordVehicleViewEvent } from "@/lib/data";
 import { ListingType } from "@/types";
 
 function getOrCreateSessionId() {
@@ -85,20 +84,28 @@ export function VehicleViewTracker({
 
     hasTracked.current = true;
 
-    void recordVehicleViewEvent({
-      vehicleId,
-      sessionId: getOrCreateSessionId(),
-      userId: appUser?.id,
-      role: appUser?.role ?? "guest",
-      source: deriveSource(searchParams.get("source")),
-      referrer: typeof document === "undefined" ? "" : document.referrer || "",
-      deviceType: inferDeviceType(),
-      country: country || deriveCountryFallback(),
-      state: state || "",
-      city: city || "",
-      listingType,
-      sellerOwnerUid
-    });
+    void fetch("/api/vehicle-views", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        vehicleId,
+        sessionId: getOrCreateSessionId(),
+        userId: appUser?.id,
+        role: appUser?.role ?? "guest",
+        source: deriveSource(searchParams.get("source")),
+        referrer: typeof document === "undefined" ? "" : document.referrer || "",
+        deviceType: inferDeviceType(),
+        country: country || deriveCountryFallback(),
+        state: state || "",
+        city: city || "",
+        listingType,
+        sellerOwnerUid
+      }),
+      keepalive: true,
+      cache: "no-store"
+    }).catch(() => undefined);
   }, [appUser?.id, appUser?.role, city, country, listingType, loading, searchParams, sellerOwnerUid, state, vehicleId]);
 
   return null;
