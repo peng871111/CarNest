@@ -1510,7 +1510,7 @@ service cloud.firestore {
         )
         && (
           request.resource.data.visibility == "admin"
-          || request.resource.data.visibility == "seller"
+          || request.resource.data.visibility == "customer"
         )
         && request.resource.data.createdAt is timestamp;
       allow read: if signedIn();

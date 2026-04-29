@@ -42,7 +42,7 @@ export function FinanceCalculator({ defaultVehiclePrice }: { defaultVehiclePrice
   const [balloon, setBalloon] = useState(0);
   const [interestRate, setInterestRate] = useState(DEFAULT_FINANCE_INTEREST_RATE);
   const [loanTermYears, setLoanTermYears] = useState(5);
-  const [repaymentFrequency, setRepaymentFrequency] = useState<RepaymentFrequency>("monthly");
+  const [repaymentFrequency, setRepaymentFrequency] = useState<RepaymentFrequency>("weekly");
 
   useEffect(() => {
     setVehiclePrice(defaultVehiclePrice);
@@ -142,9 +142,11 @@ export function FinanceCalculator({ defaultVehiclePrice }: { defaultVehiclePrice
 
       <div className="mt-6 rounded-[22px] bg-shell px-4 py-4">
         <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Estimated repayment</p>
-        <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(Math.max(estimatedRepayment, 0))}</p>
+        <p className="mt-2 text-3xl font-semibold text-ink">
+          {formatCurrency(Math.max(estimatedRepayment, 0))} {repaymentFrequency === "weekly" ? "per week" : "per month"}
+        </p>
         <p className="mt-2 text-sm text-ink/65">
-          {repaymentFrequency === "weekly" ? "Per week" : "Per month"} based on a financed amount of{" "}
+          Based on a financed amount of{" "}
           <span className="font-medium text-ink">{formatCurrency(financedAmount)}</span>
           {balloon > 0 ? (
             <>

@@ -47,7 +47,7 @@ export type PricingLeadRating = "HOT" | "WARM" | "COLD";
 export type PricingNextAction = "Recommend warehouse" | "Follow up later" | "Not suitable";
 export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
-export type VehicleActivityVisibility = "admin" | "seller";
+export type VehicleActivityVisibility = "admin" | "customer";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"

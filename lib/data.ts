@@ -525,7 +525,7 @@ function serializeVehicleActivityEventDoc(id: string, data: Record<string, unkno
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : undefined,
     actorUid: typeof data.actorUid === "string" ? data.actorUid : undefined,
     createdAt: serializeDate(data.createdAt),
-    visibility: data.visibility === "seller" ? "seller" : "admin"
+    visibility: data.visibility === "customer" || data.visibility === "seller" ? "customer" : "admin"
   };
 }
 
@@ -2445,7 +2445,14 @@ export async function addVehicleActivityNote(
   vehicleId: string,
   message: string,
   actor: VehicleActor,
-  options?: { visibility?: VehicleActivityEvent["visibility"]; type?: Extract<VehicleActivityEvent["type"], "admin_note_added" | "warehouse_activity_added"> }
+  options?: {
+    visibility?: VehicleActivityEvent["visibility"];
+    type?: Extract<VehicleActivityEvent["type"], "admin_note_added" | "warehouse_activity_added">;
+    sendEmail?: boolean;
+    recipientEmail?: string;
+    vehicleTitle?: string;
+    referenceId?: string;
+  }
 ) {
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can add manual vehicle activity notes.");
 
@@ -2462,10 +2469,92 @@ export async function addVehicleActivityNote(
     options?.visibility ?? "admin"
   );
 
+  let emailStatus:
+    | { attempted: false; sent: false; reason?: "not_requested" | "no_email" }
+    | { attempted: true; sent: true }
+    | { attempted: true; sent: false; reason: "send_failed" | "missing_env" } = {
+      attempted: false,
+      sent: false,
+      reason: "not_requested"
+    };
+
+  if (options?.visibility === "customer" && options.sendEmail) {
+    const recipientEmail = options.recipientEmail?.trim().toLowerCase() ?? "";
+    if (!recipientEmail || !isValidEmailAddress(recipientEmail)) {
+      emailStatus = {
+        attempted: false,
+        sent: false,
+        reason: "no_email"
+      };
+    } else {
+      try {
+        const endpoint =
+          typeof window !== "undefined"
+            ? "/api/vehicle-activity-notifications"
+            : buildAbsoluteUrl("/api/vehicle-activity-notifications");
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            to: recipientEmail,
+            vehicleId,
+            vehicleTitle: options.vehicleTitle ?? "Vehicle listing",
+            referenceId: options.referenceId ?? vehicleId,
+            message: note
+          }),
+          keepalive: true,
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          console.error("[vehicle-activity-email] Failed to trigger customer activity email", {
+            vehicleId,
+            recipientEmail,
+            status: response.status,
+            body
+          });
+          emailStatus = {
+            attempted: true,
+            sent: false,
+            reason: "send_failed"
+          };
+        } else {
+          const payload = await response.json().catch(() => null);
+          emailStatus = payload?.sent === false && payload?.reason === "missing_env"
+            ? {
+                attempted: true,
+                sent: false,
+                reason: "missing_env"
+              }
+            : {
+                attempted: true,
+                sent: true
+              };
+        }
+      } catch (error) {
+        console.error("[vehicle-activity-email] Failed to reach customer activity email endpoint", {
+          vehicleId,
+          recipientEmail,
+          reason: error instanceof Error ? error.message : String(error)
+        });
+        emailStatus = {
+          attempted: true,
+          sent: false,
+          reason: "send_failed"
+        };
+      }
+    }
+  }
+
   return {
     event,
     source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
-    writeSucceeded: isFirebaseConfigured
+    writeSucceeded: isFirebaseConfigured,
+    emailStatus
   };
 }
 
@@ -4849,7 +4938,7 @@ export async function createOffer(input: OfferWriteInput) {
         email: buyerEmail,
         name: buyerName
       },
-      "seller"
+      "customer"
     );
   } catch {
     // Offer submission should still succeed even if the activity feed event cannot be written.

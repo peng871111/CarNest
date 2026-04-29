@@ -18,6 +18,7 @@ import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEvent } from "@/t
 type ModerationFilter = "all" | "pending" | "active" | "rejected" | "sold" | "deleted";
 type ModerationGroup = Exclude<ModerationFilter, "all">;
 type BulkAction = "approve" | "reject" | "delete" | "restore";
+type ActivityNoteMode = "admin" | "customer";
 
 type OwnerDirectory = Record<string, Pick<AppUser, "id" | "displayName" | "name" | "email">>;
 
@@ -184,6 +185,9 @@ export function AdminVehiclesReviewBoard({
   const [activityLogsByVehicleId, setActivityLogsByVehicleId] = useState<Record<string, VehicleActivityEvent[]>>({});
   const [activityLoadingByVehicleId, setActivityLoadingByVehicleId] = useState<Record<string, boolean>>({});
   const [manualActivityNotes, setManualActivityNotes] = useState<Record<string, string>>({});
+  const [expandedHistoryByVehicleId, setExpandedHistoryByVehicleId] = useState<Record<string, boolean>>({});
+  const [activityNoteModeByVehicleId, setActivityNoteModeByVehicleId] = useState<Record<string, ActivityNoteMode>>({});
+  const [sendCustomerEmailByVehicleId, setSendCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -380,23 +384,50 @@ export function AdminVehiclesReviewBoard({
     if (!appUser) return;
 
     const message = manualActivityNotes[vehicleId] ?? "";
+    const noteMode = activityNoteModeByVehicleId[vehicleId] ?? "admin";
     if (!message.trim()) {
       setLocalError("Enter a note before saving it to the vehicle activity log.");
       return;
     }
+
+    const vehicle = vehicles.find((item) => item.id === vehicleId);
+    if (!vehicle) {
+      setLocalError("Vehicle not found.");
+      return;
+    }
+    const owner = ownerDirectory[vehicle.ownerUid];
 
     setBusyAction(`note-${vehicleId}`);
     setLocalError("");
     setNotice("");
 
     try {
-      await addVehicleActivityNote(vehicleId, message, appUser);
+      const result = await addVehicleActivityNote(vehicleId, message, appUser, {
+        visibility: noteMode === "customer" ? "customer" : "admin",
+        sendEmail: noteMode === "customer" ? (sendCustomerEmailByVehicleId[vehicleId] ?? true) : false,
+        recipientEmail: owner?.email,
+        vehicleTitle: getVehicleFullTitle(vehicle),
+        referenceId: getVehicleDisplayReference(vehicle)
+      });
       setManualActivityNotes((current) => ({
         ...current,
         [vehicleId]: ""
       }));
       await loadVehicleActivityLog(vehicleId, true);
-      setNotice("Vehicle activity note added.");
+      if (noteMode === "customer") {
+        const emailReason = "reason" in result.emailStatus ? result.emailStatus.reason : undefined;
+        if (emailReason === "no_email") {
+          setNotice("No customer email available — update saved but not sent.");
+        } else if (result.emailStatus.sent) {
+          setNotice("Customer update saved and emailed.");
+        } else if (emailReason === "send_failed" || emailReason === "missing_env") {
+          setNotice("Customer update saved, but the email could not be sent.");
+        } else {
+          setNotice("Customer update saved.");
+        }
+      } else {
+        setNotice("Vehicle activity note added.");
+      }
     } catch (actionError) {
       setLocalError(actionError instanceof Error ? actionError.message : "Unable to save the vehicle activity note.");
     } finally {
@@ -540,6 +571,10 @@ export function AdminVehiclesReviewBoard({
                       const canUndoSold = canUndoVehicleSold(vehicle);
                       const activityEvents = activityLogsByVehicleId[vehicle.id] ?? [];
                       const activityLoading = Boolean(activityLoadingByVehicleId[vehicle.id]);
+                      const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? "admin";
+                      const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
+                      const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
+                      const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? true;
 
                       return (
                         <article
@@ -652,6 +687,40 @@ export function AdminVehiclesReviewBoard({
                                     </div>
 
                                     <div className="mt-4 space-y-3">
+                                      <div className="grid gap-3 sm:grid-cols-[1fr,auto] sm:items-end">
+                                        <label className="block">
+                                          <span className="text-xs uppercase tracking-[0.18em] text-ink/45">Update type</span>
+                                          <select
+                                            value={noteMode}
+                                            onChange={(event) =>
+                                              setActivityNoteModeByVehicleId((current) => ({
+                                                ...current,
+                                                [vehicle.id]: event.target.value as ActivityNoteMode
+                                              }))
+                                            }
+                                            className="mt-2 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+                                          >
+                                            <option value="admin">Internal note</option>
+                                            <option value="customer">Customer update</option>
+                                          </select>
+                                        </label>
+                                        {noteMode === "customer" ? (
+                                          <label className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink">
+                                            <input
+                                              type="checkbox"
+                                              checked={sendCustomerEmail}
+                                              onChange={(event) =>
+                                                setSendCustomerEmailByVehicleId((current) => ({
+                                                  ...current,
+                                                  [vehicle.id]: event.target.checked
+                                                }))
+                                              }
+                                              className="h-4 w-4 rounded border-black/20"
+                                            />
+                                            <span>Send email to customer</span>
+                                          </label>
+                                        ) : null}
+                                      </div>
                                       <textarea
                                         value={manualActivityNotes[vehicle.id] ?? ""}
                                         onChange={(event) =>
@@ -679,20 +748,40 @@ export function AdminVehiclesReviewBoard({
                                       {activityLoading ? (
                                         <p className="text-sm text-ink/60">Loading activity log...</p>
                                       ) : activityEvents.length ? (
-                                        activityEvents.map((event) => (
-                                          <div key={event.id} className="rounded-[18px] border border-black/5 bg-white px-4 py-3">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <p className="text-xs uppercase tracking-[0.16em] text-ink/45">
-                                                {event.type.replace(/_/g, " ")}
-                                              </p>
-                                              <span className="text-xs text-ink/45">{formatAdminDateTime(event.createdAt)}</span>
-                                            </div>
-                                            <p className="mt-2 text-sm leading-6 text-ink/72">{event.message}</p>
-                                            <p className="mt-2 text-xs text-ink/45">
-                                              {event.createdBy || event.actorUid || "CarNest"} · {event.visibility}
-                                            </p>
+                                        <>
+                                          <div className="divide-y divide-black/5 rounded-[18px] border border-black/5 bg-white">
+                                            {visibleActivityEvents.map((event) => (
+                                              <div key={event.id} className="px-4 py-3">
+                                                <div className="flex items-center justify-between gap-3">
+                                                  <p className="text-xs uppercase tracking-[0.16em] text-ink/45">
+                                                    {event.type.replace(/_/g, " ")}
+                                                  </p>
+                                                  <span className="text-xs text-ink/45">{formatAdminDateTime(event.createdAt)}</span>
+                                                </div>
+                                                <p className="mt-2 text-sm leading-6 text-ink/72">{event.message}</p>
+                                                <p className="mt-2 text-xs text-ink/45">
+                                                  {event.createdBy || event.actorUid || "CarNest"} · {event.visibility}
+                                                </p>
+                                              </div>
+                                            ))}
                                           </div>
-                                        ))
+                                          {activityEvents.length > 2 ? (
+                                            <div className="flex justify-end">
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setExpandedHistoryByVehicleId((current) => ({
+                                                    ...current,
+                                                    [vehicle.id]: !showFullHistory
+                                                  }))
+                                                }
+                                                className="text-sm font-medium text-ink/65 transition hover:text-bronze"
+                                              >
+                                                {showFullHistory ? "Collapse" : "View full history"}
+                                              </button>
+                                            </div>
+                                          ) : null}
+                                        </>
                                       ) : (
                                         <p className="text-sm text-ink/60">No activity has been logged for this listing yet.</p>
                                       )}
