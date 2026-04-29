@@ -118,6 +118,11 @@ function getVehicleSearchText(vehicle: Vehicle, owner?: Pick<AppUser, "displayNa
     .toLowerCase();
 }
 
+function isCustomerFacingUpdateType(value: string) {
+  const normalizedValue = value.trim().toLowerCase();
+  return normalizedValue === "customer update" || normalizedValue.startsWith("customer");
+}
+
 function getSubmittedAt(vehicle: Vehicle) {
   return vehicle.createdAt ?? vehicle.updatedAt ?? "";
 }
@@ -387,7 +392,8 @@ export function AdminVehiclesReviewBoard({
     if (!appUser) return;
 
     const message = manualActivityNotes[vehicleId] ?? "";
-    const noteMode = activityNoteModeByVehicleId[vehicleId] ?? "admin";
+    const updateType = activityNoteModeByVehicleId[vehicleId] ?? "admin";
+    const isCustomerFacing = isCustomerFacingUpdateType(updateType);
     const sendEmailToCustomer = sendCustomerEmailByVehicleId[vehicleId] ?? false;
     if (!message.trim()) {
       setLocalError("Enter a note before saving it to the vehicle activity log.");
@@ -406,8 +412,16 @@ export function AdminVehiclesReviewBoard({
     setNotice("");
 
     try {
+      console.log("activity email decision", {
+        updateType,
+        isCustomerFacing,
+        sendEmailToCustomer,
+        customerEmail: vehicle.customerEmail?.trim() ?? "",
+        noteContent: message.trim()
+      });
+
       await addVehicleActivityNote(vehicleId, message, appUser, {
-        visibility: noteMode === "customer" ? "customer" : "admin",
+        visibility: isCustomerFacing ? "customer" : "admin",
         sendEmail: false,
         vehicleTitle: getVehicleFullTitle(vehicle),
         referenceId: getVehicleDisplayReference(vehicle)
@@ -417,11 +431,12 @@ export function AdminVehiclesReviewBoard({
         [vehicleId]: ""
       }));
       await loadVehicleActivityLog(vehicleId, true);
-      if (noteMode === "customer") {
+      if (isCustomerFacing) {
         const selectedCustomerEmail = vehicle.customerEmail?.trim() ?? "";
         if (!sendEmailToCustomer) {
           console.log("[vehicle-activity-email] Email skipped: sendEmailToCustomer false", {
             vehicleId,
+            updateType,
             customerEmail: selectedCustomerEmail,
             noteContent: message.trim()
           });
@@ -429,6 +444,7 @@ export function AdminVehiclesReviewBoard({
         } else if (!selectedCustomerEmail) {
           console.log("[vehicle-activity-email] Email skipped: missing customerEmail", {
             vehicleId,
+            updateType,
             customerEmail: selectedCustomerEmail,
             noteContent: message.trim()
           });
@@ -443,6 +459,7 @@ export function AdminVehiclesReviewBoard({
           };
           console.log("Sending email payload", {
             vehicleId: payload.vehicleId,
+            updateType,
             customerEmails: payload.customerEmail,
             noteContent: payload.message
           });
@@ -469,6 +486,7 @@ export function AdminVehiclesReviewBoard({
       } else {
         console.log("[vehicle-activity-email] Email skipped: updateType not customer-facing", {
           vehicleId,
+          updateType,
           noteContent: message.trim()
         });
         setNotice("Vehicle activity note added.");
@@ -645,6 +663,7 @@ export function AdminVehiclesReviewBoard({
                       const activityLoading = Boolean(activityLoadingByVehicleId[vehicle.id]);
                       const hasCustomerEmail = Boolean(vehicle.customerEmail?.trim());
                       const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? (hasCustomerEmail ? "customer" : "admin");
+                      const isCustomerFacingNoteMode = isCustomerFacingUpdateType(noteMode);
                       const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
                       const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
                       const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? hasCustomerEmail;
@@ -844,7 +863,7 @@ export function AdminVehiclesReviewBoard({
                                             <option value="customer">Customer update</option>
                                           </select>
                                         </label>
-                                        {noteMode === "customer" ? (
+                                        {isCustomerFacingNoteMode ? (
                                           <label className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink">
                                             <input
                                               type="checkbox"
@@ -869,7 +888,7 @@ export function AdminVehiclesReviewBoard({
                                             [vehicle.id]: event.target.value
                                           }))
                                         }
-                                        placeholder={noteMode === "customer" ? "Add a customer-visible update" : "Add a manual admin activity note"}
+                                        placeholder={isCustomerFacingNoteMode ? "Add a customer-visible update" : "Add a manual admin activity note"}
                                         className="min-h-[96px] w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
                                       />
                                       <div className="flex justify-end">
