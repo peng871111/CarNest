@@ -121,6 +121,7 @@ export interface Vehicle {
   sellerLocationSuburb?: string;
   sellerLocationPostcode?: string;
   sellerLocationState?: string;
+  customerEmail?: string;
   make: string;
   model: string;
   variant: string;
@@ -181,6 +182,7 @@ export interface VehicleFormInput {
   sellerLocationSuburb?: string;
   sellerLocationPostcode?: string;
   sellerLocationState?: string;
+  customerEmail?: string;
   description: string;
   coverImage?: string;
   coverImageUrl?: string;

@@ -14,6 +14,21 @@ export interface VehicleActivityEmailPayload {
 }
 
 export function getVehicleActivityEmailContent(payload: VehicleActivityEmailPayload) {
+  const supportText = [
+    "If you have any questions, feel free to contact us:",
+    "",
+    "Email:",
+    "info@carnestau.com",
+    "",
+    "Phone / WhatsApp:",
+    "Craig: 0466661516",
+    "Leon: 0406095686",
+    "",
+    "WeChat:",
+    "Craig: Craig0490158769",
+    "Leon: Morikawa_leon"
+  ].join("\n");
+
   return {
     subject: `CarNest update: ${payload.vehicleTitle}`,
     text: [
@@ -28,6 +43,8 @@ export function getVehicleActivityEmailContent(payload: VehicleActivityEmailPayl
       "",
       "You don’t need to log in — this is just to keep you informed.",
       "",
+      supportText,
+      "",
       "Regards,",
       "CarNest"
     ].join("\n"),
@@ -41,6 +58,23 @@ export function getVehicleActivityEmailContent(payload: VehicleActivityEmailPayl
         <p style="font-size:15px;line-height:1.6;margin:0 0 6px;"><strong>Vehicle:</strong> ${payload.vehicleTitle}</p>
         <p style="font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>Reference:</strong> ${payload.referenceId}</p>
         <p style="font-size:14px;line-height:1.6;margin:0 0 16px;color:#4b4b44;">You don’t need to log in — this is just to keep you informed.</p>
+        <div style="border-top:1px solid rgba(0,0,0,0.08);margin-top:20px;padding-top:20px;">
+          <p style="font-size:14px;line-height:1.7;margin:0 0 12px;">If you have any questions, feel free to contact us:</p>
+          <p style="font-size:14px;line-height:1.7;margin:0 0 10px;">
+            <strong>Email:</strong><br />
+            info@carnestau.com
+          </p>
+          <p style="font-size:14px;line-height:1.7;margin:0 0 10px;">
+            <strong>Phone / WhatsApp:</strong><br />
+            Craig: 0466661516<br />
+            Leon: 0406095686
+          </p>
+          <p style="font-size:14px;line-height:1.7;margin:0;">
+            <strong>WeChat:</strong><br />
+            Craig: Craig0490158769<br />
+            Leon: Morikawa_leon
+          </p>
+        </div>
         <p style="font-size:14px;line-height:1.6;margin:0;">Regards,<br />CarNest</p>
       </div>
     `

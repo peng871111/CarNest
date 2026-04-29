@@ -481,6 +481,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     deleteReason: typeof data.deleteReason === "string" ? data.deleteReason : "",
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
+    customerEmail: typeof data.customerEmail === "string" ? data.customerEmail : "",
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     viewCount: Number(data.viewCount ?? 0),
     uniqueViewCount: Number(data.uniqueViewCount ?? 0),
@@ -848,6 +849,19 @@ function validateVehicleLocation(input: VehicleFormInput) {
 
   if (state !== suburbMatch.state) {
     throw new Error("Seller state must match the selected suburb and postcode.");
+  }
+}
+
+function validateCustomerContactEmail(input: VehicleFormInput, actor: VehicleActor) {
+  if (!isAdminLikeRole(actor.role) || input.listingType !== "warehouse") return;
+
+  const customerEmail = sanitizeSingleLineText(input.customerEmail ?? "").toLowerCase();
+  if (!customerEmail) {
+    throw new Error("Customer contact email is required for warehouse-managed vehicles.");
+  }
+
+  if (!isValidEmailAddress(customerEmail)) {
+    throw new Error("Please enter a valid customer contact email.");
   }
 }
 
@@ -4078,6 +4092,7 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     sellerLocationSuburb: toUppercaseValue(input.sellerLocationSuburb),
     sellerLocationPostcode: typeof input.sellerLocationPostcode === "string" ? input.sellerLocationPostcode.replace(/\D/g, "").slice(0, 4) : "",
     sellerLocationState: toUppercaseValue(input.sellerLocationState),
+    customerEmail: sanitizeSingleLineText(input.customerEmail ?? "").toLowerCase(),
     description: sanitizeMultilineText(input.description),
     imageAssets: Array.isArray(input.imageAssets)
       ? input.imageAssets.filter((item) => Boolean(item?.thumbnailUrl) && Boolean(item?.fullUrl))
@@ -4115,6 +4130,10 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
     sellerLocationSuburb: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationSuburb ?? "" : "",
     sellerLocationPostcode: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationPostcode ?? "" : "",
     sellerLocationState: normalizedInput.listingType === "private" ? normalizedInput.sellerLocationState ?? "" : "",
+    customerEmail:
+      normalizedInput.listingType === "warehouse"
+        ? normalizedInput.customerEmail ?? ""
+        : existingVehicle?.customerEmail ?? "",
     make: normalizedInput.make,
     model: normalizedInput.model,
     variant: "",
@@ -4214,6 +4233,7 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
     validateSellerVehicleDescription(normalizeVehicleInput(input).description);
   }
   validateVehicleLocation(normalizeVehicleInput(input));
+  validateCustomerContactEmail(normalizeVehicleInput(input), actor);
 
   if (!isFirebaseConfigured) {
     const createdAt = new Date().toISOString();
@@ -4306,6 +4326,7 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
 
   const normalizedInput = normalizeVehicleInput(input);
   validateVehicleLocation(normalizedInput);
+  validateCustomerContactEmail(normalizedInput, actor);
   if (isSellerLikeRole(actor.role)) {
     validateSellerVehicleDescription(normalizedInput.description);
   }

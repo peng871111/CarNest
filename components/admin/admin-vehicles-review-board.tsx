@@ -405,7 +405,7 @@ export function AdminVehiclesReviewBoard({
       const result = await addVehicleActivityNote(vehicleId, message, appUser, {
         visibility: noteMode === "customer" ? "customer" : "admin",
         sendEmail: noteMode === "customer" ? (sendCustomerEmailByVehicleId[vehicleId] ?? true) : false,
-        recipientEmail: owner?.email,
+        recipientEmail: vehicle.customerEmail,
         vehicleTitle: getVehicleFullTitle(vehicle),
         referenceId: getVehicleDisplayReference(vehicle)
       });
@@ -417,7 +417,7 @@ export function AdminVehiclesReviewBoard({
       if (noteMode === "customer") {
         const emailReason = "reason" in result.emailStatus ? result.emailStatus.reason : undefined;
         if (emailReason === "no_email") {
-          setNotice("No customer email available — update saved but not sent.");
+          setNotice("No customer email set — update saved but not sent");
         } else if (result.emailStatus.sent) {
           setNotice("Customer update saved and emailed.");
         } else if (emailReason === "send_failed" || emailReason === "missing_env") {
@@ -657,6 +657,7 @@ export function AdminVehiclesReviewBoard({
                                     <div className="mt-3 space-y-2 text-sm text-ink/70">
                                       <p>Name: {getOwnerLabel(owner)}</p>
                                       <p>Email: {owner?.email || "Not available"}</p>
+                                      <p>Customer email: {vehicle.customerEmail || "Not set"}</p>
                                     </div>
                                   </div>
 

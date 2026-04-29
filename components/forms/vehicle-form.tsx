@@ -32,6 +32,7 @@ interface VehicleFormDraft {
   formValues: VehicleFormFieldsValue;
   listingType: Vehicle["listingType"];
   imageMode: "append" | "replace";
+  customerEmail?: string;
 }
 
 function getListingModeLabel(listingType: Vehicle["listingType"]) {
@@ -74,6 +75,7 @@ export function VehicleForm({
   const [listingType, setListingType] = useState<Vehicle["listingType"]>(vehicle?.listingType ?? "warehouse");
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
+  const [customerEmail, setCustomerEmail] = useState(vehicle?.customerEmail ?? "");
   const currentVehicle = activeVehicle ?? vehicle;
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
@@ -87,6 +89,7 @@ export function VehicleForm({
     setActiveVehicle(vehicle);
     setExistingImageAssets(buildVehicleImageAssets(vehicle));
     setCoverImageKey(null);
+    setCustomerEmail(vehicle?.customerEmail ?? "");
     setFormValues(
       buildVehicleFormFieldsValue(
         vehicle,
@@ -120,6 +123,10 @@ export function VehicleForm({
       if (parsedDraft.imageMode === "append" || parsedDraft.imageMode === "replace") {
         setImageMode(parsedDraft.imageMode);
       }
+
+      if (typeof parsedDraft.customerEmail === "string") {
+        setCustomerEmail(parsedDraft.customerEmail);
+      }
     } catch {
       window.localStorage.removeItem(draftStorageKey);
     } finally {
@@ -133,7 +140,8 @@ export function VehicleForm({
     const draftPayload: VehicleFormDraft = {
       formValues,
       listingType,
-      imageMode
+      imageMode,
+      customerEmail
     };
 
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
@@ -324,6 +332,13 @@ export function VehicleForm({
       setMessage(validationError);
       return;
     }
+    if (appUser.role === "admin" && listingType === "warehouse") {
+      const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
+      if (!normalizedCustomerEmail) {
+        setMessage("Customer contact email is required for warehouse-managed vehicles.");
+        return;
+      }
+    }
     setSaving(true);
     setMessage("");
 
@@ -388,6 +403,7 @@ export function VehicleForm({
         sellerLocationSuburb: formValues.sellerLocationSuburb,
         sellerLocationPostcode: formValues.sellerLocationPostcode,
         sellerLocationState: formValues.sellerLocationState,
+        customerEmail,
         description: formValues.description,
         coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
         coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || currentVehicle?.coverImageUrl || "",
@@ -406,6 +422,7 @@ export function VehicleForm({
         setActiveVehicle(result.vehicle);
         setExistingImageAssets(buildVehicleImageAssets(result.vehicle));
         setCoverImageKey(null);
+        setCustomerEmail(result.vehicle.customerEmail ?? "");
         setFormValues(
           buildVehicleFormFieldsValue(
             result.vehicle,
@@ -497,6 +514,24 @@ export function VehicleForm({
           </label>
         )}
       </div>
+      {appUser?.role === "admin" ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <label className="space-y-2">
+            <span className="text-sm font-medium text-ink">Customer contact email (for updates)</span>
+            <input
+              type="email"
+              value={customerEmail}
+              onChange={(event) => setCustomerEmail(event.target.value)}
+              placeholder="customer@example.com"
+              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+              required={listingType === "warehouse"}
+            />
+            <p className="text-xs leading-5 text-ink/55">
+              Used only for customer activity updates. Required for warehouse-managed vehicles.
+            </p>
+          </label>
+        </div>
+      ) : null}
       <VehicleFormFields
         value={formValues}
         onFieldChange={(field, nextValue) => setFormValues((current) => ({ ...current, [field]: nextValue }))}
