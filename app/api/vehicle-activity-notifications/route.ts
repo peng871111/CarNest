@@ -56,8 +56,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error("[vehicle-activity-email] Failed to send vehicle activity email", {
-      reason: error instanceof Error ? error.message : String(error)
+      error
     });
-    return NextResponse.json({ success: false }, { status: 500 });
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
+    );
   }
 }

@@ -190,6 +190,7 @@ export function AdminVehiclesReviewBoard({
   const [activityNoteModeByVehicleId, setActivityNoteModeByVehicleId] = useState<Record<string, ActivityNoteMode>>({});
   const [sendCustomerEmailByVehicleId, setSendCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
   const [customerEmailDrafts, setCustomerEmailDrafts] = useState<Record<string, string>>({});
+  const [editingCustomerEmailByVehicleId, setEditingCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -406,7 +407,7 @@ export function AdminVehiclesReviewBoard({
     try {
       const result = await addVehicleActivityNote(vehicleId, message, appUser, {
         visibility: noteMode === "customer" ? "customer" : "admin",
-        sendEmail: noteMode === "customer" ? (sendCustomerEmailByVehicleId[vehicleId] ?? true) : false,
+        sendEmail: noteMode === "customer" ? (sendCustomerEmailByVehicleId[vehicleId] ?? Boolean(vehicle.customerEmail?.trim())) : false,
         recipientEmail: vehicle.customerEmail,
         vehicleTitle: getVehicleFullTitle(vehicle),
         referenceId: getVehicleDisplayReference(vehicle)
@@ -418,14 +419,15 @@ export function AdminVehiclesReviewBoard({
       await loadVehicleActivityLog(vehicleId, true);
       if (noteMode === "customer") {
         const emailReason = "reason" in result.emailStatus ? result.emailStatus.reason : undefined;
-        if (emailReason === "no_email") {
-          setNotice("No customer email set — update saved but not sent");
+        if (!vehicle.customerEmail?.trim() || emailReason === "no_email") {
+          setNotice("Customer update saved, but no customer email is set");
         } else if (result.emailStatus.sent) {
-          setNotice("Customer update saved and emailed.");
+          setNotice("Customer update saved and emailed");
         } else if (emailReason === "send_failed" || emailReason === "missing_env") {
-          setNotice("Customer update saved, but the email could not be sent.");
+          const emailMessage = "errorMessage" in result.emailStatus && result.emailStatus.errorMessage ? ` (${result.emailStatus.errorMessage})` : "";
+          setNotice(`Customer update saved, but email could not be sent${emailMessage}`);
         } else {
-          setNotice("Customer update saved.");
+          setNotice("Customer update saved");
         }
       } else {
         setNotice("Vehicle activity note added.");
@@ -451,6 +453,10 @@ export function AdminVehiclesReviewBoard({
       setCustomerEmailDrafts((current) => ({
         ...current,
         [vehicle.id]: result.vehicle.customerEmail ?? ""
+      }));
+      setEditingCustomerEmailByVehicleId((current) => ({
+        ...current,
+        [vehicle.id]: false
       }));
       setNotice("Customer email saved");
     } catch (actionError) {
@@ -596,11 +602,13 @@ export function AdminVehiclesReviewBoard({
                       const canUndoSold = canUndoVehicleSold(vehicle);
                       const activityEvents = activityLogsByVehicleId[vehicle.id] ?? [];
                       const activityLoading = Boolean(activityLoadingByVehicleId[vehicle.id]);
-                      const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? "admin";
+                      const hasCustomerEmail = Boolean(vehicle.customerEmail?.trim());
+                      const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? (hasCustomerEmail ? "customer" : "admin");
                       const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
                       const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
-                      const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? true;
+                      const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? hasCustomerEmail;
                       const customerEmailValue = customerEmailDrafts[vehicle.id] ?? vehicle.customerEmail ?? "";
+                      const isEditingCustomerEmail = Boolean(editingCustomerEmailByVehicleId[vehicle.id]);
 
                       return (
                         <article
@@ -685,30 +693,68 @@ export function AdminVehiclesReviewBoard({
                                       <p>Email: {owner?.email || "Not available"}</p>
                                       <div className="space-y-2 pt-2">
                                         <p className="text-xs uppercase tracking-[0.16em] text-ink/45">Customer Email</p>
-                                        <input
-                                          type="email"
-                                          multiple
-                                          value={customerEmailValue}
-                                          onChange={(event) =>
-                                            setCustomerEmailDrafts((current) => ({
-                                              ...current,
-                                              [vehicle.id]: event.target.value
-                                            }))
-                                          }
-                                          placeholder="Enter customer email for updates"
-                                          className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
-                                        />
-                                        <div className="flex items-center justify-between gap-3">
-                                          <p className="text-xs text-ink/55">Use comma-separated emails for multiple recipients.</p>
-                                          <button
-                                            type="button"
-                                            disabled={busyAction === `customer-email-${vehicle.id}`}
-                                            onClick={() => void handleSaveCustomerEmail(vehicle)}
-                                            className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
-                                          >
-                                            {busyAction === `customer-email-${vehicle.id}` ? "Saving..." : "Save"}
-                                          </button>
-                                        </div>
+                                        {isEditingCustomerEmail ? (
+                                          <>
+                                            <input
+                                              type="email"
+                                              multiple
+                                              value={customerEmailValue}
+                                              onChange={(event) =>
+                                                setCustomerEmailDrafts((current) => ({
+                                                  ...current,
+                                                  [vehicle.id]: event.target.value
+                                                }))
+                                              }
+                                              placeholder="Enter customer email for updates"
+                                              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+                                            />
+                                            <div className="flex items-center justify-between gap-3">
+                                              <p className="text-xs text-ink/55">Use comma-separated emails for multiple recipients.</p>
+                                              <div className="flex gap-2">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    setEditingCustomerEmailByVehicleId((current) => ({
+                                                      ...current,
+                                                      [vehicle.id]: false
+                                                    }))
+                                                  }
+                                                  className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink"
+                                                >
+                                                  Cancel
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  disabled={busyAction === `customer-email-${vehicle.id}`}
+                                                  onClick={() => void handleSaveCustomerEmail(vehicle)}
+                                                  className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                                                >
+                                                  {busyAction === `customer-email-${vehicle.id}` ? "Saving..." : "Save"}
+                                                </button>
+                                              </div>
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <div className="flex items-center justify-between gap-3 rounded-2xl border border-black/10 bg-white px-4 py-3">
+                                            <p className="min-w-0 truncate text-sm text-ink">{vehicle.customerEmail || "Not set"}</p>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setCustomerEmailDrafts((current) => ({
+                                                  ...current,
+                                                  [vehicle.id]: vehicle.customerEmail ?? ""
+                                                }));
+                                                setEditingCustomerEmailByVehicleId((current) => ({
+                                                  ...current,
+                                                  [vehicle.id]: true
+                                                }));
+                                              }}
+                                              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink"
+                                            >
+                                              Edit
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -782,7 +828,7 @@ export function AdminVehiclesReviewBoard({
                                             [vehicle.id]: event.target.value
                                           }))
                                         }
-                                        placeholder="Add a manual admin activity note"
+                                        placeholder={noteMode === "customer" ? "Add a customer-visible update" : "Add a manual admin activity note"}
                                         className="min-h-[96px] w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
                                       />
                                       <div className="flex justify-end">

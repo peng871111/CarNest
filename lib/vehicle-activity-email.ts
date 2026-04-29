@@ -111,6 +111,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
       vehicleId: payload.vehicleId,
       recipientEmail: payload.to.join(", "),
       subject: content.subject,
+      error,
       errorName: error.name,
       errorMessage: error.message
     });

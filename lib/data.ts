@@ -2492,9 +2492,6 @@ export async function addVehicleActivityNote(
   }
 
   const normalizedRecipientEmail = options?.recipientEmail ? normalizeCustomerEmailList(options.recipientEmail) : "";
-  if (options?.visibility === "customer" && options.sendEmail && !normalizedRecipientEmail) {
-    throw new Error("Please set customer email first");
-  }
 
   const event = await writeVehicleActivityEvent(
     vehicleId,
@@ -2507,7 +2504,7 @@ export async function addVehicleActivityNote(
   let emailStatus:
     | { attempted: false; sent: false; reason?: "not_requested" | "no_email" }
     | { attempted: true; sent: true }
-    | { attempted: true; sent: false; reason: "send_failed" | "missing_env" } = {
+    | { attempted: true; sent: false; reason: "send_failed" | "missing_env"; errorMessage?: string } = {
       attempted: false,
       sent: false,
       reason: "not_requested"
@@ -2544,17 +2541,18 @@ export async function addVehicleActivityNote(
         });
 
         if (!response.ok) {
-          const body = await response.text().catch(() => "");
+          const payload = await response.json().catch(() => null);
           console.error("[vehicle-activity-email] Failed to trigger customer activity email", {
             vehicleId,
             recipientEmail: normalizedRecipientEmail,
             status: response.status,
-            body
+            body: payload
           });
           emailStatus = {
             attempted: true,
             sent: false,
-            reason: "send_failed"
+            reason: "send_failed",
+            errorMessage: payload?.error || "Vehicle activity email send failed."
           };
         } else {
           const payload = await response.json().catch(() => null);
