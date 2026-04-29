@@ -2523,6 +2523,13 @@ export async function addVehicleActivityNote(
           typeof window !== "undefined"
             ? "/api/vehicle-activity-notifications"
             : buildAbsoluteUrl("/api/vehicle-activity-notifications");
+        const customerEmails = parseCustomerEmailList(normalizedRecipientEmail);
+
+        console.log("[vehicle-activity-email] Calling POST /api/vehicle-activity-notifications", {
+          vehicleId,
+          customerEmails,
+          noteContent: note
+        });
 
         const response = await fetch(endpoint, {
           method: "POST",
@@ -2530,7 +2537,7 @@ export async function addVehicleActivityNote(
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            to: parseCustomerEmailList(normalizedRecipientEmail),
+            to: customerEmails,
             vehicleId,
             vehicleTitle: options.vehicleTitle ?? "Vehicle listing",
             referenceId: options.referenceId ?? vehicleId,
