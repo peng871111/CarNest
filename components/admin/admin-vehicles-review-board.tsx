@@ -388,6 +388,7 @@ export function AdminVehiclesReviewBoard({
 
     const message = manualActivityNotes[vehicleId] ?? "";
     const noteMode = activityNoteModeByVehicleId[vehicleId] ?? "admin";
+    const sendEmailToCustomer = sendCustomerEmailByVehicleId[vehicleId] ?? false;
     if (!message.trim()) {
       setLocalError("Enter a note before saving it to the vehicle activity log.");
       return;
@@ -405,10 +406,9 @@ export function AdminVehiclesReviewBoard({
     setNotice("");
 
     try {
-      const result = await addVehicleActivityNote(vehicleId, message, appUser, {
+      await addVehicleActivityNote(vehicleId, message, appUser, {
         visibility: noteMode === "customer" ? "customer" : "admin",
-        sendEmail: noteMode === "customer" ? (sendCustomerEmailByVehicleId[vehicleId] ?? Boolean(vehicle.customerEmail?.trim())) : false,
-        recipientEmail: vehicle.customerEmail,
+        sendEmail: false,
         vehicleTitle: getVehicleFullTitle(vehicle),
         referenceId: getVehicleDisplayReference(vehicle)
       });
@@ -418,18 +418,59 @@ export function AdminVehiclesReviewBoard({
       }));
       await loadVehicleActivityLog(vehicleId, true);
       if (noteMode === "customer") {
-        const emailReason = "reason" in result.emailStatus ? result.emailStatus.reason : undefined;
-        if (!vehicle.customerEmail?.trim() || emailReason === "no_email") {
-          setNotice("Customer update saved, but no customer email is set");
-        } else if (result.emailStatus.sent) {
-          setNotice("Customer update saved and emailed");
-        } else if (emailReason === "send_failed" || emailReason === "missing_env") {
-          const emailMessage = "errorMessage" in result.emailStatus && result.emailStatus.errorMessage ? ` (${result.emailStatus.errorMessage})` : "";
-          setNotice(`Customer update saved, but email could not be sent${emailMessage}`);
-        } else {
+        const selectedCustomerEmail = vehicle.customerEmail?.trim() ?? "";
+        if (!sendEmailToCustomer) {
+          console.log("[vehicle-activity-email] Email skipped: sendEmailToCustomer false", {
+            vehicleId,
+            customerEmail: selectedCustomerEmail,
+            noteContent: message.trim()
+          });
           setNotice("Customer update saved");
+        } else if (!selectedCustomerEmail) {
+          console.log("[vehicle-activity-email] Email skipped: missing customerEmail", {
+            vehicleId,
+            customerEmail: selectedCustomerEmail,
+            noteContent: message.trim()
+          });
+          setNotice("Customer update saved, but email could not be sent");
+        } else {
+          const payload = {
+            vehicleId,
+            customerEmail: selectedCustomerEmail,
+            vehicleTitle: getVehicleFullTitle(vehicle),
+            referenceId: getVehicleDisplayReference(vehicle),
+            message: message.trim()
+          };
+          console.log("Sending email payload", {
+            vehicleId: payload.vehicleId,
+            customerEmails: payload.customerEmail,
+            noteContent: payload.message
+          });
+
+          const response = await fetch("/api/vehicle-activity-notifications", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload),
+            keepalive: true,
+            cache: "no-store"
+          });
+
+          const responseBody = await response.json().catch(() => null);
+          console.log("Email API response", response.status, responseBody);
+
+          if (response.ok && responseBody?.sent === true) {
+            setNotice("Customer update saved and emailed");
+          } else {
+            setNotice("Customer update saved, but email could not be sent");
+          }
         }
       } else {
+        console.log("[vehicle-activity-email] Email skipped: updateType not customer-facing", {
+          vehicleId,
+          noteContent: message.trim()
+        });
         setNotice("Vehicle activity note added.");
       }
     } catch (actionError) {
