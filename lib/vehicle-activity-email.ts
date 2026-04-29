@@ -3,8 +3,7 @@ import "server-only";
 import { Resend } from "resend";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-export const VEHICLE_ACTIVITY_EMAIL_FROM =
-  process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
+export const VEHICLE_ACTIVITY_EMAIL_FROM = "CarNest <offers@mail.carnest.au>";
 
 export interface VehicleActivityEmailPayload {
   to: string[];
@@ -87,20 +86,12 @@ export function getVehicleActivityEmailContent(
 export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayload) {
   const content = getVehicleActivityEmailContent(payload);
 
-  if (!RESEND_API_KEY || !VEHICLE_ACTIVITY_EMAIL_FROM) {
-    console.warn("[vehicle-activity-email] Transactional email is not configured. Skipping email send.", {
-      vehicleId: payload.vehicleId,
-      recipientEmail: payload.to.join(", "),
-      subject: content.subject,
-      missingEnvVars: [
-        !RESEND_API_KEY ? "RESEND_API_KEY" : null,
-        !VEHICLE_ACTIVITY_EMAIL_FROM ? "EMAIL_FROM" : null
-      ].filter(Boolean)
-    });
-    return { sent: false as const, skipped: true as const, reason: "missing_env" as const };
+  if (!RESEND_API_KEY) {
+    throw new Error("RESEND_API_KEY is missing.");
   }
 
   const resend = new Resend(RESEND_API_KEY);
+  console.log("Using Resend API");
   console.log("[vehicle-activity-email] Executing resend.emails.send()", {
     vehicleId: payload.vehicleId,
     recipientEmails: payload.to,
@@ -111,8 +102,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
     to: payload.to,
     subject: content.subject,
-    html: content.html,
-    text: content.text
+    html: content.html
   });
 
   if (error) {
