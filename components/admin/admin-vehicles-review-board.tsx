@@ -123,6 +123,10 @@ function isCustomerFacingUpdateType(value: string) {
   return normalizedValue === "customer update" || normalizedValue.startsWith("customer");
 }
 
+function getDefaultActivityUpdateType(hasCustomerEmail: boolean): ActivityNoteMode {
+  return hasCustomerEmail ? "customer" : "admin";
+}
+
 function getSubmittedAt(vehicle: Vehicle) {
   return vehicle.createdAt ?? vehicle.updatedAt ?? "";
 }
@@ -392,9 +396,6 @@ export function AdminVehiclesReviewBoard({
     if (!appUser) return;
 
     const message = manualActivityNotes[vehicleId] ?? "";
-    const updateType = activityNoteModeByVehicleId[vehicleId] ?? "admin";
-    const isCustomerFacing = isCustomerFacingUpdateType(updateType);
-    const sendEmailToCustomer = sendCustomerEmailByVehicleId[vehicleId] ?? false;
     if (!message.trim()) {
       setLocalError("Enter a note before saving it to the vehicle activity log.");
       return;
@@ -405,6 +406,10 @@ export function AdminVehiclesReviewBoard({
       setLocalError("Vehicle not found.");
       return;
     }
+    const hasCustomerEmail = Boolean(vehicle.customerEmail?.trim());
+    const updateType = activityNoteModeByVehicleId[vehicleId] ?? getDefaultActivityUpdateType(hasCustomerEmail);
+    const isCustomerFacing = isCustomerFacingUpdateType(updateType);
+    const sendEmailToCustomer = sendCustomerEmailByVehicleId[vehicleId] ?? hasCustomerEmail;
     const owner = ownerDirectory[vehicle.ownerUid];
 
     setBusyAction(`note-${vehicleId}`);
@@ -412,6 +417,11 @@ export function AdminVehiclesReviewBoard({
     setNotice("");
 
     try {
+      console.log("activity submit state", {
+        updateType,
+        isCustomerFacing,
+        sendEmailToCustomer
+      });
       console.log("activity email decision", {
         updateType,
         isCustomerFacing,
@@ -662,7 +672,7 @@ export function AdminVehiclesReviewBoard({
                       const activityEvents = activityLogsByVehicleId[vehicle.id] ?? [];
                       const activityLoading = Boolean(activityLoadingByVehicleId[vehicle.id]);
                       const hasCustomerEmail = Boolean(vehicle.customerEmail?.trim());
-                      const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? (hasCustomerEmail ? "customer" : "admin");
+                      const noteMode = activityNoteModeByVehicleId[vehicle.id] ?? getDefaultActivityUpdateType(hasCustomerEmail);
                       const isCustomerFacingNoteMode = isCustomerFacingUpdateType(noteMode);
                       const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
                       const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
@@ -851,12 +861,20 @@ export function AdminVehiclesReviewBoard({
                                           <span className="text-xs uppercase tracking-[0.18em] text-ink/45">Update type</span>
                                           <select
                                             value={noteMode}
-                                            onChange={(event) =>
+                                            onChange={(event) => {
+                                              const nextUpdateType = event.target.value as ActivityNoteMode;
+                                              const nextCustomerFacing = isCustomerFacingUpdateType(nextUpdateType);
                                               setActivityNoteModeByVehicleId((current) => ({
                                                 ...current,
-                                                [vehicle.id]: event.target.value as ActivityNoteMode
-                                              }))
-                                            }
+                                                [vehicle.id]: nextUpdateType
+                                              }));
+                                              if (nextCustomerFacing) {
+                                                setSendCustomerEmailByVehicleId((current) => ({
+                                                  ...current,
+                                                  [vehicle.id]: true
+                                                }));
+                                              }
+                                            }}
                                             className="mt-2 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
                                           >
                                             <option value="admin">Internal note</option>
