@@ -2523,11 +2523,10 @@ export async function addVehicleActivityNote(
           typeof window !== "undefined"
             ? "/api/vehicle-activity-notifications"
             : buildAbsoluteUrl("/api/vehicle-activity-notifications");
-        const customerEmails = parseCustomerEmailList(normalizedRecipientEmail);
 
         console.log("[vehicle-activity-email] Calling POST /api/vehicle-activity-notifications", {
           vehicleId,
-          customerEmails,
+          selectedCustomerEmail: normalizedRecipientEmail,
           noteContent: note
         });
 
@@ -2537,8 +2536,8 @@ export async function addVehicleActivityNote(
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            to: customerEmails,
             vehicleId,
+            customerEmail: normalizedRecipientEmail,
             vehicleTitle: options.vehicleTitle ?? "Vehicle listing",
             referenceId: options.referenceId ?? vehicleId,
             message: note
@@ -2563,16 +2562,42 @@ export async function addVehicleActivityNote(
           };
         } else {
           const payload = await response.json().catch(() => null);
-          emailStatus = payload?.sent === false && payload?.reason === "missing_env"
-            ? {
-                attempted: true,
-                sent: false,
-                reason: "missing_env"
-              }
-            : {
-                attempted: true,
-                sent: true
-              };
+          console.log("[vehicle-activity-email] Customer activity email API response", {
+            vehicleId,
+            selectedCustomerEmail: normalizedRecipientEmail,
+            response: payload
+          });
+          emailStatus =
+            payload?.sent === false && payload?.reason === "missing_env"
+              ? {
+                  attempted: true,
+                  sent: false,
+                  reason: "missing_env"
+                }
+              : payload?.sent === false && payload?.reason === "no_customer_email_set"
+                ? {
+                    attempted: false,
+                    sent: false,
+                    reason: "no_email"
+                  }
+                : payload?.success === false
+                  ? {
+                      attempted: true,
+                      sent: false,
+                      reason: "send_failed",
+                      errorMessage: payload?.error || "Vehicle activity email send failed."
+                    }
+                  : payload?.sent === true
+                    ? {
+                        attempted: true,
+                        sent: true
+                      }
+                    : {
+                        attempted: true,
+                        sent: false,
+                        reason: "send_failed",
+                        errorMessage: payload?.error || "Vehicle activity email send failed."
+                      };
         }
       } catch (error) {
         console.error("[vehicle-activity-email] Failed to reach customer activity email endpoint", {
