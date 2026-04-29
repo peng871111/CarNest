@@ -520,14 +520,15 @@ export function VehicleForm({
             <span className="text-sm font-medium text-ink">Customer contact email (for updates)</span>
             <input
               type="email"
+              multiple
               value={customerEmail}
               onChange={(event) => setCustomerEmail(event.target.value)}
-              placeholder="customer@example.com"
+              placeholder="customer@example.com, other@example.com"
               className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
               required={listingType === "warehouse"}
             />
             <p className="text-xs leading-5 text-ink/55">
-              Used only for customer activity updates. Required for warehouse-managed vehicles.
+              Used only for customer activity updates. Required for warehouse-managed vehicles. Separate multiple emails with commas.
             </p>
           </label>
         </div>

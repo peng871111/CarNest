@@ -9,6 +9,7 @@ import {
   restoreSoftDeletedVehicle,
   softDeleteVehicle,
   updateSellerVehicleStatus,
+  updateVehicleCustomerEmail,
   updateVehicleStatus
 } from "@/lib/data";
 import { hasAdminPermission, getListingLabel } from "@/lib/permissions";
@@ -188,6 +189,7 @@ export function AdminVehiclesReviewBoard({
   const [expandedHistoryByVehicleId, setExpandedHistoryByVehicleId] = useState<Record<string, boolean>>({});
   const [activityNoteModeByVehicleId, setActivityNoteModeByVehicleId] = useState<Record<string, ActivityNoteMode>>({});
   const [sendCustomerEmailByVehicleId, setSendCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
+  const [customerEmailDrafts, setCustomerEmailDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -435,6 +437,29 @@ export function AdminVehiclesReviewBoard({
     }
   }
 
+  async function handleSaveCustomerEmail(vehicle: Vehicle) {
+    if (!appUser) return;
+
+    const nextCustomerEmail = customerEmailDrafts[vehicle.id] ?? vehicle.customerEmail ?? "";
+    setBusyAction(`customer-email-${vehicle.id}`);
+    setLocalError("");
+    setNotice("");
+
+    try {
+      const result = await updateVehicleCustomerEmail(vehicle.id, nextCustomerEmail, appUser, vehicle);
+      setVehicles((current) => current.map((item) => (item.id === vehicle.id ? result.vehicle : item)));
+      setCustomerEmailDrafts((current) => ({
+        ...current,
+        [vehicle.id]: result.vehicle.customerEmail ?? ""
+      }));
+      setNotice("Customer email saved");
+    } catch (actionError) {
+      setLocalError(actionError instanceof Error ? actionError.message : "Unable to save the customer email.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function toggleExpanded(vehicleId: string) {
     const shouldExpand = !expandedIds[vehicleId];
     setExpandedIds((current) => ({
@@ -575,6 +600,7 @@ export function AdminVehiclesReviewBoard({
                       const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
                       const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
                       const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? true;
+                      const customerEmailValue = customerEmailDrafts[vehicle.id] ?? vehicle.customerEmail ?? "";
 
                       return (
                         <article
@@ -657,7 +683,33 @@ export function AdminVehiclesReviewBoard({
                                     <div className="mt-3 space-y-2 text-sm text-ink/70">
                                       <p>Name: {getOwnerLabel(owner)}</p>
                                       <p>Email: {owner?.email || "Not available"}</p>
-                                      <p>Customer email: {vehicle.customerEmail || "Not set"}</p>
+                                      <div className="space-y-2 pt-2">
+                                        <p className="text-xs uppercase tracking-[0.16em] text-ink/45">Customer Email</p>
+                                        <input
+                                          type="email"
+                                          multiple
+                                          value={customerEmailValue}
+                                          onChange={(event) =>
+                                            setCustomerEmailDrafts((current) => ({
+                                              ...current,
+                                              [vehicle.id]: event.target.value
+                                            }))
+                                          }
+                                          placeholder="Enter customer email for updates"
+                                          className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
+                                        />
+                                        <div className="flex items-center justify-between gap-3">
+                                          <p className="text-xs text-ink/55">Use comma-separated emails for multiple recipients.</p>
+                                          <button
+                                            type="button"
+                                            disabled={busyAction === `customer-email-${vehicle.id}`}
+                                            onClick={() => void handleSaveCustomerEmail(vehicle)}
+                                            className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                                          >
+                                            {busyAction === `customer-email-${vehicle.id}` ? "Saving..." : "Save"}
+                                          </button>
+                                        </div>
+                                      </div>
                                     </div>
                                   </div>
 

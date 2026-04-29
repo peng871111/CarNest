@@ -855,14 +855,30 @@ function validateVehicleLocation(input: VehicleFormInput) {
 function validateCustomerContactEmail(input: VehicleFormInput, actor: VehicleActor) {
   if (!isAdminLikeRole(actor.role) || input.listingType !== "warehouse") return;
 
-  const customerEmail = sanitizeSingleLineText(input.customerEmail ?? "").toLowerCase();
-  if (!customerEmail) {
+  const customerEmails = parseCustomerEmailList(input.customerEmail ?? "");
+  if (!customerEmails.length) {
     throw new Error("Customer contact email is required for warehouse-managed vehicles.");
   }
+}
 
-  if (!isValidEmailAddress(customerEmail)) {
-    throw new Error("Please enter a valid customer contact email.");
+function parseCustomerEmailList(value: string) {
+  return value
+    .split(",")
+    .map((item) => sanitizeSingleLineText(item).toLowerCase())
+    .filter(Boolean);
+}
+
+function normalizeCustomerEmailList(value?: string) {
+  const uniqueEmails = Array.from(new Set(parseCustomerEmailList(value ?? "")));
+  if (!uniqueEmails.length) return "";
+
+  for (const email of uniqueEmails) {
+    if (!isValidEmailAddress(email)) {
+      throw new Error("Please enter a valid customer contact email.");
+    }
   }
+
+  return uniqueEmails.join(", ");
 }
 
 function normalizeDigitsOnly(value: string, maxLength?: number) {
@@ -2475,6 +2491,11 @@ export async function addVehicleActivityNote(
     throw new Error("Enter a note before saving to the vehicle activity log.");
   }
 
+  const normalizedRecipientEmail = options?.recipientEmail ? normalizeCustomerEmailList(options.recipientEmail) : "";
+  if (options?.visibility === "customer" && options.sendEmail && !normalizedRecipientEmail) {
+    throw new Error("Please set customer email first");
+  }
+
   const event = await writeVehicleActivityEvent(
     vehicleId,
     options?.type ?? "admin_note_added",
@@ -2493,8 +2514,7 @@ export async function addVehicleActivityNote(
     };
 
   if (options?.visibility === "customer" && options.sendEmail) {
-    const recipientEmail = options.recipientEmail?.trim().toLowerCase() ?? "";
-    if (!recipientEmail || !isValidEmailAddress(recipientEmail)) {
+    if (!normalizedRecipientEmail) {
       emailStatus = {
         attempted: false,
         sent: false,
@@ -2513,7 +2533,7 @@ export async function addVehicleActivityNote(
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            to: recipientEmail,
+            to: parseCustomerEmailList(normalizedRecipientEmail),
             vehicleId,
             vehicleTitle: options.vehicleTitle ?? "Vehicle listing",
             referenceId: options.referenceId ?? vehicleId,
@@ -2527,7 +2547,7 @@ export async function addVehicleActivityNote(
           const body = await response.text().catch(() => "");
           console.error("[vehicle-activity-email] Failed to trigger customer activity email", {
             vehicleId,
-            recipientEmail,
+            recipientEmail: normalizedRecipientEmail,
             status: response.status,
             body
           });
@@ -2552,7 +2572,7 @@ export async function addVehicleActivityNote(
       } catch (error) {
         console.error("[vehicle-activity-email] Failed to reach customer activity email endpoint", {
           vehicleId,
-          recipientEmail,
+          recipientEmail: normalizedRecipientEmail,
           reason: error instanceof Error ? error.message : String(error)
         });
         emailStatus = {
@@ -3822,6 +3842,51 @@ export async function restoreSoftDeletedVehicle(
   };
 }
 
+export async function updateVehicleCustomerEmail(
+  id: string,
+  customerEmail: string,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can update the customer email.");
+
+  const baseVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!baseVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  const normalizedCustomerEmail = normalizeCustomerEmailList(customerEmail);
+
+  const nextVehicle = {
+    ...baseVehicle,
+    customerEmail: normalizedCustomerEmail,
+    updatedAt: new Date().toISOString()
+  } satisfies Vehicle;
+
+  if (!isFirebaseConfigured) {
+    return {
+      vehicle: nextVehicle,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "vehicles", id),
+    {
+      customerEmail: normalizedCustomerEmail,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
+
+  return {
+    vehicle: nextVehicle,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 function assertVehicleOwnership(actor: VehicleActor, vehicle: Vehicle) {
   if (isAdminLikeRole(actor.role)) return;
   if (vehicle.ownerUid !== actor.id) {
@@ -4092,7 +4157,7 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     sellerLocationSuburb: toUppercaseValue(input.sellerLocationSuburb),
     sellerLocationPostcode: typeof input.sellerLocationPostcode === "string" ? input.sellerLocationPostcode.replace(/\D/g, "").slice(0, 4) : "",
     sellerLocationState: toUppercaseValue(input.sellerLocationState),
-    customerEmail: sanitizeSingleLineText(input.customerEmail ?? "").toLowerCase(),
+    customerEmail: normalizeCustomerEmailList(input.customerEmail ?? ""),
     description: sanitizeMultilineText(input.description),
     imageAssets: Array.isArray(input.imageAssets)
       ? input.imageAssets.filter((item) => Boolean(item?.thumbnailUrl) && Boolean(item?.fullUrl))

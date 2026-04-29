@@ -6,7 +6,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
 const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
 
 export interface VehicleActivityEmailPayload {
-  to: string;
+  to: string[];
   vehicleId: string;
   vehicleTitle: string;
   referenceId: string;
@@ -87,7 +87,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
   if (!RESEND_API_KEY || !EMAIL_FROM) {
     console.warn("[vehicle-activity-email] Transactional email is not configured. Skipping email send.", {
       vehicleId: payload.vehicleId,
-      recipientEmail: payload.to,
+      recipientEmail: payload.to.join(", "),
       subject: content.subject,
       missingEnvVars: [
         !RESEND_API_KEY ? "RESEND_API_KEY" : null,
@@ -109,7 +109,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
   if (error) {
     console.error("[vehicle-activity-email] Resend rejected customer update email.", {
       vehicleId: payload.vehicleId,
-      recipientEmail: payload.to,
+      recipientEmail: payload.to.join(", "),
       subject: content.subject,
       errorName: error.name,
       errorMessage: error.message

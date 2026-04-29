@@ -8,8 +8,9 @@ import {
 function isValidPayload(body: unknown): body is VehicleActivityEmailPayload {
   if (!body || typeof body !== "object") return false;
   const payload = body as Record<string, unknown>;
-  return typeof payload.to === "string"
-    && payload.to.trim().length > 0
+  return Array.isArray(payload.to)
+    && payload.to.length > 0
+    && payload.to.every((item) => typeof item === "string" && item.trim().length > 0)
     && typeof payload.vehicleId === "string"
     && payload.vehicleId.trim().length > 0
     && typeof payload.vehicleTitle === "string"
@@ -31,7 +32,7 @@ export async function POST(request: NextRequest) {
     const content = getVehicleActivityEmailContent(body);
     console.info("[vehicle-activity-email] Trigger received", {
       vehicleId: body.vehicleId,
-      recipientEmail: body.to,
+      recipientEmail: body.to.join(", "),
       subject: content.subject
     });
 
@@ -39,14 +40,14 @@ export async function POST(request: NextRequest) {
     if (result.sent) {
       console.info("[vehicle-activity-email] Email sent", {
         vehicleId: body.vehicleId,
-        recipientEmail: body.to,
+        recipientEmail: body.to.join(", "),
         subject: result.subject,
         providerMessageId: "providerMessageId" in result ? result.providerMessageId : null
       });
     } else {
       console.warn("[vehicle-activity-email] Email skipped", {
         vehicleId: body.vehicleId,
-        recipientEmail: body.to,
+        recipientEmail: body.to.join(", "),
         subject: content.subject,
         reason: "reason" in result ? result.reason : "skipped"
       });
