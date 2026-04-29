@@ -4,7 +4,6 @@ import {
   sendVehicleActivityEmail,
   VEHICLE_ACTIVITY_EMAIL_FROM
 } from "@/lib/vehicle-activity-email";
-import { getAdminDb } from "@/lib/firebase-admin";
 import { isValidEmailAddress } from "@/lib/form-safety";
 
 interface VehicleActivityEmailRequestBody {
@@ -42,29 +41,9 @@ function parseCustomerEmailList(value?: string) {
   );
 }
 
-async function getVehicleCustomerEmailFromFirestore(vehicleId: string) {
-  const adminDb = getAdminDb();
-  if (!adminDb) {
-    console.warn("[vehicle-activity-email] Firebase Admin SDK unavailable for vehicle lookup.", {
-      vehicleId
-    });
-    return "";
-  }
-
-  const vehicleSnapshot = await adminDb.collection("vehicles").doc(vehicleId).get();
-  if (!vehicleSnapshot.exists) {
-    console.warn("[vehicle-activity-email] Vehicle not found for customer email lookup.", {
-      vehicleId
-    });
-    return "";
-  }
-
-  const vehicleData = vehicleSnapshot.data() ?? {};
-  return typeof vehicleData.customerEmail === "string" ? vehicleData.customerEmail : "";
-}
-
 export async function POST(request: NextRequest) {
   try {
+    console.log("API route hit");
     const body = await request.json();
 
     if (!isValidPayload(body)) {
@@ -72,16 +51,12 @@ export async function POST(request: NextRequest) {
     }
 
     const payloadCustomerEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
-    const firestoreCustomerEmail = await getVehicleCustomerEmailFromFirestore(body.vehicleId);
-    const selectedCustomerEmail = firestoreCustomerEmail || payloadCustomerEmail;
-    const recipientEmails = parseCustomerEmailList(selectedCustomerEmail);
+    const recipientEmails = parseCustomerEmailList(payloadCustomerEmail);
     const content = getVehicleActivityEmailContent(body);
     console.info("[vehicle-activity-email] Trigger received", {
       vehicleId: body.vehicleId,
       subject: content.subject,
       payloadCustomerEmail,
-      firestoreCustomerEmail,
-      selectedCustomerEmail,
       recipientEmails,
       from: VEHICLE_ACTIVITY_EMAIL_FROM
     });
@@ -90,8 +65,6 @@ export async function POST(request: NextRequest) {
       console.warn("[vehicle-activity-email] No customer email set for vehicle activity update.", {
         vehicleId: body.vehicleId,
         payloadCustomerEmail,
-        firestoreCustomerEmail,
-        selectedCustomerEmail,
         recipientEmails,
         from: VEHICLE_ACTIVITY_EMAIL_FROM
       });
