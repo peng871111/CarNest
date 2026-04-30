@@ -62,8 +62,9 @@ export type VehicleActivityType =
   | "warehouse_activity_added";
 
 export interface VehicleActivityEmailAttachment {
+  filename: string;
   content: string;
-  contentType: string;
+  contentType?: string;
 }
 
 export interface VehicleImageAsset {

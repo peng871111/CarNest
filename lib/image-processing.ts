@@ -195,9 +195,9 @@ function blobToBase64(blob: Blob) {
 }
 
 export async function prepareVehicleActivityEmailAttachments(files: File[]) {
-  const attachments = [] as { content: string; contentType: string }[];
+  const attachments = [] as { filename: string; content: string; contentType?: string }[];
 
-  for (const file of files.slice(0, 5)) {
+  for (const [index, file] of files.slice(0, 5).entries()) {
     const optimizedFile = await compressVehicleImage(file, {
       maxWidth: 1200,
       quality: 0.72,
@@ -207,6 +207,7 @@ export async function prepareVehicleActivityEmailAttachments(files: File[]) {
     });
 
     attachments.push({
+      filename: `carnest-update-${index + 1}.jpg`,
       content: await blobToBase64(optimizedFile),
       contentType: optimizedFile.type || EMAIL_ATTACHMENT_MIME_TYPE
     });

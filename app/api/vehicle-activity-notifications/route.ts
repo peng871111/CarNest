@@ -35,10 +35,14 @@ function isValidPayload(body: unknown): body is VehicleActivityEmailRequestBody 
         && payload.attachments.every((attachment) =>
           attachment
           && typeof attachment === "object"
+          && typeof (attachment as Record<string, unknown>).filename === "string"
+          && ((attachment as Record<string, string>).filename ?? "").trim().length > 0
           && typeof (attachment as Record<string, unknown>).content === "string"
           && ((attachment as Record<string, string>).content ?? "").trim().length > 0
-          && typeof (attachment as Record<string, unknown>).contentType === "string"
-          && ((attachment as Record<string, string>).contentType ?? "").trim().length > 0
+          && (
+            typeof (attachment as Record<string, unknown>).contentType === "undefined"
+            || typeof (attachment as Record<string, unknown>).contentType === "string"
+          )
         )
       )
     );
@@ -62,10 +66,11 @@ function sanitizeAttachments(attachments?: VehicleActivityEmailAttachment[]) {
 
   return attachments
     .slice(0, 5)
-    .filter((attachment) => attachment.content.trim().length > 0)
+    .filter((attachment) => attachment.filename.trim().length > 0 && attachment.content.trim().length > 0)
     .map((attachment) => ({
+      filename: attachment.filename.trim(),
       content: attachment.content.trim(),
-      contentType: attachment.contentType.trim() || "image/jpeg"
+      contentType: attachment.contentType?.trim() || "image/jpeg"
     }));
 }
 
@@ -81,6 +86,7 @@ export async function POST(request: NextRequest) {
     const payloadCustomerEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
     const recipientEmails = parseCustomerEmailList(payloadCustomerEmail);
     const attachments = sanitizeAttachments(body.attachments);
+    console.log("attachments size:", attachments?.length ?? 0);
     const content = getVehicleActivityEmailContent(body);
     console.info("[vehicle-activity-email] Trigger received", {
       vehicleId: body.vehicleId,

@@ -524,6 +524,8 @@ export function AdminVehiclesReviewBoard({
             }
           }
 
+          console.log("attachments size:", attachments?.length ?? 0);
+
           const payload = {
             vehicleId,
             customerEmail: selectedCustomerEmail,

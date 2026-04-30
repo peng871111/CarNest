@@ -100,11 +100,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     subject: content.subject,
     html: content.html,
     text: content.text,
-    attachments: payload.attachments?.slice(0, 5).map((attachment, index) => ({
-      filename: `carnest-update-${index + 1}.jpg`,
-      content: attachment.content,
-      contentType: attachment.contentType || "image/jpeg"
-    }))
+    attachments: payload.attachments?.slice(0, 5)
   });
 
   if (error) {
