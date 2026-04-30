@@ -326,6 +326,51 @@ export function AdminVehiclesReviewBoard({
     }
   }
 
+  async function handlePermanentDelete(vehicle: Vehicle) {
+    if (!appUser) return;
+
+    const confirmed = window.confirm("This will permanently delete the vehicle and cannot be undone.");
+    if (!confirmed) return;
+
+    setBusyAction(`permanent-delete-${vehicle.id}`);
+    setLocalError("");
+    setNotice("");
+
+    try {
+      const response = await fetch(`/api/admin/vehicle/${vehicle.id}`, {
+        method: "DELETE",
+        cache: "no-store"
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Unable to permanently delete the vehicle.");
+      }
+
+      setVehicles((current) => current.filter((item) => item.id !== vehicle.id));
+      setSelectedIds((current) => {
+        const next = { ...current };
+        delete next[vehicle.id];
+        return next;
+      });
+      setExpandedIds((current) => {
+        const next = { ...current };
+        delete next[vehicle.id];
+        return next;
+      });
+      setActivityLogsByVehicleId((current) => {
+        const next = { ...current };
+        delete next[vehicle.id];
+        return next;
+      });
+      setNotice("Vehicle permanently deleted.");
+    } catch (actionError) {
+      setLocalError(actionError instanceof Error ? actionError.message : "Unable to permanently delete the vehicle.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   async function handleBulkConfirm() {
     if (!pendingBulkAction || !appUser) return;
 
@@ -1080,6 +1125,16 @@ export function AdminVehiclesReviewBoard({
                                             Delete
                                           </button>
                                         )
+                                      ) : null}
+                                      {canDeleteListings ? (
+                                        <button
+                                          type="button"
+                                          disabled={busyAction === `permanent-delete-${vehicle.id}`}
+                                          onClick={() => void handlePermanentDelete(vehicle)}
+                                          className="rounded-full bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                                        >
+                                          {busyAction === `permanent-delete-${vehicle.id}` ? "Deleting..." : "Permanently delete"}
+                                        </button>
                                       ) : null}
                                       <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink">
                                         View details
