@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Buffer } from "node:buffer";
 import {
   getVehicleActivityEmailContent,
   sendVehicleActivityEmail,
@@ -14,6 +15,12 @@ interface VehicleActivityEmailRequestBody {
   message: string;
   customerEmail?: string;
   attachments?: VehicleActivityEmailAttachment[];
+}
+
+interface PreparedVehicleActivityEmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
 }
 
 function isValidPayload(body: unknown): body is VehicleActivityEmailRequestBody {
@@ -65,12 +72,11 @@ function sanitizeAttachments(attachments?: VehicleActivityEmailAttachment[]) {
   if (!attachments?.length) return [];
 
   return attachments
-    .slice(0, 5)
+    .slice(0, 2)
     .filter((attachment) => attachment.filename.trim().length > 0 && attachment.content.trim().length > 0)
     .map((attachment) => ({
       filename: attachment.filename.trim(),
-      content: attachment.content.trim(),
-      contentType: attachment.contentType?.trim() || "image/jpeg"
+      content: attachment.content.trim()
     }));
 }
 
@@ -85,8 +91,38 @@ export async function POST(request: NextRequest) {
 
     const payloadCustomerEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
     const recipientEmails = parseCustomerEmailList(payloadCustomerEmail);
-    const attachments = sanitizeAttachments(body.attachments);
-    console.log("attachments size:", attachments?.length ?? 0);
+    const rawAttachments = sanitizeAttachments(body.attachments);
+    let attachments: PreparedVehicleActivityEmailAttachment[] = [];
+    let totalBytes = 0;
+
+    if (rawAttachments.length) {
+      const decodedAttachments = rawAttachments.map((attachment) => {
+        const buffer = Buffer.from(attachment.content, "base64");
+        return {
+          filename: attachment.filename,
+          content: buffer,
+          contentType: "image/jpeg"
+        };
+      });
+
+      totalBytes = decodedAttachments.reduce((sum, attachment) => sum + attachment.content.byteLength, 0);
+      console.log("attachments count:", decodedAttachments.length);
+      console.log("total size:", totalBytes);
+
+      if (totalBytes <= 800 * 1024) {
+        attachments = decodedAttachments;
+      } else {
+        console.warn("[vehicle-activity-email] Attachments ignored because total payload is too large.", {
+          vehicleId: body.vehicleId,
+          attachmentCount: decodedAttachments.length,
+          totalBytes
+        });
+      }
+    } else {
+      console.log("attachments count:", 0);
+      console.log("total size:", 0);
+    }
+
     const content = getVehicleActivityEmailContent(body);
     console.info("[vehicle-activity-email] Trigger received", {
       vehicleId: body.vehicleId,
@@ -113,11 +149,42 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const result = await sendVehicleActivityEmail({
-      ...body,
-      to: recipientEmails,
-      attachments
-    });
+    let result;
+    try {
+      result = await sendVehicleActivityEmail({
+        ...body,
+        to: recipientEmails,
+        attachments
+      });
+    } catch (attachmentError) {
+      console.error("[vehicle-activity-email] Attachment send failed; retrying without attachments.", {
+        vehicleId: body.vehicleId,
+        from: VEHICLE_ACTIVITY_EMAIL_FROM,
+        attachmentCount: attachments.length,
+        totalBytes,
+        error: attachmentError
+      });
+
+      try {
+        result = await sendVehicleActivityEmail({
+          ...body,
+          to: recipientEmails,
+          attachments: []
+        });
+      } catch (retryError) {
+        console.error("[vehicle-activity-email] Fallback send without attachments failed.", {
+          vehicleId: body.vehicleId,
+          from: VEHICLE_ACTIVITY_EMAIL_FROM,
+          error: retryError
+        });
+        return NextResponse.json({
+          success: true,
+          sent: false,
+          error: retryError instanceof Error ? retryError.message : String(retryError)
+        });
+      }
+    }
+
     if (result.sent) {
       console.info("[vehicle-activity-email] Email sent", {
         vehicleId: body.vehicleId,
@@ -144,12 +211,10 @@ export async function POST(request: NextRequest) {
       from: VEHICLE_ACTIVITY_EMAIL_FROM,
       error
     });
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: true,
+      sent: false,
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 }

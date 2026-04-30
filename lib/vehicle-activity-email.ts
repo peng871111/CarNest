@@ -1,5 +1,6 @@
 import "server-only";
 
+import { Buffer } from "node:buffer";
 import { Resend } from "resend";
 import { VehicleActivityEmailAttachment } from "@/types";
 
@@ -12,7 +13,7 @@ export interface VehicleActivityEmailPayload {
   vehicleTitle: string;
   referenceId: string;
   message: string;
-  attachments?: VehicleActivityEmailAttachment[];
+  attachments?: Array<VehicleActivityEmailAttachment | { filename: string; content: Buffer; contentType?: string }>;
 }
 
 export function getVehicleActivityEmailContent(

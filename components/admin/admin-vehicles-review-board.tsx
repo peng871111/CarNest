@@ -21,7 +21,7 @@ type ModerationFilter = "all" | "pending" | "active" | "rejected" | "sold" | "de
 type ModerationGroup = Exclude<ModerationFilter, "all">;
 type BulkAction = "approve" | "reject" | "delete" | "restore";
 type ActivityNoteMode = "admin" | "customer";
-const MAX_ACTIVITY_EMAIL_ATTACHMENTS = 5;
+const MAX_ACTIVITY_EMAIL_ATTACHMENTS = 2;
 
 type OwnerDirectory = Record<string, Pick<AppUser, "id" | "displayName" | "name" | "email">>;
 
@@ -519,8 +519,7 @@ export function AdminVehiclesReviewBoard({
                 vehicleId,
                 error: attachmentError instanceof Error ? attachmentError.message : String(attachmentError)
               });
-              setNotice("Customer update saved, but email could not be sent");
-              return;
+              attachments = [];
             }
           }
 
