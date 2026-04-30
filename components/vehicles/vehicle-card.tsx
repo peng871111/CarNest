@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Vehicle } from "@/types";
@@ -10,6 +9,7 @@ import { ListingBadge } from "@/components/vehicles/listing-badge";
 import { ListingSummary } from "@/components/vehicles/listing-summary";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
+import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
 
 export function VehicleCard({ vehicle, compact = false }: { vehicle: Vehicle; compact?: boolean }) {
   const candidates = useMemo(() => getVehicleImageCandidates(vehicle), [vehicle]);
@@ -27,15 +27,14 @@ export function VehicleCard({ vehicle, compact = false }: { vehicle: Vehicle; co
       className={`overflow-hidden border border-black/5 bg-white shadow-panel transition hover:-translate-y-1 ${compact ? "rounded-[22px]" : "rounded-[24px]"}`}
     >
       <div className={`relative ${compact ? "aspect-[4/2.55]" : "aspect-[4/3]"}`}>
-        <Image
+        <PublicVehicleImage
           src={imageSrc}
-          alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} listing image`}
-          fill
+          alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
           loading="lazy"
           sizes={compact ? "(max-width: 519px) 100vw, (max-width: 1279px) 50vw, (max-width: 1535px) 33vw, 25vw" : "(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"}
           quality={compact ? 68 : 75}
           className="object-cover"
-          onError={() => setImageIndex((current) => (current < candidates.length - 1 ? current + 1 : current))}
+          onImageError={() => setImageIndex((current) => (current < candidates.length - 1 ? current + 1 : current))}
         />
         <ImageWatermark />
       </div>

@@ -2,9 +2,10 @@ import Link from "next/link";
 import { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
+import ReactDOM from "react-dom";
 import { getSellerTrustInfo, getVehicleById, listPublishedVehicles } from "@/lib/data";
 import { formatCalendarDate, formatCurrency, formatMonthYear, getVehicleDisplayReference } from "@/lib/utils";
-import { getListingLabel, getVehicleGallery } from "@/lib/permissions";
+import { getListingLabel, getVehicleDetailImage, getVehicleGallery, getVehicleGalleryThumbnails } from "@/lib/permissions";
 import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "@/lib/seo";
 import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
@@ -35,10 +36,30 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     }
 
     return {
-      title: getVehicleSeoTitle(vehicle),
+      title: {
+        absolute: getVehicleSeoTitle(vehicle)
+      },
       description: getVehicleSeoDescription(vehicle),
       alternates: {
         canonical: `/inventory/${vehicle.id}`
+      },
+      openGraph: {
+        title: getVehicleSeoTitle(vehicle),
+        description: getVehicleSeoDescription(vehicle),
+        url: buildAbsoluteUrl(`/inventory/${vehicle.id}`),
+        type: "website",
+        images: [
+          {
+            url: getVehicleDetailImage(vehicle),
+            alt: `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()
+          }
+        ]
+      },
+      twitter: {
+        card: "summary_large_image",
+        title: getVehicleSeoTitle(vehicle),
+        description: getVehicleSeoDescription(vehicle),
+        images: [getVehicleDetailImage(vehicle)]
       }
     };
   } catch {
@@ -87,6 +108,12 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
   if (!vehicle || vehicle.deleted || vehicle.status !== "approved" || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")) notFound();
 
   const sellerTrust = await getSellerTrustInfo(vehicle.ownerUid);
+  const vehicleImages = getVehicleGallery(vehicle);
+  const vehicleThumbnails = getVehicleGalleryThumbnails(vehicle);
+  const primaryImage = vehicleImages[0];
+  if (primaryImage) {
+    ReactDOM.preload(primaryImage, { as: "image" });
+  }
   const isCarnestManaged = Boolean(vehicle.isManagedByCarnest);
   const { vehicles: publishedVehicles } = await listPublishedVehicles();
   const moreVehicles = publishedVehicles
@@ -124,22 +151,35 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     ["Seller state", vehicle.sellerLocationState ?? ""],
     ["Vehicle ID", getVehicleDisplayReference(vehicle)]
   ].filter(([, value]) => Boolean(value));
+  const publicLocation = vehicle.sellerLocationSuburb || vehicle.sellerLocationState || "";
   const vehicleStructuredData = {
     "@context": "https://schema.org",
-    "@type": "Product",
-    name: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+    "@type": "Vehicle",
+    name: [vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" "),
     brand: {
       "@type": "Brand",
       name: vehicle.make
     },
     model: vehicle.model,
-    description: vehicle.description,
-    image: getVehicleGallery(vehicle),
+    vehicleModelDate: String(vehicle.year),
+    mileageFromOdometer: {
+      "@type": "QuantitativeValue",
+      value: vehicle.mileage,
+      unitCode: "KMT"
+    },
+    fuelType: vehicle.fuelType,
+    vehicleTransmission: vehicle.transmission,
+    color: vehicle.colour,
+    bodyType: vehicle.bodyType,
+    image: vehicleImages,
+    url: buildAbsoluteUrl(`/inventory/${vehicle.id}`),
+    description: getVehicleSeoDescription(vehicle),
+    ...(publicLocation ? { areaServed: publicLocation } : {}),
     offers: {
       "@type": "Offer",
       price: vehicle.price,
       priceCurrency: "AUD",
-      availability: "https://schema.org/InStock",
+      availability: vehicle.sellerStatus === "UNDER_OFFER" ? "https://schema.org/LimitedAvailability" : "https://schema.org/InStock",
       url: buildAbsoluteUrl(`/inventory/${vehicle.id}`)
     }
   };
@@ -164,8 +204,9 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             ← Back to inventory
           </Link>
           <VehicleGallery
-            images={getVehicleGallery(vehicle)}
-            altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+            images={vehicleImages}
+            thumbnails={vehicleThumbnails}
+            altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.replace(/\s+/g, " ").trim()}
             showMainImageArrows
           />
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">

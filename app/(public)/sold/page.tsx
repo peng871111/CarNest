@@ -1,9 +1,9 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
 import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
+import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -33,10 +33,11 @@ export default async function SoldVehiclesPage() {
             {vehicles.map((vehicle) => (
               <article key={vehicle.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-white shadow-panel">
                 <div className="relative h-48">
-                  <Image
+                  <PublicVehicleImage
                     src={getVehicleImage(vehicle)}
-                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} sold vehicle image`}
-                    fill
+                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
+                    loading="lazy"
+                    sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 25vw"
                     className="object-cover"
                   />
                   <ImageWatermark />

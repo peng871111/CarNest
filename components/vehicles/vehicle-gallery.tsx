@@ -7,10 +7,12 @@ import { ImageWatermark } from "@/components/vehicles/image-watermark";
 
 export function VehicleGallery({
   images,
+  thumbnails,
   altBase,
   showMainImageArrows = false
 }: {
   images: string[];
+  thumbnails?: string[];
   altBase: string;
   showMainImageArrows?: boolean;
 }) {
@@ -31,19 +33,36 @@ export function VehicleGallery({
       ),
     [images]
   );
+  const validThumbnails = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (thumbnails?.length ? thumbnails : images).filter((url): url is string => typeof url === "string" && url.startsWith("http"))
+        )
+      ),
+    [images, thumbnails]
+  );
   const [activeImage, setActiveImage] = useState(validImages[0] ?? VEHICLE_PLACEHOLDER_IMAGE);
   const [thumbnailSources, setThumbnailSources] = useState(validImages);
+  const [mainImageLoaded, setMainImageLoaded] = useState(false);
+  const [thumbnailLoaded, setThumbnailLoaded] = useState<Record<number, boolean>>({});
   const activeImageIndex = Math.max(thumbnailSources.indexOf(activeImage), 0);
 
   const getImageAlt = (index: number) => {
     const descriptor = imageDescriptors[index] ?? `detail view ${index + 1}`;
-    return `${altBase} ${descriptor}`;
+    return `${altBase} ${descriptor} photo on CarNest`;
   };
 
   useEffect(() => {
     setThumbnailSources(validImages);
     setActiveImage(validImages[0] ?? VEHICLE_PLACEHOLDER_IMAGE);
+    setMainImageLoaded(false);
+    setThumbnailLoaded({});
   }, [validImages]);
+
+  useEffect(() => {
+    setMainImageLoaded(false);
+  }, [activeImage]);
 
   function showPreviousImage() {
     if (thumbnailSources.length <= 1) return;
@@ -60,14 +79,19 @@ export function VehicleGallery({
   return (
     <div className="space-y-4">
       <div className="relative aspect-[16/10] overflow-hidden rounded-[32px] border border-black/5 bg-white shadow-panel">
+        {!mainImageLoaded ? <div className="absolute inset-0 animate-pulse bg-shell" aria-hidden="true" /> : null}
         <img
           src={activeImage}
           alt={getImageAlt(Math.max(validImages.indexOf(activeImage), 0))}
           loading="eager"
+          decoding="async"
+          fetchPriority="high"
+          onLoad={() => setMainImageLoaded(true)}
           onError={(event) => {
             event.currentTarget.onerror = null;
             event.currentTarget.src = VEHICLE_PLACEHOLDER_IMAGE;
             setActiveImage(VEHICLE_PLACEHOLDER_IMAGE);
+            setMainImageLoaded(true);
           }}
           className="h-full w-full object-cover"
         />
@@ -97,6 +121,7 @@ export function VehicleGallery({
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {thumbnailSources.map((image, index) => {
             const active = image === activeImage;
+            const thumbnailSrc = validThumbnails[index] ?? image;
 
             return (
               <button
@@ -105,13 +130,25 @@ export function VehicleGallery({
                 onClick={() => setActiveImage(image)}
                 className={`relative aspect-[4/3] overflow-hidden rounded-[22px] border bg-white transition ${active ? "border-bronze shadow-panel" : "border-black/5 hover:border-black/15"}`}
               >
+                {!thumbnailLoaded[index] ? <div className="absolute inset-0 animate-pulse bg-shell" aria-hidden="true" /> : null}
                 <img
-                  src={image}
+                  src={thumbnailSrc}
                   alt={getImageAlt(index)}
                   loading="lazy"
+                  decoding="async"
+                  onLoad={() =>
+                    setThumbnailLoaded((current) => ({
+                      ...current,
+                      [index]: true
+                    }))
+                  }
                   onError={(event) => {
                     event.currentTarget.onerror = null;
                     event.currentTarget.src = VEHICLE_PLACEHOLDER_IMAGE;
+                    setThumbnailLoaded((current) => ({
+                      ...current,
+                      [index]: true
+                    }));
                     setThumbnailSources((current) =>
                       current.map((item, itemIndex) => (itemIndex === index ? VEHICLE_PLACEHOLDER_IMAGE : item))
                     );

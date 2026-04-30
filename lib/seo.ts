@@ -24,22 +24,45 @@ export function getVehicleSeoLocation(vehicle: Pick<Vehicle, "sellerLocationSubu
   return vehicle.sellerLocationSuburb || vehicle.sellerLocationState || "";
 }
 
-export function getVehicleSeoTitle(vehicle: Pick<Vehicle, "year" | "make" | "model" | "sellerLocationSuburb" | "sellerLocationState">) {
-  const baseTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
-  const location = getVehicleSeoLocation(vehicle);
-
-  return location ? `${baseTitle} for sale in ${location}` : `${baseTitle} for sale`;
+export function getVehicleSeoTitle(
+  vehicle: Pick<Vehicle, "year" | "make" | "model" | "variant">
+) {
+  const baseTitle = [vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ");
+  return `${baseTitle} for sale | CarNest`;
 }
 
 export function getVehicleSeoDescription(
-  vehicle: Pick<Vehicle, "year" | "make" | "model" | "sellerLocationSuburb" | "sellerLocationState">
+  vehicle: Pick<
+    Vehicle,
+    | "year"
+    | "make"
+    | "model"
+    | "variant"
+    | "bodyType"
+    | "fuelType"
+    | "transmission"
+    | "mileage"
+    | "sellerLocationSuburb"
+    | "sellerLocationState"
+  >
 ) {
-  const baseTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
   const location = getVehicleSeoLocation(vehicle);
+  const summary = [
+    vehicle.year,
+    vehicle.make,
+    vehicle.model,
+    vehicle.variant,
+    vehicle.bodyType,
+    vehicle.fuelType,
+    vehicle.transmission,
+    `${vehicle.mileage.toLocaleString()} km`
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   return location
-    ? `Explore this ${baseTitle} available in ${location}. View photos, details, pricing, and submit an offer on CarNest.`
-    : `Explore this ${baseTitle}. View photos, details, pricing, and submit an offer on CarNest.`;
+    ? `${summary}. Located in ${location}. View photos, vehicle details, and next steps on CarNest.`
+    : `${summary}. View photos, vehicle details, and next steps on CarNest.`;
 }
 
 export function getRobotsRules(): MetadataRoute.Robots["rules"] {

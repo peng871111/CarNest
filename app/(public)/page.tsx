@@ -1,7 +1,7 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Metadata } from "next";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
+import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
 import { getPublicSoldVehicles } from "@/lib/data";
 import { getVehicleImage } from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
@@ -130,10 +130,11 @@ export default async function HomePage() {
                   className="min-w-[260px] shrink-0 overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-panel"
                 >
                   <div className="relative aspect-[16/10]">
-                    <Image
+                    <PublicVehicleImage
                       src={getVehicleImage(vehicle)}
-                      alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} sold vehicle photo`}
-                      fill
+                      alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
+                      loading="lazy"
+                      sizes="260px"
                       className="object-cover"
                     />
                     <ImageWatermark />

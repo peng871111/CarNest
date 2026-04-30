@@ -243,6 +243,16 @@ export function getVehicleImage(vehicle: Vehicle) {
   );
 }
 
+export function getVehicleDetailImage(vehicle: Vehicle) {
+  return (
+    vehicle.imageAssets?.[0]?.fullUrl
+    || vehicle.coverImageUrl
+    || vehicle.imageUrls?.[0]
+    || vehicle.images?.[0]
+    || getVehicleImage(vehicle)
+  );
+}
+
 export function getVehicleImageCandidates(vehicle: Vehicle) {
   return Array.from(
     new Set(
@@ -264,6 +274,12 @@ export function getVehicleGallery(vehicle: Vehicle) {
   if (optimizedUrls.length) return optimizedUrls;
   const urls = vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images;
   return urls.length ? urls : [getVehicleImage(vehicle)];
+}
+
+export function getVehicleGalleryThumbnails(vehicle: Vehicle) {
+  const optimizedUrls = vehicle.imageAssets?.map((item) => item.thumbnailUrl || item.fullUrl).filter(Boolean) ?? [];
+  if (optimizedUrls.length) return optimizedUrls;
+  return getVehicleGallery(vehicle);
 }
 
 export function getVehicleStatusLabel(status: VehicleStatus) {
