@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { FieldValue } from "firebase-admin/firestore";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { collection, doc, getDoc, runTransaction, serverTimestamp } from "firebase/firestore";
+import { db, isFirebaseConfigured } from "@/lib/firebase";
 
 function isValidPayload(body: unknown): body is {
   vehicleId: string;
@@ -46,23 +46,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Invalid vehicle view payload." }, { status: 400 });
     }
 
-    const adminDb = getAdminDb();
-    if (!adminDb) {
+    if (!isFirebaseConfigured) {
       return NextResponse.json({ success: false, error: "Vehicle view tracking is not configured." }, { status: 503 });
     }
 
     const userAgent = request.headers.get("user-agent") ?? "";
     const visitorKeyHash = buildVisitorKeyHash(body.sessionId, body.userId, userAgent);
-    const vehiclesCollection = adminDb.collection("vehicles");
-    const viewEventsCollection = adminDb.collection("vehicleViewEvents");
-    const analyticsCollection = adminDb.collection("vehicleAnalytics");
-    const vehicleViewVisitorsCollection = adminDb.collection("vehicleViewVisitors");
-    const vehicleRef = vehiclesCollection.doc(body.vehicleId);
-    const analyticsRef = analyticsCollection.doc(body.vehicleId);
-    const viewEventRef = viewEventsCollection.doc();
-    const uniqueVisitorRef = vehicleViewVisitorsCollection.doc(`${body.vehicleId}_${visitorKeyHash}`);
+    const vehicleRef = doc(db, "vehicles", body.vehicleId);
+    const analyticsRef = doc(db, "vehicleAnalytics", body.vehicleId);
+    const viewEventRef = doc(collection(db, "vehicleViewEvents"));
+    const uniqueVisitorRef = doc(db, "vehicleViewVisitors", `${body.vehicleId}_${visitorKeyHash}`);
 
-    const tracked = await adminDb.runTransaction(async (transaction) => {
+    const tracked = await runTransaction(db, async (transaction) => {
       const [vehicleSnapshot, existingVisitorSnapshot] = await Promise.all([
         transaction.get(vehicleRef),
         transaction.get(uniqueVisitorRef)
@@ -91,14 +86,14 @@ export async function POST(request: NextRequest) {
         city: body.city ?? "",
         listingType: body.listingType,
         sellerOwnerUid: body.sellerOwnerUid,
-        viewedAt: FieldValue.serverTimestamp()
+        viewedAt: serverTimestamp()
       });
 
       if (isUniqueVisitor) {
         transaction.set(uniqueVisitorRef, {
           vehicleId: body.vehicleId,
           visitorKeyHash,
-          firstViewedAt: FieldValue.serverTimestamp()
+          firstViewedAt: serverTimestamp()
         });
       }
 
@@ -107,7 +102,7 @@ export async function POST(request: NextRequest) {
         {
           viewCount: nextViewCount,
           uniqueViewCount: nextUniqueViewCount,
-          lastViewedAt: FieldValue.serverTimestamp()
+          lastViewedAt: serverTimestamp()
         },
         { merge: true }
       );
@@ -119,7 +114,7 @@ export async function POST(request: NextRequest) {
           sellerOwnerUid: body.sellerOwnerUid,
           totalViews: nextViewCount,
           uniqueVisitors: nextUniqueViewCount,
-          updatedAt: FieldValue.serverTimestamp()
+          updatedAt: serverTimestamp()
         },
         { merge: true }
       );

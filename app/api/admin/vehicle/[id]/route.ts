@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, query, where, writeBatch } from "firebase/firestore";
+import { db, isFirebaseConfigured } from "@/lib/firebase";
 
 function parsePermissions(value?: string) {
   if (!value) return {} as Record<string, boolean>;
@@ -23,24 +24,21 @@ function canPermanentlyDeleteVehicle(request: NextRequest) {
 }
 
 async function deleteDocsByVehicleId(
-  adminDb: NonNullable<ReturnType<typeof getAdminDb>>,
   collectionName: string,
   vehicleId: string
 ) {
   let deletedCount = 0;
 
   while (true) {
-    const snapshot = await adminDb
-      .collection(collectionName)
-      .where("vehicleId", "==", vehicleId)
-      .limit(200)
-      .get();
+    const snapshot = await getDocs(
+      query(collection(db, collectionName), where("vehicleId", "==", vehicleId), limit(200))
+    );
 
     if (snapshot.empty) {
       break;
     }
 
-    const batch = adminDb.batch();
+    const batch = writeBatch(db);
     snapshot.docs.forEach((item) => batch.delete(item.ref));
     deletedCount += snapshot.size;
     await batch.commit();
@@ -62,14 +60,13 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Vehicle id is required." }, { status: 400 });
   }
 
-  const adminDb = getAdminDb();
-  if (!adminDb) {
-    return NextResponse.json({ success: false, error: "Admin Firestore is not configured." }, { status: 503 });
+  if (!isFirebaseConfigured) {
+    return NextResponse.json({ success: false, error: "Firestore is not configured." }, { status: 503 });
   }
 
   try {
-    const vehicleRef = adminDb.collection("vehicles").doc(id);
-    const vehicleSnapshot = await vehicleRef.get();
+    const vehicleRef = doc(db, "vehicles", id);
+    const vehicleSnapshot = await getDoc(vehicleRef);
 
     if (!vehicleSnapshot.exists) {
       return NextResponse.json({ success: false, error: "Vehicle not found." }, { status: 404 });
@@ -83,18 +80,18 @@ export async function DELETE(
       deletedInspectionRequests,
       deletedSavedVehicles
     ] = await Promise.all([
-      deleteDocsByVehicleId(adminDb, "vehicleActivityEvents", id),
-      deleteDocsByVehicleId(adminDb, "vehicleViewEvents", id),
-      deleteDocsByVehicleId(adminDb, "vehicleViewVisitors", id),
-      deleteDocsByVehicleId(adminDb, "offers", id),
-      deleteDocsByVehicleId(adminDb, "inspectionRequests", id),
-      deleteDocsByVehicleId(adminDb, "savedVehicles", id)
+      deleteDocsByVehicleId("vehicleActivityEvents", id),
+      deleteDocsByVehicleId("vehicleViewEvents", id),
+      deleteDocsByVehicleId("vehicleViewVisitors", id),
+      deleteDocsByVehicleId("offers", id),
+      deleteDocsByVehicleId("inspectionRequests", id),
+      deleteDocsByVehicleId("savedVehicles", id)
     ]);
 
-    const cleanupBatch = adminDb.batch();
+    const cleanupBatch = writeBatch(db);
     cleanupBatch.delete(vehicleRef);
-    cleanupBatch.delete(adminDb.collection("vehicleAnalytics").doc(id));
-    cleanupBatch.delete(adminDb.collection("vehicle_private").doc(id));
+    cleanupBatch.delete(doc(db, "vehicleAnalytics", id));
+    cleanupBatch.delete(doc(db, "vehicle_private", id));
     await cleanupBatch.commit();
 
     return NextResponse.json({
