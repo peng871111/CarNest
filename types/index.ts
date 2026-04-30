@@ -61,6 +61,11 @@ export type VehicleActivityType =
   | "admin_note_added"
   | "warehouse_activity_added";
 
+export interface VehicleActivityEmailAttachment {
+  content: string;
+  contentType: string;
+}
+
 export interface VehicleImageAsset {
   thumbnailUrl: string;
   fullUrl: string;

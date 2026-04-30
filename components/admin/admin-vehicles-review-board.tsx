@@ -12,14 +12,16 @@ import {
   updateVehicleCustomerEmail,
   updateVehicleStatus
 } from "@/lib/data";
+import { prepareVehicleActivityEmailAttachments } from "@/lib/image-processing";
 import { hasAdminPermission, getListingLabel } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, formatLocation, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEvent } from "@/types";
+import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEmailAttachment, VehicleActivityEvent } from "@/types";
 
 type ModerationFilter = "all" | "pending" | "active" | "rejected" | "sold" | "deleted";
 type ModerationGroup = Exclude<ModerationFilter, "all">;
 type BulkAction = "approve" | "reject" | "delete" | "restore";
 type ActivityNoteMode = "admin" | "customer";
+const MAX_ACTIVITY_EMAIL_ATTACHMENTS = 5;
 
 type OwnerDirectory = Record<string, Pick<AppUser, "id" | "displayName" | "name" | "email">>;
 
@@ -198,6 +200,7 @@ export function AdminVehiclesReviewBoard({
   const [expandedHistoryByVehicleId, setExpandedHistoryByVehicleId] = useState<Record<string, boolean>>({});
   const [activityNoteModeByVehicleId, setActivityNoteModeByVehicleId] = useState<Record<string, ActivityNoteMode>>({});
   const [sendCustomerEmailByVehicleId, setSendCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
+  const [activityAttachmentFilesByVehicleId, setActivityAttachmentFilesByVehicleId] = useState<Record<string, File[]>>({});
   const [customerEmailDrafts, setCustomerEmailDrafts] = useState<Record<string, string>>({});
   const [editingCustomerEmailByVehicleId, setEditingCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
 
@@ -460,18 +463,36 @@ export function AdminVehiclesReviewBoard({
           });
           setNotice("Customer update saved, but email could not be sent");
         } else {
+          const selectedAttachmentFiles = activityAttachmentFilesByVehicleId[vehicleId] ?? [];
+          let attachments: VehicleActivityEmailAttachment[] = [];
+
+          if (selectedAttachmentFiles.length) {
+            try {
+              attachments = await prepareVehicleActivityEmailAttachments(selectedAttachmentFiles.slice(0, MAX_ACTIVITY_EMAIL_ATTACHMENTS));
+            } catch (attachmentError) {
+              console.error("[vehicle-activity-email] Failed to prepare activity email attachments", {
+                vehicleId,
+                error: attachmentError instanceof Error ? attachmentError.message : String(attachmentError)
+              });
+              setNotice("Customer update saved, but email could not be sent");
+              return;
+            }
+          }
+
           const payload = {
             vehicleId,
             customerEmail: selectedCustomerEmail,
             vehicleTitle: getVehicleFullTitle(vehicle),
             referenceId: getVehicleDisplayReference(vehicle),
-            message: message.trim()
+            message: message.trim(),
+            attachments
           };
           console.log("Sending email payload", {
             vehicleId: payload.vehicleId,
             updateType,
             customerEmails: payload.customerEmail,
-            noteContent: payload.message
+            noteContent: payload.message,
+            attachmentCount: payload.attachments.length
           });
 
           const response = await fetch("/api/vehicle-activity-notifications", {
@@ -501,6 +522,10 @@ export function AdminVehiclesReviewBoard({
         });
         setNotice("Vehicle activity note added.");
       }
+      setActivityAttachmentFilesByVehicleId((current) => ({
+        ...current,
+        [vehicleId]: []
+      }));
     } catch (actionError) {
       setLocalError(actionError instanceof Error ? actionError.message : "Unable to save the vehicle activity note.");
     } finally {
@@ -677,6 +702,7 @@ export function AdminVehiclesReviewBoard({
                       const showFullHistory = Boolean(expandedHistoryByVehicleId[vehicle.id]);
                       const visibleActivityEvents = showFullHistory ? activityEvents : activityEvents.slice(0, 2);
                       const sendCustomerEmail = sendCustomerEmailByVehicleId[vehicle.id] ?? hasCustomerEmail;
+                      const activityAttachmentFiles = activityAttachmentFilesByVehicleId[vehicle.id] ?? [];
                       const customerEmailValue = customerEmailDrafts[vehicle.id] ?? vehicle.customerEmail ?? "";
                       const isEditingCustomerEmail = Boolean(editingCustomerEmailByVehicleId[vehicle.id]);
 
@@ -909,6 +935,29 @@ export function AdminVehiclesReviewBoard({
                                         placeholder={isCustomerFacingNoteMode ? "Add a customer-visible update" : "Add a manual admin activity note"}
                                         className="min-h-[96px] w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
                                       />
+                                      <label className="block">
+                                        <span className="text-xs uppercase tracking-[0.18em] text-ink/45">Attach photos</span>
+                                        <input
+                                          type="file"
+                                          accept="image/*"
+                                          multiple
+                                          onChange={(event) => {
+                                            const nextFiles = Array.from(event.target.files ?? [])
+                                              .filter((file) => file.type.startsWith("image/"))
+                                              .slice(0, MAX_ACTIVITY_EMAIL_ATTACHMENTS);
+                                            setActivityAttachmentFilesByVehicleId((current) => ({
+                                              ...current,
+                                              [vehicle.id]: nextFiles
+                                            }));
+                                            event.currentTarget.value = "";
+                                          }}
+                                          className="mt-2 block w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink file:mr-4 file:rounded-full file:border-0 file:bg-shell file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink"
+                                        />
+                                        <p className="mt-2 text-xs text-ink/55">
+                                          Optional. Up to {MAX_ACTIVITY_EMAIL_ATTACHMENTS} images will be compressed before sending.
+                                          {activityAttachmentFiles.length ? ` ${activityAttachmentFiles.length} selected.` : ""}
+                                        </p>
+                                      </label>
                                       <div className="flex justify-end">
                                         <button
                                           type="button"

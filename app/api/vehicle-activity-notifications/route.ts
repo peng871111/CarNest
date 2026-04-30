@@ -5,6 +5,7 @@ import {
   VEHICLE_ACTIVITY_EMAIL_FROM
 } from "@/lib/vehicle-activity-email";
 import { isValidEmailAddress } from "@/lib/form-safety";
+import { VehicleActivityEmailAttachment } from "@/types";
 
 interface VehicleActivityEmailRequestBody {
   vehicleId: string;
@@ -12,6 +13,7 @@ interface VehicleActivityEmailRequestBody {
   referenceId: string;
   message: string;
   customerEmail?: string;
+  attachments?: VehicleActivityEmailAttachment[];
 }
 
 function isValidPayload(body: unknown): body is VehicleActivityEmailRequestBody {
@@ -25,7 +27,21 @@ function isValidPayload(body: unknown): body is VehicleActivityEmailRequestBody 
     && payload.referenceId.trim().length > 0
     && typeof payload.message === "string"
     && payload.message.trim().length > 0
-    && (typeof payload.customerEmail === "undefined" || typeof payload.customerEmail === "string");
+    && (typeof payload.customerEmail === "undefined" || typeof payload.customerEmail === "string")
+    && (
+      typeof payload.attachments === "undefined"
+      || (
+        Array.isArray(payload.attachments)
+        && payload.attachments.every((attachment) =>
+          attachment
+          && typeof attachment === "object"
+          && typeof (attachment as Record<string, unknown>).content === "string"
+          && ((attachment as Record<string, string>).content ?? "").trim().length > 0
+          && typeof (attachment as Record<string, unknown>).contentType === "string"
+          && ((attachment as Record<string, string>).contentType ?? "").trim().length > 0
+        )
+      )
+    );
 }
 
 function parseCustomerEmailList(value?: string) {
@@ -41,6 +57,18 @@ function parseCustomerEmailList(value?: string) {
   );
 }
 
+function sanitizeAttachments(attachments?: VehicleActivityEmailAttachment[]) {
+  if (!attachments?.length) return [];
+
+  return attachments
+    .slice(0, 5)
+    .filter((attachment) => attachment.content.trim().length > 0)
+    .map((attachment) => ({
+      content: attachment.content.trim(),
+      contentType: attachment.contentType.trim() || "image/jpeg"
+    }));
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log("API route hit");
@@ -52,13 +80,15 @@ export async function POST(request: NextRequest) {
 
     const payloadCustomerEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
     const recipientEmails = parseCustomerEmailList(payloadCustomerEmail);
+    const attachments = sanitizeAttachments(body.attachments);
     const content = getVehicleActivityEmailContent(body);
     console.info("[vehicle-activity-email] Trigger received", {
       vehicleId: body.vehicleId,
       subject: content.subject,
       payloadCustomerEmail,
       recipientEmails,
-      from: VEHICLE_ACTIVITY_EMAIL_FROM
+      from: VEHICLE_ACTIVITY_EMAIL_FROM,
+      attachmentCount: attachments.length
     });
 
     if (!recipientEmails.length) {
@@ -66,7 +96,8 @@ export async function POST(request: NextRequest) {
         vehicleId: body.vehicleId,
         payloadCustomerEmail,
         recipientEmails,
-        from: VEHICLE_ACTIVITY_EMAIL_FROM
+        from: VEHICLE_ACTIVITY_EMAIL_FROM,
+        attachmentCount: attachments.length
       });
       return NextResponse.json({
         success: true,
@@ -78,7 +109,8 @@ export async function POST(request: NextRequest) {
 
     const result = await sendVehicleActivityEmail({
       ...body,
-      to: recipientEmails
+      to: recipientEmails,
+      attachments
     });
     if (result.sent) {
       console.info("[vehicle-activity-email] Email sent", {
@@ -86,6 +118,7 @@ export async function POST(request: NextRequest) {
         recipientEmails,
         subject: result.subject,
         from: VEHICLE_ACTIVITY_EMAIL_FROM,
+        attachmentCount: attachments.length,
         providerMessageId: "providerMessageId" in result ? result.providerMessageId : null
       });
     } else {
@@ -94,6 +127,7 @@ export async function POST(request: NextRequest) {
         recipientEmails,
         subject: content.subject,
         from: VEHICLE_ACTIVITY_EMAIL_FROM,
+        attachmentCount: attachments.length,
         reason: "reason" in result ? result.reason : "skipped"
       });
     }

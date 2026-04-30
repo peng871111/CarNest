@@ -1,9 +1,10 @@
 import "server-only";
 
 import { Resend } from "resend";
+import { VehicleActivityEmailAttachment } from "@/types";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-export const VEHICLE_ACTIVITY_EMAIL_FROM = "CarNest <offers@mail.carnest.au>";
+export const VEHICLE_ACTIVITY_EMAIL_FROM = process.env.EMAIL_FROM ?? "CarNest <offers@mail.carnest.au>";
 
 export interface VehicleActivityEmailPayload {
   to: string[];
@@ -11,73 +12,67 @@ export interface VehicleActivityEmailPayload {
   vehicleTitle: string;
   referenceId: string;
   message: string;
+  attachments?: VehicleActivityEmailAttachment[];
 }
 
 export function getVehicleActivityEmailContent(
   payload: Pick<VehicleActivityEmailPayload, "vehicleTitle" | "referenceId" | "message">
 ) {
-  const supportText = [
-    "If you have any questions, feel free to contact us:",
-    "",
-    "Email:",
-    "info@carnestau.com",
-    "",
-    "Phone / WhatsApp:",
-    "Craig: 0466661516",
-    "Leon: 0406095686",
-    "",
-    "WeChat:",
-    "Craig: Craig0490158769",
-    "Leon: Morikawa_leon"
-  ].join("\n");
-
   return {
-    subject: `CarNest update: ${payload.vehicleTitle}`,
+    subject: `Vehicle update: ${payload.vehicleTitle}`,
     text: [
       "Hi,",
       "",
-      "We’ve made an update to your vehicle listing:",
+      "Here is an update regarding your vehicle.",
       "",
+      "Update:",
       payload.message,
       "",
       `Vehicle: ${payload.vehicleTitle}`,
+      "",
       `Reference: ${payload.referenceId}`,
       "",
-      "You don’t need to log in — this is just to keep you informed.",
+      "This is an update from the CarNest team. No login is required.",
       "",
-      supportText,
+      "Questions?",
+      "Email: info@carnestau.com",
+      "Phone / WhatsApp:",
+      "Craig: 0466661516",
+      "Leon: 0406095686",
       "",
       "Regards,",
       "CarNest"
     ].join("\n"),
     html: `
-      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b1b18;">
-        <p style="font-size:16px;line-height:1.6;margin:0 0 16px;">Hi,</p>
-        <p style="font-size:16px;line-height:1.6;margin:0 0 12px;">We’ve made an update to your vehicle listing:</p>
-        <div style="border:1px solid rgba(0,0,0,0.08);border-radius:18px;padding:16px;background:#faf7f2;margin:0 0 16px;">
-          <p style="font-size:15px;line-height:1.7;margin:0;">${payload.message}</p>
+      <div style="background:#f6f1e8;padding:24px 12px;font-family:Arial,sans-serif;color:#1b1b18;">
+        <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:24px;padding:28px 24px;">
+          <p style="margin:0 0 8px;font-size:12px;line-height:1.4;letter-spacing:0.18em;text-transform:uppercase;color:#8f5b2e;">Vehicle update</p>
+          <h1 style="margin:0 0 20px;font-size:24px;line-height:1.2;color:#1b1b18;font-weight:700;">Vehicle update</h1>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 8px;">Hi,</p>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 20px;">Here is an update regarding your vehicle.</p>
+          <div style="margin:0 0 20px;">
+            <p style="margin:0 0 10px;font-size:13px;line-height:1.5;letter-spacing:0.16em;text-transform:uppercase;color:#6d685f;">Update</p>
+            <div style="border:1px solid rgba(0,0,0,0.08);border-radius:18px;padding:16px;background:#faf7f2;">
+              <p style="font-size:15px;line-height:1.7;margin:0;">${payload.message}</p>
+            </div>
+          </div>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 6px;"><strong>Vehicle:</strong><br />${payload.vehicleTitle}</p>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 20px;"><strong>Reference:</strong><br />${payload.referenceId}</p>
+          <p style="font-size:14px;line-height:1.7;margin:0 0 20px;color:#4b4b44;">This is an update from the CarNest team. No login is required.</p>
+          <div style="border-top:1px solid rgba(0,0,0,0.08);padding-top:20px;">
+            <p style="font-size:14px;line-height:1.7;margin:0 0 12px;font-weight:700;color:#1b1b18;">Questions?</p>
+            <p style="font-size:14px;line-height:1.8;margin:0 0 10px;">
+              <strong>Email:</strong><br />
+              info@carnestau.com
+            </p>
+            <p style="font-size:14px;line-height:1.8;margin:0 0 10px;">
+              <strong>Phone / WhatsApp:</strong><br />
+              Craig: 0466661516<br />
+              Leon: 0406095686
+            </p>
+          </div>
+          <p style="font-size:14px;line-height:1.7;margin:24px 0 0;color:#1b1b18;">Regards,<br />CarNest</p>
         </div>
-        <p style="font-size:15px;line-height:1.6;margin:0 0 6px;"><strong>Vehicle:</strong> ${payload.vehicleTitle}</p>
-        <p style="font-size:15px;line-height:1.6;margin:0 0 16px;"><strong>Reference:</strong> ${payload.referenceId}</p>
-        <p style="font-size:14px;line-height:1.6;margin:0 0 16px;color:#4b4b44;">You don’t need to log in — this is just to keep you informed.</p>
-        <div style="border-top:1px solid rgba(0,0,0,0.08);margin-top:20px;padding-top:20px;">
-          <p style="font-size:14px;line-height:1.7;margin:0 0 12px;">If you have any questions, feel free to contact us:</p>
-          <p style="font-size:14px;line-height:1.7;margin:0 0 10px;">
-            <strong>Email:</strong><br />
-            info@carnestau.com
-          </p>
-          <p style="font-size:14px;line-height:1.7;margin:0 0 10px;">
-            <strong>Phone / WhatsApp:</strong><br />
-            Craig: 0466661516<br />
-            Leon: 0406095686
-          </p>
-          <p style="font-size:14px;line-height:1.7;margin:0;">
-            <strong>WeChat:</strong><br />
-            Craig: Craig0490158769<br />
-            Leon: Morikawa_leon
-          </p>
-        </div>
-        <p style="font-size:14px;line-height:1.6;margin:0;">Regards,<br />CarNest</p>
       </div>
     `
   };
@@ -96,13 +91,20 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     vehicleId: payload.vehicleId,
     recipientEmails: payload.to,
     subject: content.subject,
-    from: VEHICLE_ACTIVITY_EMAIL_FROM
+    from: VEHICLE_ACTIVITY_EMAIL_FROM,
+    attachmentCount: payload.attachments?.length ?? 0
   });
   const { data, error } = await resend.emails.send({
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
     to: payload.to,
     subject: content.subject,
-    html: content.html
+    html: content.html,
+    text: content.text,
+    attachments: payload.attachments?.slice(0, 5).map((attachment, index) => ({
+      filename: `carnest-update-${index + 1}.jpg`,
+      content: attachment.content,
+      contentType: attachment.contentType || "image/jpeg"
+    }))
   });
 
   if (error) {
@@ -111,6 +113,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
       recipientEmail: payload.to.join(", "),
       subject: content.subject,
       from: VEHICLE_ACTIVITY_EMAIL_FROM,
+      attachmentCount: payload.attachments?.length ?? 0,
       error,
       errorName: error.name,
       errorMessage: error.message
@@ -123,6 +126,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     recipientEmails: payload.to,
     subject: content.subject,
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
+    attachmentCount: payload.attachments?.length ?? 0,
     response: data
   });
 

@@ -4,6 +4,7 @@ import { PreparedVehicleImageUpload } from "@/types";
 
 const WEBP_MIME_TYPE = "image/webp";
 const JPEG_MIME_TYPE = "image/jpeg";
+const EMAIL_ATTACHMENT_MIME_TYPE = JPEG_MIME_TYPE;
 
 const FULL_MAX_WIDTH = 1600;
 const FULL_OUTPUT_QUALITY = 0.75;
@@ -24,6 +25,7 @@ export interface CompressVehicleImageOptions {
   quality: number;
   maxBytes: number;
   minQuality: number;
+  outputMimeType?: string;
 }
 
 function loadImage(file: File) {
@@ -86,7 +88,11 @@ function supportsWebPOutput() {
   return canvas.toDataURL(WEBP_MIME_TYPE).startsWith(`data:${WEBP_MIME_TYPE}`);
 }
 
-function getOutputMimeType() {
+function getOutputMimeType(preferredMimeType?: string) {
+  if (preferredMimeType === JPEG_MIME_TYPE) return JPEG_MIME_TYPE;
+  if (preferredMimeType === WEBP_MIME_TYPE) {
+    return supportsWebPOutput() ? WEBP_MIME_TYPE : JPEG_MIME_TYPE;
+  }
   return supportsWebPOutput() ? WEBP_MIME_TYPE : JPEG_MIME_TYPE;
 }
 
@@ -97,7 +103,7 @@ function blobToOutputFile(blob: Blob, fileName: string, mimeType: string) {
 }
 
 async function canvasToOptimizedFile(canvas: HTMLCanvasElement, fileName: string, options: CompressVehicleImageOptions) {
-  const mimeType = getOutputMimeType();
+  const mimeType = getOutputMimeType(options.outputMimeType);
   let workingCanvas = canvas;
   let quality = options.quality;
   let blob = await canvasToBlob(workingCanvas, mimeType, quality);
@@ -169,6 +175,44 @@ export async function compressVehicleImage(file: File, options: CompressVehicleI
     image.src = "";
     releaseCanvas(canvas);
   }
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const [, base64Content = ""] = result.split(",", 2);
+      if (!base64Content) {
+        reject(new Error("Unable to encode image attachment."));
+        return;
+      }
+      resolve(base64Content);
+    };
+    reader.onerror = () => reject(new Error("Unable to read image attachment."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+export async function prepareVehicleActivityEmailAttachments(files: File[]) {
+  const attachments = [] as { content: string; contentType: string }[];
+
+  for (const file of files.slice(0, 5)) {
+    const optimizedFile = await compressVehicleImage(file, {
+      maxWidth: 1200,
+      quality: 0.72,
+      minQuality: 0.65,
+      maxBytes: 300 * 1024,
+      outputMimeType: EMAIL_ATTACHMENT_MIME_TYPE
+    });
+
+    attachments.push({
+      content: await blobToBase64(optimizedFile),
+      contentType: optimizedFile.type || EMAIL_ATTACHMENT_MIME_TYPE
+    });
+  }
+
+  return attachments;
 }
 
 export async function prepareVehicleImageUpload(file: File): Promise<PreparedVehicleImageUpload> {
