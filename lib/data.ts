@@ -499,6 +499,9 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
 
 function serializeVehicleActivityEventDoc(id: string, data: Record<string, unknown>): VehicleActivityEvent {
   const type = typeof data.type === "string" ? data.type : "offer_created";
+  const imageUrls = Array.isArray(data.imageUrls)
+    ? (data.imageUrls as unknown[]).filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
 
   return {
     id,
@@ -517,6 +520,7 @@ function serializeVehicleActivityEventDoc(id: string, data: Record<string, unkno
       ? type
       : "offer_created",
     message: typeof data.message === "string" ? data.message : "",
+    imageUrls,
     createdBy:
       typeof data.createdBy === "string"
         ? data.createdBy
@@ -2619,6 +2623,43 @@ export async function addVehicleActivityNote(
     source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
     writeSucceeded: isFirebaseConfigured,
     emailStatus
+  };
+}
+
+export async function updateVehicleActivityImageUrls(
+  activityId: string,
+  imageUrls: string[],
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can update vehicle activity attachments.");
+
+  const normalizedImageUrls = Array.from(
+    new Set(imageUrls.filter((imageUrl) => typeof imageUrl === "string" && imageUrl.trim().length > 0).map((imageUrl) => imageUrl.trim()))
+  );
+
+  if (!activityId) {
+    throw new Error("Vehicle activity event ID is required.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      activityId,
+      imageUrls: normalizedImageUrls,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await updateDoc(doc(db, "vehicleActivityEvents", activityId), {
+    imageUrls: normalizedImageUrls,
+    updatedAt: serverTimestamp()
+  });
+
+  return {
+    activityId,
+    imageUrls: normalizedImageUrls,
+    source: "firestore" as const,
+    writeSucceeded: true
   };
 }
 

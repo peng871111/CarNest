@@ -61,12 +61,6 @@ export type VehicleActivityType =
   | "admin_note_added"
   | "warehouse_activity_added";
 
-export interface VehicleActivityEmailAttachment {
-  filename: string;
-  content: string;
-  contentType?: string;
-}
-
 export interface VehicleImageAsset {
   thumbnailUrl: string;
   fullUrl: string;
@@ -320,6 +314,7 @@ export interface VehicleActivityEvent {
   vehicleId: string;
   type: VehicleActivityType;
   message: string;
+  imageUrls?: string[];
   createdAt?: string;
   createdBy?: string;
   createdByUid?: string;

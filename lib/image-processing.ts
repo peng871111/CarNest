@@ -4,7 +4,6 @@ import { PreparedVehicleImageUpload } from "@/types";
 
 const WEBP_MIME_TYPE = "image/webp";
 const JPEG_MIME_TYPE = "image/jpeg";
-const EMAIL_ATTACHMENT_MIME_TYPE = JPEG_MIME_TYPE;
 
 const FULL_MAX_WIDTH = 1600;
 const FULL_OUTPUT_QUALITY = 0.75;
@@ -175,44 +174,6 @@ export async function compressVehicleImage(file: File, options: CompressVehicleI
     image.src = "";
     releaseCanvas(canvas);
   }
-}
-
-function blobToBase64(blob: Blob) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      const [, base64Content = ""] = result.split(",", 2);
-      if (!base64Content) {
-        reject(new Error("Unable to encode image attachment."));
-        return;
-      }
-      resolve(base64Content);
-    };
-    reader.onerror = () => reject(new Error("Unable to read image attachment."));
-    reader.readAsDataURL(blob);
-  });
-}
-
-export async function prepareVehicleActivityEmailAttachments(files: File[]) {
-  const attachments = [] as { filename: string; content: string }[];
-
-  for (const [index, file] of files.slice(0, 2).entries()) {
-    const optimizedFile = await compressVehicleImage(file, {
-      maxWidth: 1200,
-      quality: 0.72,
-      minQuality: 0.65,
-      maxBytes: 200 * 1024,
-      outputMimeType: EMAIL_ATTACHMENT_MIME_TYPE
-    });
-
-    attachments.push({
-      filename: `carnest-update-${index + 1}.jpg`,
-      content: await blobToBase64(optimizedFile)
-    });
-  }
-
-  return attachments;
 }
 
 export async function prepareVehicleImageUpload(file: File): Promise<PreparedVehicleImageUpload> {

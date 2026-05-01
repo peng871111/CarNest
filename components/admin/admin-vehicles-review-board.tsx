@@ -8,20 +8,21 @@ import {
   getVehicleActivityLog,
   restoreSoftDeletedVehicle,
   softDeleteVehicle,
+  updateVehicleActivityImageUrls,
   updateSellerVehicleStatus,
   updateVehicleCustomerEmail,
   updateVehicleStatus
 } from "@/lib/data";
-import { prepareVehicleActivityEmailAttachments } from "@/lib/image-processing";
+import { uploadVehicleActivityImages } from "@/lib/storage";
 import { hasAdminPermission, getListingLabel } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, formatLocation, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEmailAttachment, VehicleActivityEvent } from "@/types";
+import { AppUser, SellerVehicleStatus, Vehicle, VehicleActivityEvent } from "@/types";
 
 type ModerationFilter = "all" | "pending" | "active" | "rejected" | "sold" | "deleted";
 type ModerationGroup = Exclude<ModerationFilter, "all">;
 type BulkAction = "approve" | "reject" | "delete" | "restore";
 type ActivityNoteMode = "admin" | "customer";
-const MAX_ACTIVITY_EMAIL_ATTACHMENTS = 2;
+const MAX_ACTIVITY_EMAIL_ATTACHMENTS = 5;
 
 type OwnerDirectory = Record<string, Pick<AppUser, "id" | "displayName" | "name" | "email">>;
 
@@ -478,7 +479,7 @@ export function AdminVehiclesReviewBoard({
         noteContent: message.trim()
       });
 
-      await addVehicleActivityNote(vehicleId, message, appUser, {
+      const noteResult = await addVehicleActivityNote(vehicleId, message, appUser, {
         visibility: isCustomerFacing ? "customer" : "admin",
         sendEmail: false,
         vehicleTitle: getVehicleFullTitle(vehicle),
@@ -488,6 +489,35 @@ export function AdminVehiclesReviewBoard({
         ...current,
         [vehicleId]: ""
       }));
+      if (!noteResult.event) {
+        throw new Error("Unable to save the vehicle activity note.");
+      }
+      const activityId = noteResult.event.id;
+      const selectedAttachmentFiles = activityAttachmentFilesByVehicleId[vehicleId] ?? [];
+      let uploadedImageUrls: string[] = [];
+      let photoUploadFailed = false;
+
+      if (selectedAttachmentFiles.length) {
+        try {
+          uploadedImageUrls = await uploadVehicleActivityImages(
+            selectedAttachmentFiles.slice(0, MAX_ACTIVITY_EMAIL_ATTACHMENTS),
+            vehicleId,
+            activityId
+          );
+
+          if (uploadedImageUrls.length) {
+            await updateVehicleActivityImageUrls(activityId, uploadedImageUrls, appUser);
+          }
+        } catch (attachmentError) {
+          photoUploadFailed = true;
+          console.error("[vehicle-activity-email] Failed to upload vehicle activity photos", {
+            vehicleId,
+            activityId,
+            error: attachmentError instanceof Error ? attachmentError.message : String(attachmentError)
+          });
+        }
+      }
+
       await loadVehicleActivityLog(vehicleId, true);
       if (isCustomerFacing) {
         const selectedCustomerEmail = vehicle.customerEmail?.trim() ?? "";
@@ -498,7 +528,7 @@ export function AdminVehiclesReviewBoard({
             customerEmail: selectedCustomerEmail,
             noteContent: message.trim()
           });
-          setNotice("Customer update saved");
+          setNotice(photoUploadFailed ? "Activity saved. Some photos could not be uploaded." : "Customer update saved");
         } else if (!selectedCustomerEmail) {
           console.log("[vehicle-activity-email] Email skipped: missing customerEmail", {
             vehicleId,
@@ -506,39 +536,23 @@ export function AdminVehiclesReviewBoard({
             customerEmail: selectedCustomerEmail,
             noteContent: message.trim()
           });
-          setNotice("Customer update saved, but email could not be sent");
+          setNotice(photoUploadFailed ? "Activity saved. Some photos could not be uploaded." : "Customer update saved, but email could not be sent.");
         } else {
-          const selectedAttachmentFiles = activityAttachmentFilesByVehicleId[vehicleId] ?? [];
-          let attachments: VehicleActivityEmailAttachment[] = [];
-
-          if (selectedAttachmentFiles.length) {
-            try {
-              attachments = await prepareVehicleActivityEmailAttachments(selectedAttachmentFiles.slice(0, MAX_ACTIVITY_EMAIL_ATTACHMENTS));
-            } catch (attachmentError) {
-              console.error("[vehicle-activity-email] Failed to prepare activity email attachments", {
-                vehicleId,
-                error: attachmentError instanceof Error ? attachmentError.message : String(attachmentError)
-              });
-              attachments = [];
-            }
-          }
-
-          console.log("attachments size:", attachments?.length ?? 0);
-
           const payload = {
             vehicleId,
             customerEmail: selectedCustomerEmail,
             vehicleTitle: getVehicleFullTitle(vehicle),
             referenceId: getVehicleDisplayReference(vehicle),
-            message: message.trim(),
-            attachments
+            noteContent: message.trim(),
+            updateType,
+            imageUrls: uploadedImageUrls
           };
           console.log("Sending email payload", {
             vehicleId: payload.vehicleId,
             updateType,
             customerEmails: payload.customerEmail,
-            noteContent: payload.message,
-            attachmentCount: payload.attachments.length
+            noteContent: payload.noteContent,
+            imageUrlCount: payload.imageUrls.length
           });
 
           const response = await fetch("/api/vehicle-activity-notifications", {
@@ -555,9 +569,9 @@ export function AdminVehiclesReviewBoard({
           console.log("Email API response", response.status, responseBody);
 
           if (response.ok && responseBody?.sent === true) {
-            setNotice("Customer update saved and emailed");
+            setNotice(photoUploadFailed ? "Activity saved. Some photos could not be uploaded." : "Customer update saved and emailed.");
           } else {
-            setNotice("Customer update saved, but email could not be sent");
+            setNotice(photoUploadFailed ? "Activity saved. Some photos could not be uploaded." : "Customer update saved, but email could not be sent.");
           }
         }
       } else {
@@ -566,7 +580,7 @@ export function AdminVehiclesReviewBoard({
           updateType,
           noteContent: message.trim()
         });
-        setNotice("Vehicle activity note added.");
+        setNotice(photoUploadFailed ? "Activity saved. Some photos could not be uploaded." : "Vehicle activity note added.");
       }
       setActivityAttachmentFilesByVehicleId((current) => ({
         ...current,
@@ -1000,7 +1014,7 @@ export function AdminVehiclesReviewBoard({
                                           className="mt-2 block w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink file:mr-4 file:rounded-full file:border-0 file:bg-shell file:px-4 file:py-2 file:text-sm file:font-semibold file:text-ink"
                                         />
                                         <p className="mt-2 text-xs text-ink/55">
-                                          Optional. Up to {MAX_ACTIVITY_EMAIL_ATTACHMENTS} images will be compressed before sending.
+                                          Optional. Up to {MAX_ACTIVITY_EMAIL_ATTACHMENTS} images will be compressed, uploaded, and linked in customer updates.
                                           {activityAttachmentFiles.length ? ` ${activityAttachmentFiles.length} selected.` : ""}
                                         </p>
                                       </label>
@@ -1031,6 +1045,30 @@ export function AdminVehiclesReviewBoard({
                                                   <span className="text-xs text-ink/45">{formatAdminDateTime(event.createdAt)}</span>
                                                 </div>
                                                 <p className="mt-2 text-sm leading-6 text-ink/72">{event.message}</p>
+                                                {event.imageUrls?.length ? (
+                                                  <div className="mt-3">
+                                                    <p className="text-xs uppercase tracking-[0.16em] text-ink/45">Photos attached</p>
+                                                    <div className="mt-2 flex flex-wrap gap-2">
+                                                      {event.imageUrls.slice(0, 5).map((imageUrl, index) => (
+                                                        <a
+                                                          key={`${event.id}-image-${index + 1}`}
+                                                          href={imageUrl}
+                                                          target="_blank"
+                                                          rel="noreferrer"
+                                                          className="block overflow-hidden rounded-2xl border border-black/10 bg-shell"
+                                                        >
+                                                          <img
+                                                            src={imageUrl}
+                                                            alt={`Vehicle activity photo ${index + 1}`}
+                                                            className="h-16 w-20 object-cover"
+                                                            loading="lazy"
+                                                            decoding="async"
+                                                          />
+                                                        </a>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                ) : null}
                                                 <p className="mt-2 text-xs text-ink/45">
                                                   {event.createdBy || event.actorUid || "CarNest"} · {event.visibility}
                                                 </p>

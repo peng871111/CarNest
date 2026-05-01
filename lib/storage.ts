@@ -2,6 +2,7 @@
 
 import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { isFirebaseStorageConfigured, storage } from "@/lib/firebase";
+import { compressVehicleImage } from "@/lib/image-processing";
 import { PreparedVehicleImageUpload, VehicleImageAsset } from "@/types";
 
 const DEALER_PROOF_ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
@@ -155,4 +156,36 @@ export async function deleteVehicleImageFiles(imageUrls: string[]) {
 
   const results = await Promise.all(uniqueUrls.map((imageUrl) => deleteVehicleImageFile(imageUrl)));
   return results.every(Boolean);
+}
+
+export async function uploadVehicleActivityImages(files: File[], vehicleId: string, activityId: string) {
+  if (!files.length) return [];
+
+  if (!vehicleId || !activityId) {
+    throw new Error("Vehicle activity image upload requires a vehicle ID and activity ID.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Image upload is temporarily unavailable. Please try again later.");
+  }
+
+  const uploadedUrls: string[] = [];
+
+  for (const [index, file] of files.slice(0, 5).entries()) {
+    const optimizedFile = await compressVehicleImage(file, {
+      maxWidth: 1200,
+      quality: 0.72,
+      minQuality: 0.65,
+      maxBytes: 250 * 1024,
+      outputMimeType: "image/jpeg"
+    });
+
+    const storageRef = ref(storage, `activity-updates/${vehicleId}/${activityId}/carnest-update-${index + 1}.jpg`);
+    await uploadBytes(storageRef, optimizedFile, {
+      contentType: optimizedFile.type || "image/jpeg"
+    });
+    uploadedUrls.push(await getDownloadURL(storageRef));
+  }
+
+  return uploadedUrls;
 }

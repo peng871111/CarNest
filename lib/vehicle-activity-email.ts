@@ -1,8 +1,6 @@
 import "server-only";
 
-import { Buffer } from "node:buffer";
 import { Resend } from "resend";
-import { VehicleActivityEmailAttachment } from "@/types";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
 export const VEHICLE_ACTIVITY_EMAIL_FROM = process.env.EMAIL_FROM ?? "CarNest <offers@mail.carnest.au>";
@@ -13,18 +11,43 @@ export interface VehicleActivityEmailPayload {
   vehicleTitle: string;
   referenceId: string;
   message: string;
-  attachments?: Array<VehicleActivityEmailAttachment | { filename: string; content: Buffer; contentType?: string }>;
+  imageUrls?: string[];
 }
 
 export function getVehicleActivityEmailContent(
-  payload: Pick<VehicleActivityEmailPayload, "vehicleTitle" | "referenceId" | "message">
+  payload: Pick<VehicleActivityEmailPayload, "vehicleTitle" | "referenceId" | "message" | "imageUrls">
 ) {
+  const imageUrls = payload.imageUrls?.filter((imageUrl) => typeof imageUrl === "string" && imageUrl.trim().length > 0) ?? [];
+  const photoLinksText = imageUrls.length
+    ? [
+        "",
+        "Attached photos:",
+        ...imageUrls.map((imageUrl, index) => `${index + 1}. ${imageUrl}`)
+      ]
+    : [];
+  const photoSectionHtml = imageUrls.length
+    ? `
+          <div style="margin:0 0 20px;">
+            <p style="margin:0 0 10px;font-size:13px;line-height:1.5;letter-spacing:0.16em;text-transform:uppercase;color:#6d685f;">Photos</p>
+            <div>
+              ${imageUrls
+                .map(
+                  (imageUrl) => `
+                    <img src="${imageUrl}" alt="Vehicle update photo" style="width:100%;max-width:520px;border-radius:14px;display:block;margin:12px 0;border:1px solid rgba(0,0,0,0.08);background:#faf7f2;height:auto;" />
+                  `
+                )
+                .join("")}
+            </div>
+          </div>
+        `
+    : "";
+
   return {
     subject: `Vehicle update: ${payload.vehicleTitle}`,
     text: [
       "Hi,",
       "",
-      "Here is an update regarding your vehicle.",
+      "Here is an update on your vehicle.",
       "",
       "Update:",
       payload.message,
@@ -32,6 +55,7 @@ export function getVehicleActivityEmailContent(
       `Vehicle: ${payload.vehicleTitle}`,
       "",
       `Reference: ${payload.referenceId}`,
+      ...photoLinksText,
       "",
       "This is an update from the CarNest team. No login is required.",
       "",
@@ -40,6 +64,9 @@ export function getVehicleActivityEmailContent(
       "Phone / WhatsApp:",
       "Craig: 0466661516",
       "Leon: 0406095686",
+      "WeChat:",
+      "Craig: Craig0490158769",
+      "Leon: Morikawa_leon",
       "",
       "Regards,",
       "CarNest"
@@ -47,10 +74,10 @@ export function getVehicleActivityEmailContent(
     html: `
       <div style="background:#f6f1e8;padding:24px 12px;font-family:Arial,sans-serif;color:#1b1b18;">
         <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:24px;padding:28px 24px;">
-          <p style="margin:0 0 8px;font-size:12px;line-height:1.4;letter-spacing:0.18em;text-transform:uppercase;color:#8f5b2e;">Vehicle update</p>
-          <h1 style="margin:0 0 20px;font-size:24px;line-height:1.2;color:#1b1b18;font-weight:700;">Vehicle update</h1>
+          <p style="margin:0 0 8px;font-size:12px;line-height:1.4;letter-spacing:0.18em;text-transform:uppercase;color:#8f5b2e;">CarNest vehicle update</p>
+          <h1 style="margin:0 0 20px;font-size:24px;line-height:1.2;color:#1b1b18;font-weight:700;">CarNest vehicle update</h1>
           <p style="font-size:15px;line-height:1.7;margin:0 0 8px;">Hi,</p>
-          <p style="font-size:15px;line-height:1.7;margin:0 0 20px;">Here is an update regarding your vehicle.</p>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 20px;">Here is an update on your vehicle.</p>
           <div style="margin:0 0 20px;">
             <p style="margin:0 0 10px;font-size:13px;line-height:1.5;letter-spacing:0.16em;text-transform:uppercase;color:#6d685f;">Update</p>
             <div style="border:1px solid rgba(0,0,0,0.08);border-radius:18px;padding:16px;background:#faf7f2;">
@@ -59,6 +86,7 @@ export function getVehicleActivityEmailContent(
           </div>
           <p style="font-size:15px;line-height:1.7;margin:0 0 6px;"><strong>Vehicle:</strong><br />${payload.vehicleTitle}</p>
           <p style="font-size:15px;line-height:1.7;margin:0 0 20px;"><strong>Reference:</strong><br />${payload.referenceId}</p>
+          ${photoSectionHtml}
           <p style="font-size:14px;line-height:1.7;margin:0 0 20px;color:#4b4b44;">This is an update from the CarNest team. No login is required.</p>
           <div style="border-top:1px solid rgba(0,0,0,0.08);padding-top:20px;">
             <p style="font-size:14px;line-height:1.7;margin:0 0 12px;font-weight:700;color:#1b1b18;">Questions?</p>
@@ -70,6 +98,11 @@ export function getVehicleActivityEmailContent(
               <strong>Phone / WhatsApp:</strong><br />
               Craig: 0466661516<br />
               Leon: 0406095686
+            </p>
+            <p style="font-size:14px;line-height:1.8;margin:0;">
+              <strong>WeChat:</strong><br />
+              Craig: Craig0490158769<br />
+              Leon: Morikawa_leon
             </p>
           </div>
           <p style="font-size:14px;line-height:1.7;margin:24px 0 0;color:#1b1b18;">Regards,<br />CarNest</p>
@@ -93,15 +126,14 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     recipientEmails: payload.to,
     subject: content.subject,
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
-    attachmentCount: payload.attachments?.length ?? 0
+    imageUrlCount: payload.imageUrls?.length ?? 0
   });
   const { data, error } = await resend.emails.send({
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
     to: payload.to,
     subject: content.subject,
     html: content.html,
-    text: content.text,
-    attachments: payload.attachments?.slice(0, 5)
+    text: content.text
   });
 
   if (error) {
@@ -110,7 +142,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
       recipientEmail: payload.to.join(", "),
       subject: content.subject,
       from: VEHICLE_ACTIVITY_EMAIL_FROM,
-      attachmentCount: payload.attachments?.length ?? 0,
+      imageUrlCount: payload.imageUrls?.length ?? 0,
       error,
       errorName: error.name,
       errorMessage: error.message
@@ -123,7 +155,7 @@ export async function sendVehicleActivityEmail(payload: VehicleActivityEmailPayl
     recipientEmails: payload.to,
     subject: content.subject,
     from: VEHICLE_ACTIVITY_EMAIL_FROM,
-    attachmentCount: payload.attachments?.length ?? 0,
+    imageUrlCount: payload.imageUrls?.length ?? 0,
     response: data
   });
 
