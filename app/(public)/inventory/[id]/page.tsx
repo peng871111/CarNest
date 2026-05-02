@@ -293,6 +293,11 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               {vehicle.year} {vehicle.make} {vehicle.model}
             </h1>
             <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
+            <p className="mt-3 text-sm leading-6 text-ink/52">
+              Private sale — CarNest helps organise inspections and enquiries
+              <br />
+              You deal directly with the owner if you proceed
+            </p>
             <div className="mt-6">
               <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
               <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
@@ -303,9 +308,29 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           </div>
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
+          <p className="px-2 text-xs leading-5 text-ink/50">
+            No pressure — we simply help arrange the viewing
+          </p>
           <FinanceCalculator defaultVehiclePrice={vehicle.price} />
         </aside>
       </div>
+
+      <section className="mt-16 rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+        <p className="text-xs uppercase tracking-[0.25em] text-bronze">Why CarNest?</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {[
+            "Private sale — no dealer involvement",
+            "We help organise inspections to save your time",
+            "All offers go directly to the owner",
+            "No hidden fees"
+          ].map((item) => (
+            <p key={item} className="text-sm leading-6 text-ink/72">
+              <span className="mr-2 text-ink/72">✔</span>
+              {item}
+            </p>
+          ))}
+        </div>
+      </section>
 
       {moreVehicles.length ? (
         <section className="mt-16">
