@@ -62,9 +62,9 @@ export default async function HomePage() {
             <p className="text-sm uppercase tracking-[0.35em] text-bronze">
               A more transparent way to buy and sell cars
             </p>
-            <h1 className="max-w-3xl font-display text-6xl leading-none text-ink">Sell your car the smarter way</h1>
+            <h1 className="max-w-3xl font-display text-6xl leading-none text-ink">Buy and sell cars with confidence</h1>
             <p className="max-w-3xl text-lg leading-8 text-ink/70">
-              Helping sellers save time and buyers find cars they can trust
+              Browse verified private listings, book inspections, and deal directly with owners — we simply help arrange the process.
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-2">
               <Link
@@ -80,6 +80,9 @@ export default async function HomePage() {
                 Browse cars
               </Link>
             </div>
+            <p className="max-w-3xl text-sm leading-7 text-ink/58">
+              we simply help arrange the viewing. You deal directly with the owner if you proceed.
+            </p>
           </div>
         </div>
       </section>
