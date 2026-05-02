@@ -39,16 +39,15 @@ export function MobileVehicleQuickActions({
 
   return (
     <div className="sticky top-[84px] z-20 rounded-[24px] border border-black/5 bg-[#FCFAF6]/95 p-4 shadow-panel backdrop-blur lg:hidden">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Asking price</p>
-          <p className="mt-1 text-xl font-semibold text-ink">{formatCurrency(price)}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
+      <div className="min-w-0">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Asking price</p>
+        <p className="mt-1 text-xl font-semibold text-ink">{formatCurrency(price)}</p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
         <button
           type="button"
           onClick={() => handleActionClick("offer")}
-          className="rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-ink/92"
+          className="w-full rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-ink/92"
         >
           Make Offer
         </button>
@@ -56,12 +55,13 @@ export function MobileVehicleQuickActions({
           <button
             type="button"
             onClick={() => handleActionClick("inspection")}
-            className="rounded-full border border-black/10 bg-white px-4 py-3 text-center text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            className="w-full rounded-full border border-black/10 bg-white px-4 py-3 text-center text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
           >
             Book Inspection
           </button>
-        ) : null}
-        </div>
+        ) : (
+          <div />
+        )}
       </div>
     </div>
   );
