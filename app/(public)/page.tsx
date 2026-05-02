@@ -64,7 +64,7 @@ export default async function HomePage() {
             </p>
             <h1 className="max-w-3xl font-display text-6xl leading-none text-ink">Buy and sell cars with confidence</h1>
             <p className="max-w-3xl text-lg leading-8 text-ink/70">
-              Browse verified private listings, book inspections, and deal directly with owners — we simply help arrange the process.
+              Browse verified private listings, book inspections, and deal directly with owners.
             </p>
             <div className="flex flex-wrap justify-center gap-4 pt-2">
               <Link
