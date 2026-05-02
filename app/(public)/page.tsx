@@ -35,9 +35,9 @@ const VALUE_CARDS = [
 ];
 
 const HOW_IT_WORKS_STEPS = [
-  "Submit your vehicle",
-  "Choose your selling approach",
-  "Connect with buyers or request support"
+  "Browse verified private listings",
+  "Book an inspection at a time that suits you",
+  "Meet the owner and proceed if it’s the right car"
 ];
 
 export default async function HomePage() {
@@ -87,7 +87,8 @@ export default async function HomePage() {
       <section className="mx-auto max-w-7xl px-6 py-10">
         <div className="mb-8 max-w-2xl">
           <p className="text-sm uppercase tracking-[0.35em] text-bronze">How it works</p>
-          <h2 className="mt-3 font-display text-4xl text-ink">A simpler path from submission to sale</h2>
+          <h2 className="mt-3 font-display text-4xl text-ink">How it works</h2>
+          <p className="mt-3 text-sm leading-7 text-ink/65">A simple way to inspect and buy with confidence</p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {HOW_IT_WORKS_STEPS.map((step, index) => (

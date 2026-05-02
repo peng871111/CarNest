@@ -294,7 +294,9 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             </h1>
             <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
             <p className="mt-3 text-sm leading-6 text-ink/52">
-              Private sale — CarNest helps organise inspections and enquiries
+              Private sale
+              <br />
+              CarNest helps organise inspections and enquiries
               <br />
               You deal directly with the owner if you proceed
             </p>

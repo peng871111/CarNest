@@ -59,7 +59,11 @@ export default async function InventoryPage() {
       <div className="mb-10">
         <p className="text-sm uppercase tracking-[0.35em] text-bronze">Inventory</p>
         <h1 className="mt-3 font-display text-5xl text-ink">Discover listed vehicles</h1>
-        <p className="mt-4 max-w-2xl text-ink/65">Warehouse Vehicle and Online Listing inventory are presented with different visibility rules so buyers immediately understand how each car is managed.</p>
+        <p className="mt-4 max-w-2xl text-ink/65">
+          All vehicles are privately owned.
+          <br />
+          CarNest helps organise inspections and connect you directly with the owner.
+        </p>
       </div>
       {error ? (
         <div className="mb-8 rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">
