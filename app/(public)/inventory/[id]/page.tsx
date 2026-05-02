@@ -204,6 +204,11 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <Link href="/inventory" className="inline-flex text-sm font-medium text-ink/55 transition hover:text-bronze">
             ← Back to inventory
           </Link>
+          <MobileVehicleQuickActions
+            vehicleId={vehicle.id}
+            price={vehicle.price}
+            canBookInspection={vehicle.listingType === "warehouse"}
+          />
           <VehicleGallery
             images={vehicleImages}
             thumbnails={vehicleThumbnails}
@@ -309,11 +314,6 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             <ListingSummary vehicle={vehicle} />
           </div>
           </div>
-          <MobileVehicleQuickActions
-            vehicleId={vehicle.id}
-            price={vehicle.price}
-            canBookInspection={vehicle.listingType === "warehouse"}
-          />
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
           <p className="px-2 text-xs leading-5 text-ink/50">

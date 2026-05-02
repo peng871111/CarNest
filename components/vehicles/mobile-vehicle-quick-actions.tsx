@@ -19,7 +19,7 @@ export function MobileVehicleQuickActions({
   const searchParams = useSearchParams();
 
   function scrollToActionPanel() {
-    window.requestAnimationFrame(() => {
+    window.setTimeout(() => {
       const target = document.getElementById("take-action-panel");
       if (!target) return;
 
@@ -27,7 +27,7 @@ export function MobileVehicleQuickActions({
         behavior: "smooth",
         block: "start"
       });
-    });
+    }, 80);
   }
 
   function handleActionClick(action: "offer" | "inspection") {
@@ -38,14 +38,17 @@ export function MobileVehicleQuickActions({
   }
 
   return (
-    <div className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel lg:hidden">
-      <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
-      <p className="mt-2 text-2xl font-semibold text-ink">{formatCurrency(price)}</p>
-      <div className="mt-4 flex flex-col gap-2.5">
+    <div className="sticky top-[84px] z-20 rounded-[24px] border border-black/5 bg-[#FCFAF6]/95 p-4 shadow-panel backdrop-blur lg:hidden">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Asking price</p>
+          <p className="mt-1 text-xl font-semibold text-ink">{formatCurrency(price)}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
         <button
           type="button"
           onClick={() => handleActionClick("offer")}
-          className="rounded-full bg-ink px-5 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-ink/92"
+          className="rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-ink/92"
         >
           Make Offer
         </button>
@@ -53,15 +56,13 @@ export function MobileVehicleQuickActions({
           <button
             type="button"
             onClick={() => handleActionClick("inspection")}
-            className="rounded-full border border-black/10 bg-white px-5 py-3 text-center text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            className="rounded-full border border-black/10 bg-white px-4 py-3 text-center text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
           >
             Book Inspection
           </button>
         ) : null}
+        </div>
       </div>
-      <p className="mt-3 text-xs leading-5 text-ink/50">
-        No pressure — we simply help arrange the viewing. You deal directly with the owner if you proceed.
-      </p>
     </div>
   );
 }
