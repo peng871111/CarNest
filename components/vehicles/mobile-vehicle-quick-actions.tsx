@@ -20,26 +20,67 @@ export function MobileVehicleQuickActions({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [showCompactSticky, setShowCompactSticky] = useState(false);
+  const [mobileHeaderHeight, setMobileHeaderHeight] = useState(150);
+
+  useEffect(() => {
+    function updateHeaderHeight() {
+      const header = document.querySelector("header");
+      const nextHeight = header instanceof HTMLElement ? Math.ceil(header.getBoundingClientRect().height) : 150;
+      setMobileHeaderHeight((current) => (current === nextHeight ? current : nextHeight));
+    }
+
+    updateHeaderHeight();
+    window.addEventListener("resize", updateHeaderHeight);
+
+    return () => {
+      window.removeEventListener("resize", updateHeaderHeight);
+    };
+  }, []);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+
+        const nextShowCompactSticky = !entry.isIntersecting && entry.boundingClientRect.top < mobileHeaderHeight;
+        setShowCompactSticky((current) => (current === nextShowCompactSticky ? current : nextShowCompactSticky));
+      },
+      {
+        root: null,
+        threshold: 0,
+        rootMargin: `-${mobileHeaderHeight + 12}px 0px 0px 0px`
+      }
+    );
+
+    observer.observe(card);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [mobileHeaderHeight]);
 
   useEffect(() => {
     function handleScroll() {
       const card = cardRef.current;
       if (!card) return;
 
-      const headerOffset = 128;
-      const nextShowCompactSticky = card.getBoundingClientRect().bottom <= headerOffset;
+      const nextShowCompactSticky = card.getBoundingClientRect().bottom <= mobileHeaderHeight + 12;
       setShowCompactSticky((current) => (current === nextShowCompactSticky ? current : nextShowCompactSticky));
     }
 
+    if (!showCompactSticky) return;
+
     handleScroll();
     window.addEventListener("scroll", handleScroll, { passive: true });
-    window.addEventListener("resize", handleScroll);
 
     return () => {
       window.removeEventListener("scroll", handleScroll);
-      window.removeEventListener("resize", handleScroll);
     };
-  }, []);
+  }, [mobileHeaderHeight, showCompactSticky]);
 
   function scrollToActionPanel() {
     window.setTimeout(() => {
@@ -89,33 +130,38 @@ export function MobileVehicleQuickActions({
         </div>
       </div>
 
-      <div
-        className={`sticky top-[128px] z-30 mt-3 transition-all duration-200 ${
-          showCompactSticky ? "opacity-100" : "pointer-events-none h-0 overflow-hidden opacity-0"
-        }`}
-      >
-        <div className="rounded-[20px] border border-black/5 bg-[#FCFAF6]/95 px-3 py-2.5 shadow-panel backdrop-blur">
-          <div className="flex items-center gap-2.5">
-            <p className="min-w-0 flex-1 truncate text-base font-semibold text-ink">{formatCurrency(price)}</p>
-            <button
-              type="button"
-              onClick={() => handleActionClick("offer")}
-              className="rounded-full bg-ink px-3.5 py-2.5 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-ink/92"
-            >
-              Make Offer
-            </button>
-            {canBookInspection ? (
-              <button
-                type="button"
-                onClick={() => handleActionClick("inspection")}
-                className="rounded-full border border-black/10 bg-white px-3.5 py-2.5 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-              >
-                Book Inspection
-              </button>
-            ) : null}
+      {showCompactSticky ? (
+        <div
+          className="fixed inset-x-0 z-[45] px-4 lg:hidden"
+          style={{
+            top: `calc(${mobileHeaderHeight}px + env(safe-area-inset-top))`
+          }}
+        >
+          <div className="mx-auto max-w-7xl">
+            <div className="rounded-[20px] border border-black/5 bg-[#FCFAF6]/95 px-3 py-2.5 shadow-panel backdrop-blur">
+              <div className="flex items-center gap-2.5">
+                <p className="min-w-0 flex-1 truncate text-base font-semibold text-ink">{formatCurrency(price)}</p>
+                <button
+                  type="button"
+                  onClick={() => handleActionClick("offer")}
+                  className="rounded-full bg-ink px-3.5 py-2.5 text-center text-xs font-semibold text-white shadow-sm transition hover:bg-ink/92"
+                >
+                  Make Offer
+                </button>
+                {canBookInspection ? (
+                  <button
+                    type="button"
+                    onClick={() => handleActionClick("inspection")}
+                    className="rounded-full border border-black/10 bg-white px-3.5 py-2.5 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Book Inspection
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 }
