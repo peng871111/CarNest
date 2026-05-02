@@ -33,6 +33,7 @@ function toNumericValue(value: string) {
 
 export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; source: VehicleDataSource }) {
   const [filters, setFilters] = useState<InventoryFilters>(initialFilters);
+  const [mobileFiltersExpanded, setMobileFiltersExpanded] = useState(false);
 
   const makeOptions = useMemo(
     () => Array.from(new Set(vehicles.map((vehicle) => vehicle.make).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -61,10 +62,37 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
+  const activeFilterSummary = useMemo(() => {
+    const parts = [
+      filters.make || "",
+      filters.minPrice || filters.maxPrice ? `Price ${filters.minPrice || "Any"}-${filters.maxPrice || "Any"}` : "",
+      filters.minYear || filters.maxYear ? `Year ${filters.minYear || "Any"}-${filters.maxYear || "Any"}` : "",
+      filters.maxKilometres ? `Up to ${filters.maxKilometres} km` : ""
+    ].filter(Boolean);
+
+    return parts.length ? parts.join(" · ") : "No filters applied";
+  }, [filters]);
+
   return (
     <>
-      <div className="mb-8 rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="mb-6 rounded-[28px] border border-black/5 bg-white p-4 sm:mb-8 sm:p-5 shadow-panel">
+        <div className="md:hidden rounded-[22px] border border-black/5 bg-shell px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Filters</p>
+              <p className="mt-1 text-sm text-ink/62">{activeFilterSummary}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileFiltersExpanded((current) => !current)}
+              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-white"
+            >
+              {mobileFiltersExpanded ? "Hide filters" : "Show filters"}
+            </button>
+          </div>
+        </div>
+
+        <div className={`${mobileFiltersExpanded ? "mt-4 grid" : "hidden"} gap-3 md:mt-0 md:grid md:gap-4 md:grid-cols-2 xl:grid-cols-6`}>
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Make</span>
             <select
@@ -131,7 +159,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
             />
           </label>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className={`${mobileFiltersExpanded ? "mt-4" : "mt-3 md:mt-4"} flex flex-wrap items-center justify-between gap-3`}>
           <p className="text-sm text-ink/60">
             Showing {filteredVehicles.length} of {vehicles.length} vehicles
           </p>
@@ -147,7 +175,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
 
       {vehicles.length ? (
         filteredVehicles.length ? (
-          <div className="grid gap-4 min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid gap-3 sm:gap-4 min-[520px]:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {filteredVehicles.map((vehicle) => (
               <VehicleCard key={vehicle.id} vehicle={vehicle} compact />
             ))}

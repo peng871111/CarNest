@@ -53,6 +53,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
   const canBookInspection = vehicle.listingType === "warehouse";
   const isUnderOffer = vehicle.sellerStatus === "UNDER_OFFER";
   const [activeTab, setActiveTab] = useState<ActionTab>(canBookInspection && searchParams.get("action") === "inspection" ? "inspection" : "offer");
+  const [mobileFormExpanded, setMobileFormExpanded] = useState(() => Boolean(searchParams.get("action")));
   const [form, setForm] = useState<ActionFormState>(initialState);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -103,11 +104,22 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
     const action = searchParams.get("action");
     if (action === "inspection" && canBookInspection) {
       setActiveTab("inspection");
+      setMobileFormExpanded(true);
       return;
     }
 
     setActiveTab("offer");
+    if (action === "offer") {
+      setMobileFormExpanded(true);
+    }
   }, [canBookInspection, searchParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash === "#take-action-panel") {
+      setMobileFormExpanded(true);
+    }
+  }, []);
 
   const redirectPath = `/inventory/${vehicle.id}?action=${activeTab}`;
 
@@ -266,7 +278,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
   }
 
   return (
-    <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+    <div id="take-action-panel" className="scroll-mt-24 rounded-[28px] border border-black/5 bg-white p-5 sm:p-6 shadow-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs uppercase tracking-[0.25em] text-bronze">Take Action</p>
@@ -284,10 +296,13 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
         </div>
       </div>
 
-      <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+      <div className="mt-5 flex flex-col gap-2.5 sm:mt-6 sm:gap-3 sm:flex-row">
         <button
           type="button"
-          onClick={() => setActiveTab("offer")}
+          onClick={() => {
+            setActiveTab("offer");
+            setMobileFormExpanded(true);
+          }}
           className={`w-full rounded-full px-5 py-3 text-sm font-semibold transition sm:w-auto ${
             activeTab === "offer"
               ? "bg-ink text-white shadow-sm"
@@ -299,7 +314,10 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
         {canBookInspection ? (
           <button
             type="button"
-            onClick={() => setActiveTab("inspection")}
+            onClick={() => {
+              setActiveTab("inspection");
+              setMobileFormExpanded(true);
+            }}
             className={`w-full rounded-full px-5 py-3 text-sm font-semibold transition sm:w-auto ${
               activeTab === "inspection"
                 ? "bg-ink text-white shadow-sm"
@@ -323,7 +341,15 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
         </label>
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      {!mobileFormExpanded ? (
+        <div className="mt-4 rounded-[22px] border border-black/5 bg-shell px-4 py-3 md:hidden">
+          <p className="text-sm leading-6 text-ink/62">
+            Tap Make Offer or Book Inspection to continue.
+          </p>
+        </div>
+      ) : null}
+
+      <div className={`${mobileFormExpanded ? "mt-5" : "hidden md:block md:mt-6"} grid gap-3 md:grid-cols-2 md:gap-4`}>
         <label className="space-y-2">
           <span className="text-sm font-medium text-ink">Name</span>
           <Input
@@ -357,10 +383,10 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
         </label>
       </div>
 
-      <div className="mt-5 overflow-hidden">
+      <div className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"} overflow-hidden`}>
         <div
           key={activeTab}
-          className="space-y-5 transition-opacity duration-200 ease-out"
+          className="space-y-4 sm:space-y-5 transition-opacity duration-200 ease-out"
         >
           {activeTab === "offer" || !canBookInspection ? (
             <>
@@ -417,26 +443,26 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
       </div>
 
       {error ? (
-        <p className="mt-5 rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">{error}</p>
+        <p className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"} rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800`}>{error}</p>
       ) : null}
       {success ? (
-        <p className="mt-5 rounded-[24px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800">
+        <p className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"} rounded-[24px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-6 text-emerald-800`}>
           {success}
         </p>
       ) : null}
 
-      <div className="mt-5">
+      <div className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"}`}>
         <TurnstileField token={turnstileToken} onTokenChange={setTurnstileToken} />
       </div>
 
-      <div className="mt-5">
+      <div className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"}`}>
         <Button type="button" disabled={saving || isUnderOffer} onClick={() => void handleSubmit()} className="w-full sm:w-auto">
           {saving ? (activeTab === "offer" ? "Submitting offer..." : "Booking inspection...") : activeTab === "offer" ? "Submit offer" : "Book inspection"}
         </Button>
       </div>
 
       {isUnderOffer ? (
-        <p className="mt-4 rounded-[24px] border border-[#F5D7B2] bg-[#FFF8F0] px-4 py-3 text-sm leading-6 text-[#B54708]">
+        <p className={`${mobileFormExpanded ? "mt-4" : "hidden md:block md:mt-4"} rounded-[24px] border border-[#F5D7B2] bg-[#FFF8F0] px-4 py-3 text-sm leading-6 text-[#B54708]`}>
           This vehicle is currently under offer while the accepted buyer confirms whether they want to proceed.
         </p>
       ) : null}

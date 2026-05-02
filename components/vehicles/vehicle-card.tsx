@@ -38,14 +38,14 @@ export function VehicleCard({ vehicle, compact = false }: { vehicle: Vehicle; co
         />
         <ImageWatermark />
       </div>
-      <div className={compact ? "space-y-2.5 p-3.5" : "space-y-3 p-4"}>
+      <div className={compact ? "space-y-2 p-3 sm:space-y-2.5 sm:p-3.5" : "space-y-3 p-4"}>
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap gap-2">
               <ListingBadge vehicle={vehicle} />
               {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
             </div>
-            <h3 className={compact ? "mt-2 text-base font-semibold leading-tight text-ink" : "mt-2 text-lg font-semibold leading-tight text-ink"}>
+            <h3 className={compact ? "mt-1.5 text-[15px] font-semibold leading-tight text-ink sm:mt-2 sm:text-base" : "mt-2 text-lg font-semibold leading-tight text-ink"}>
               {vehicle.year} {vehicle.make} {vehicle.model}
             </h3>
             {vehicle.variant ? <p className="mt-1 text-xs text-ink/55">{vehicle.variant}</p> : null}

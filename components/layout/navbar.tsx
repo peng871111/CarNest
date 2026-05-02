@@ -37,11 +37,11 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0F0F0F]/95 text-[#F5F5F5] backdrop-blur">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="flex min-h-[72px] items-center justify-between gap-6">
+        <div className="flex min-h-[72px] items-center justify-between gap-4 sm:gap-6">
           
 <Link
   href="/"
-  className="text-2xl font-black italic tracking-[0.11em] text-white transition duration-200 hover:opacity-80 hover:scale-105"
+  className="shrink-0 text-2xl font-black italic tracking-[0.11em] text-white transition duration-200 hover:opacity-80 hover:scale-105"
   style={{
     transform: "skewX(8deg) scaleY(0.85)"
   }}
@@ -83,7 +83,7 @@ export default function Navbar() {
           </div>
         </div>
 
-        <nav className="scrollbar-none flex gap-5 overflow-x-auto py-3 text-sm whitespace-nowrap">
+        <nav className="scrollbar-none flex gap-5 overflow-x-auto py-3 pr-1 text-sm whitespace-nowrap">
           {NAV_LINKS.map((link) => {
             const active = pathname === link.href;
 
@@ -92,7 +92,7 @@ export default function Navbar() {
                 key={link.href}
                 href={link.href}
                 className={cn(
-                  "pb-2 transition hover:text-[#C6A87D]",
+                  "shrink-0 pb-2 transition hover:text-[#C6A87D]",
                   active ? "border-b border-[#C6A87D] text-[#C6A87D]" : "text-[#F5F5F5]/84"
                 )}
               >

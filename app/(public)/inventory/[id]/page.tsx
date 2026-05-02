@@ -11,6 +11,7 @@ import { VehicleViewTracker } from "@/components/analytics/vehicle-view-tracker"
 import { ListingBadge } from "@/components/vehicles/listing-badge";
 import { ListingSummary } from "@/components/vehicles/listing-summary";
 import { FinanceCalculator } from "@/components/vehicles/finance-calculator";
+import { MobileVehicleQuickActions } from "@/components/vehicles/mobile-vehicle-quick-actions";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { SaveVehicleButton } from "@/components/vehicles/save-vehicle-button";
@@ -304,10 +305,15 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
               <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
             </div>
-            <div className="mt-6">
-              <ListingSummary vehicle={vehicle} />
-            </div>
+          <div className="mt-6">
+            <ListingSummary vehicle={vehicle} />
           </div>
+          </div>
+          <MobileVehicleQuickActions
+            vehicleId={vehicle.id}
+            price={vehicle.price}
+            canBookInspection={vehicle.listingType === "warehouse"}
+          />
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
           <p className="px-2 text-xs leading-5 text-ink/50">
