@@ -38,7 +38,7 @@ export function MobileVehicleQuickActions({
   }
 
   return (
-    <div className="sticky top-[84px] z-20 rounded-[24px] border border-black/5 bg-[#FCFAF6]/95 p-4 shadow-panel backdrop-blur lg:hidden">
+    <div className="sticky top-[88px] z-30 mb-1 rounded-[24px] border border-black/5 bg-[#FCFAF6]/95 p-4 shadow-panel backdrop-blur lg:hidden">
       <div className="min-w-0">
         <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Asking price</p>
         <p className="mt-1 text-xl font-semibold text-ink">{formatCurrency(price)}</p>
