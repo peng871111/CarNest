@@ -8,6 +8,7 @@ import { useAuth } from "@/lib/auth";
 import { createVehicle, deleteVehicleImage, updateVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
 import { prepareVehicleImageUpload, VEHICLE_IMAGE_UPLOAD_LIMIT } from "@/lib/image-processing";
+import { isAdminLikeRole } from "@/lib/permissions";
 import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { PreparedVehicleImageUpload, Vehicle, VehicleFormFieldsValue, VehicleFormInput, VehicleImageAsset } from "@/types";
@@ -81,6 +82,7 @@ export function VehicleForm({
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
   const isSellerManagedUser = appUser?.role === "seller" || appUser?.role === "dealer";
+  const isAdminUser = isAdminLikeRole(appUser?.role);
   const draftStorageKey = useMemo(
     () => `draft:vehicle-form:${vehicle?.id ?? "new"}:${appUser?.id ?? "anonymous"}`,
     [appUser?.id, vehicle?.id]
@@ -334,7 +336,7 @@ export function VehicleForm({
       setMessage(validationError);
       return;
     }
-    if (appUser.role === "admin" && listingType === "warehouse") {
+    if (isAdminUser && listingType === "warehouse") {
       const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
       if (!normalizedCustomerEmail) {
         setCustomerEmailError("Customer contact email is required for warehouse-managed vehicles.");
@@ -485,12 +487,12 @@ export function VehicleForm({
           You cannot edit a vehicle you do not own.
         </div>
       ) : null}
-      {appUser?.role === "admin" && !isFirebaseConfigured ? (
+      {isAdminUser && !isFirebaseConfigured ? (
         <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
           Live saving is not available yet in this environment. You can continue working with the form, but changes will not be published until the project connection is complete.
         </div>
       ) : null}
-      {appUser?.role === "admin" && !isFirebaseStorageConfigured ? (
+      {isAdminUser && !isFirebaseStorageConfigured ? (
         <div className="rounded-[24px] border border-blue-200 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-900">
           Image upload will be available once storage is ready in this environment.
         </div>
@@ -527,7 +529,7 @@ export function VehicleForm({
           </label>
         )}
       </div>
-      {appUser?.role === "admin" ? (
+      {isAdminUser ? (
         <div className="space-y-4 rounded-[28px] border border-black/5 bg-shell/70 px-5 py-5">
           <div className="space-y-1">
             <h2 className="text-sm font-medium text-ink">Seller / contact details</h2>
@@ -536,6 +538,15 @@ export function VehicleForm({
             </p>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">Seller email</span>
+              <input
+                type="email"
+                value={appUser?.email ?? ""}
+                readOnly
+                className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink/75 outline-none"
+              />
+            </label>
             <label className="space-y-2">
               <span className="text-sm font-medium text-ink">Customer contact email</span>
               <input
@@ -565,7 +576,9 @@ export function VehicleForm({
                 <p className="text-xs leading-5 text-red-600">{customerEmailError}</p>
               ) : (
                 <p className="text-xs leading-5 text-ink/55">
-                  Required for Warehouse Vehicle listings. Separate multiple customer emails with commas if needed.
+                  {listingType === "warehouse"
+                    ? "Required for Warehouse Vehicle listings. Separate multiple customer emails with commas if needed."
+                    : "Optional for Online Listing vehicles. Separate multiple customer emails with commas if needed."}
                 </p>
               )}
             </label>
