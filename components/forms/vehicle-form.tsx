@@ -76,6 +76,7 @@ export function VehicleForm({
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const [customerEmail, setCustomerEmail] = useState(vehicle?.customerEmail ?? "");
+  const [customerEmailError, setCustomerEmailError] = useState("");
   const currentVehicle = activeVehicle ?? vehicle;
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
@@ -90,6 +91,7 @@ export function VehicleForm({
     setExistingImageAssets(buildVehicleImageAssets(vehicle));
     setCoverImageKey(null);
     setCustomerEmail(vehicle?.customerEmail ?? "");
+    setCustomerEmailError("");
     setFormValues(
       buildVehicleFormFieldsValue(
         vehicle,
@@ -145,7 +147,7 @@ export function VehicleForm({
     };
 
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
-  }, [draftReady, draftStorageKey, formValues, imageMode, listingType]);
+  }, [customerEmail, draftReady, draftStorageKey, formValues, imageMode, listingType]);
 
   useEffect(() => {
     return () => {
@@ -335,12 +337,13 @@ export function VehicleForm({
     if (appUser.role === "admin" && listingType === "warehouse") {
       const normalizedCustomerEmail = customerEmail.trim().toLowerCase();
       if (!normalizedCustomerEmail) {
-        setMessage("Customer contact email is required for warehouse-managed vehicles.");
+        setCustomerEmailError("Customer contact email is required for warehouse-managed vehicles.");
         return;
       }
     }
     setSaving(true);
     setMessage("");
+    setCustomerEmailError("");
 
     try {
       let imageAssets = [...existingImageAssets];
@@ -456,7 +459,14 @@ export function VehicleForm({
       );
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Something went wrong. Please try again.");
+      const errorMessage = error instanceof Error ? error.message : "Something went wrong. Please try again.";
+      if (
+        errorMessage === "Customer contact email is required for warehouse-managed vehicles."
+        || errorMessage === "Please enter a valid customer contact email."
+      ) {
+        setCustomerEmailError(errorMessage);
+      }
+      setMessage(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -505,7 +515,10 @@ export function VehicleForm({
             <span className="text-sm font-medium text-ink">Listing type</span>
             <select
               value={listingType}
-              onChange={(event) => setListingType(event.target.value as Vehicle["listingType"])}
+              onChange={(event) => {
+                setListingType(event.target.value as Vehicle["listingType"]);
+                setCustomerEmailError("");
+              }}
               className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm"
             >
               <option value="warehouse">Warehouse</option>
@@ -515,22 +528,48 @@ export function VehicleForm({
         )}
       </div>
       {appUser?.role === "admin" ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="space-y-2">
-            <span className="text-sm font-medium text-ink">Customer contact email (for updates)</span>
-            <input
-              type="email"
-              multiple
-              value={customerEmail}
-              onChange={(event) => setCustomerEmail(event.target.value)}
-              placeholder="customer@example.com, other@example.com"
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
-              required={listingType === "warehouse"}
-            />
+        <div className="space-y-4 rounded-[28px] border border-black/5 bg-shell/70 px-5 py-5">
+          <div className="space-y-1">
+            <h2 className="text-sm font-medium text-ink">Seller / contact details</h2>
             <p className="text-xs leading-5 text-ink/55">
-              Used only for customer activity updates. Required for warehouse-managed vehicles. Separate multiple emails with commas.
+              Customer updates and activity emails are sent to this address. Use the same customer email field shown later in the admin vehicle detail panel.
             </p>
-          </label>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <label className="space-y-2">
+              <span className="text-sm font-medium text-ink">Customer contact email</span>
+              <input
+                type="email"
+                multiple
+                value={customerEmail}
+                onChange={(event) => {
+                  setCustomerEmail(event.target.value);
+                  if (customerEmailError) {
+                    setCustomerEmailError("");
+                  }
+                }}
+                onBlur={() => {
+                  if (listingType !== "warehouse" || !customerEmailError) return;
+                  if (customerEmail.trim()) {
+                    setCustomerEmailError("");
+                  }
+                }}
+                placeholder="Enter customer email for updates"
+                className={`w-full rounded-2xl border bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze ${
+                  customerEmailError ? "border-red-300" : "border-black/10"
+                }`}
+                required={listingType === "warehouse"}
+                aria-invalid={customerEmailError ? "true" : "false"}
+              />
+              {customerEmailError ? (
+                <p className="text-xs leading-5 text-red-600">{customerEmailError}</p>
+              ) : (
+                <p className="text-xs leading-5 text-ink/55">
+                  Required for Warehouse Vehicle listings. Separate multiple customer emails with commas if needed.
+                </p>
+              )}
+            </label>
+          </div>
         </div>
       ) : null}
       <VehicleFormFields
