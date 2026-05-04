@@ -13,6 +13,7 @@ interface VehicleActivityEmailRequestBody {
   noteContent?: string;
   message?: string;
   customerEmail?: string;
+  customerName?: string | null;
   updateType?: string;
   imageUrls?: string[];
 }
@@ -31,6 +32,11 @@ function isValidPayload(body: unknown): body is VehicleActivityEmailRequestBody 
       || (typeof payload.message === "string" && payload.message.trim().length > 0)
     )
     && (typeof payload.customerEmail === "undefined" || typeof payload.customerEmail === "string")
+    && (
+      typeof payload.customerName === "undefined"
+      || typeof payload.customerName === "string"
+      || payload.customerName === null
+    )
     && (typeof payload.updateType === "undefined" || typeof payload.updateType === "string")
     && (
       typeof payload.imageUrls === "undefined"
@@ -81,12 +87,17 @@ export async function POST(request: NextRequest) {
         ? body.message.trim()
         : "";
     const payloadCustomerEmail = typeof body.customerEmail === "string" ? body.customerEmail.trim() : "";
+    const payloadCustomerName =
+      typeof body.customerName === "string"
+        ? body.customerName.trim()
+        : "";
     const recipientEmails = parseCustomerEmailList(payloadCustomerEmail);
     const imageUrls = sanitizeImageUrls(body.imageUrls);
     const content = getVehicleActivityEmailContent({
       vehicleTitle: body.vehicleTitle,
       referenceId: body.referenceId,
       message: noteContent,
+      customerName: payloadCustomerName,
       imageUrls
     });
 
@@ -123,6 +134,7 @@ export async function POST(request: NextRequest) {
         vehicleTitle: body.vehicleTitle,
         referenceId: body.referenceId,
         message: noteContent,
+        customerName: payloadCustomerName,
         imageUrls
       });
 

@@ -11,12 +11,16 @@ export interface VehicleActivityEmailPayload {
   vehicleTitle: string;
   referenceId: string;
   message: string;
+  customerName?: string | null;
   imageUrls?: string[];
 }
 
 export function getVehicleActivityEmailContent(
-  payload: Pick<VehicleActivityEmailPayload, "vehicleTitle" | "referenceId" | "message" | "imageUrls">
+  payload: Pick<VehicleActivityEmailPayload, "vehicleTitle" | "referenceId" | "message" | "customerName" | "imageUrls">
 ) {
+  const greeting = payload.customerName?.trim()
+    ? `Hi ${payload.customerName.trim()},`
+    : "Hi there,";
   const imageUrls = payload.imageUrls?.filter((imageUrl) => typeof imageUrl === "string" && imageUrl.trim().length > 0) ?? [];
   const photoLinksText = imageUrls.length
     ? [
@@ -45,7 +49,7 @@ export function getVehicleActivityEmailContent(
   return {
     subject: `Vehicle update: ${payload.vehicleTitle}`,
     text: [
-      "Hi,",
+      greeting,
       "",
       "Here is an update on your vehicle.",
       "",
@@ -76,7 +80,7 @@ export function getVehicleActivityEmailContent(
         <div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid rgba(0,0,0,0.08);border-radius:24px;padding:28px 24px;">
           <p style="margin:0 0 8px;font-size:12px;line-height:1.4;letter-spacing:0.18em;text-transform:uppercase;color:#8f5b2e;">CarNest vehicle update</p>
           <h1 style="margin:0 0 20px;font-size:24px;line-height:1.2;color:#1b1b18;font-weight:700;">CarNest vehicle update</h1>
-          <p style="font-size:15px;line-height:1.7;margin:0 0 8px;">Hi,</p>
+          <p style="font-size:15px;line-height:1.7;margin:0 0 8px;">${greeting}</p>
           <p style="font-size:15px;line-height:1.7;margin:0 0 20px;">Here is an update on your vehicle.</p>
           <div style="margin:0 0 20px;">
             <p style="margin:0 0 10px;font-size:13px;line-height:1.5;letter-spacing:0.16em;text-transform:uppercase;color:#6d685f;">Update</p>

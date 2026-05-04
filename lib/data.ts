@@ -482,6 +482,12 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     customerEmail: typeof data.customerEmail === "string" ? data.customerEmail : "",
+    customerName:
+      typeof data.customerName === "string"
+        ? data.customerName
+        : data.customerName === null
+          ? null
+          : "",
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     viewCount: Number(data.viewCount ?? 0),
     uniqueViewCount: Number(data.uniqueViewCount ?? 0),
@@ -4229,6 +4235,7 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     sellerLocationPostcode: typeof input.sellerLocationPostcode === "string" ? input.sellerLocationPostcode.replace(/\D/g, "").slice(0, 4) : "",
     sellerLocationState: toUppercaseValue(input.sellerLocationState),
     customerEmail: normalizeCustomerEmailList(input.customerEmail ?? ""),
+    customerName: sanitizeSingleLineText(input.customerName ?? ""),
     description: sanitizeMultilineText(input.description),
     imageAssets: Array.isArray(input.imageAssets)
       ? input.imageAssets.filter((item) => Boolean(item?.thumbnailUrl) && Boolean(item?.fullUrl))
@@ -4270,6 +4277,10 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
       normalizedInput.listingType === "warehouse"
         ? normalizedInput.customerEmail ?? ""
         : existingVehicle?.customerEmail ?? "",
+    customerName:
+      normalizedInput.listingType === "warehouse"
+        ? normalizedInput.customerName || null
+        : existingVehicle?.customerName ?? null,
     make: normalizedInput.make,
     model: normalizedInput.model,
     variant: "",

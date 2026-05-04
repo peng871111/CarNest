@@ -34,6 +34,7 @@ interface VehicleFormDraft {
   listingType: Vehicle["listingType"];
   imageMode: "append" | "replace";
   customerEmail?: string;
+  customerName?: string;
 }
 
 function getListingModeLabel(listingType: Vehicle["listingType"]) {
@@ -77,6 +78,7 @@ export function VehicleForm({
   const [imageMode, setImageMode] = useState<"append" | "replace">("append");
   const [activeVehicle, setActiveVehicle] = useState<Vehicle | undefined>(vehicle);
   const [customerEmail, setCustomerEmail] = useState(vehicle?.customerEmail ?? "");
+  const [customerName, setCustomerName] = useState(vehicle?.customerName ?? "");
   const [customerEmailError, setCustomerEmailError] = useState("");
   const currentVehicle = activeVehicle ?? vehicle;
   const [coverImageKey, setCoverImageKey] = useState<string | null>(null);
@@ -93,6 +95,7 @@ export function VehicleForm({
     setExistingImageAssets(buildVehicleImageAssets(vehicle));
     setCoverImageKey(null);
     setCustomerEmail(vehicle?.customerEmail ?? "");
+    setCustomerName(vehicle?.customerName ?? "");
     setCustomerEmailError("");
     setFormValues(
       buildVehicleFormFieldsValue(
@@ -131,6 +134,10 @@ export function VehicleForm({
       if (typeof parsedDraft.customerEmail === "string") {
         setCustomerEmail(parsedDraft.customerEmail);
       }
+
+      if (typeof parsedDraft.customerName === "string") {
+        setCustomerName(parsedDraft.customerName);
+      }
     } catch {
       window.localStorage.removeItem(draftStorageKey);
     } finally {
@@ -145,11 +152,12 @@ export function VehicleForm({
       formValues,
       listingType,
       imageMode,
-      customerEmail
+      customerEmail,
+      customerName
     };
 
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
-  }, [customerEmail, draftReady, draftStorageKey, formValues, imageMode, listingType]);
+  }, [customerEmail, customerName, draftReady, draftStorageKey, formValues, imageMode, listingType]);
 
   useEffect(() => {
     return () => {
@@ -409,6 +417,7 @@ export function VehicleForm({
         sellerLocationPostcode: formValues.sellerLocationPostcode,
         sellerLocationState: formValues.sellerLocationState,
         customerEmail,
+        customerName,
         description: formValues.description,
         coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
         coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || currentVehicle?.coverImageUrl || "",
@@ -428,6 +437,7 @@ export function VehicleForm({
         setExistingImageAssets(buildVehicleImageAssets(result.vehicle));
         setCoverImageKey(null);
         setCustomerEmail(result.vehicle.customerEmail ?? "");
+        setCustomerName(result.vehicle.customerName ?? "");
         setFormValues(
           buildVehicleFormFieldsValue(
             result.vehicle,
@@ -582,6 +592,16 @@ export function VehicleForm({
                 </p>
               )}
             </label>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-ink">Customer name</label>
+              <input
+                type="text"
+                value={customerName || ""}
+                onChange={(event) => setCustomerName(event.target.value)}
+                placeholder="e.g. John"
+                className="w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-bronze"
+              />
+            </div>
           </div>
         </div>
       ) : null}

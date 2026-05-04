@@ -541,6 +541,7 @@ export function AdminVehiclesReviewBoard({
           const payload = {
             vehicleId,
             customerEmail: selectedCustomerEmail,
+            customerName: vehicle.customerName ?? "",
             vehicleTitle: getVehicleFullTitle(vehicle),
             referenceId: getVehicleDisplayReference(vehicle),
             noteContent: message.trim(),
