@@ -10,6 +10,20 @@ interface MobileVehicleQuickActionsProps {
   canBookInspection: boolean;
 }
 
+function estimateWeeklyPayment(price: number) {
+  const interestRate = 0.0899;
+  const years = 5;
+  const weeks = years * 52;
+  const loanAmount = price;
+  const weeklyRate = interestRate / 52;
+
+  const payment =
+    (loanAmount * weeklyRate) /
+    (1 - Math.pow(1 + weeklyRate, -weeks));
+
+  return Math.round(payment);
+}
+
 export function MobileVehicleQuickActions({
   vehicleId,
   price,
@@ -21,6 +35,7 @@ export function MobileVehicleQuickActions({
   const searchParams = useSearchParams();
   const [showCompactSticky, setShowCompactSticky] = useState(false);
   const [mobileHeaderHeight, setMobileHeaderHeight] = useState(150);
+  const weeklyPayment = estimateWeeklyPayment(price);
 
   useEffect(() => {
     function updateHeaderHeight() {
@@ -140,7 +155,17 @@ export function MobileVehicleQuickActions({
           <div className="mx-auto max-w-7xl">
             <div className="rounded-[20px] border border-black/5 bg-[#FCFAF6]/95 px-3 py-2.5 shadow-panel backdrop-blur">
               <div className="flex items-center gap-2.5">
-                <p className="min-w-0 flex-1 truncate text-base font-semibold text-ink">{formatCurrency(price)}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-base font-semibold text-ink">{formatCurrency(price)}</p>
+                  <div className="block md:hidden">
+                    <div className="text-xs leading-tight text-gray-500">
+                      Est. {formatCurrency(weeklyPayment)}/week
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                      Based on 8.99% over 5 years
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => handleActionClick("offer")}
