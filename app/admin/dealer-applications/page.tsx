@@ -1,11 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { DealerApplicationReviewBoard } from "@/components/admin/dealer-application-review-board";
 import { AdminShell } from "@/components/layout/admin-shell";
+import { useAuth } from "@/lib/auth";
 import { getDealerApplicationsData } from "@/lib/data";
+import { canAccessRole } from "@/lib/permissions";
+import { DealerApplication } from "@/types";
 
-export const dynamic = "force-dynamic";
+export default function AdminDealerApplicationsPage() {
+  const { appUser, loading } = useAuth();
+  const [applications, setApplications] = useState<DealerApplication[]>([]);
+  const [error, setError] = useState("");
 
-export default async function AdminDealerApplicationsPage() {
-  const { items: applications, error } = await getDealerApplicationsData();
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadApplications() {
+      if (loading || !canAccessRole("admin", appUser?.role)) return;
+      const result = await getDealerApplicationsData();
+      if (cancelled) return;
+      setApplications(result.items);
+      setError(result.error ?? "");
+    }
+
+    void loadApplications();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.role, loading]);
 
   return (
     <AdminShell

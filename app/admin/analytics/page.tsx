@@ -1,5 +1,7 @@
+"use client";
+
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { AdminShell } from "@/components/layout/admin-shell";
 import {
   getContactMessagesData,
@@ -11,10 +13,20 @@ import {
   getVehiclesData,
   getVehicleViewEventsData
 } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { canAccessRole } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
 import { getVehicleDisplayReference } from "@/lib/utils";
-
-export const dynamic = "force-dynamic";
+import {
+  AppUser,
+  ContactMessage,
+  DealerApplication,
+  InspectionRequest,
+  Offer,
+  SavedVehicle,
+  Vehicle,
+  VehicleViewEvent
+} from "@/types";
 
 type RankedListing = {
   vehicleId: string;
@@ -228,35 +240,74 @@ function RankedSignalSection({
   );
 }
 
-export default async function AdminAnalyticsPage() {
-  const [
-    usersResult,
-    vehiclesResult,
-    dealerApplicationsResult,
-    offersResult,
-    enquiriesResult,
-    savedVehiclesResult,
-    inspectionRequestsResult,
-    viewEventsResult
-  ] = await Promise.all([
-    getUsersData(),
-    getVehiclesData(),
-    getDealerApplicationsData(),
-    getOffersData(),
-    getContactMessagesData(),
-    getSavedVehiclesCollectionData(),
-    getInspectionRequestsData(),
-    getVehicleViewEventsData()
-  ]);
+export default function AdminAnalyticsPage() {
+  const { appUser, loading } = useAuth();
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [dealerApplications, setDealerApplications] = useState<DealerApplication[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [enquiries, setEnquiries] = useState<ContactMessage[]>([]);
+  const [savedVehicles, setSavedVehicles] = useState<SavedVehicle[]>([]);
+  const [inspectionRequests, setInspectionRequests] = useState<InspectionRequest[]>([]);
+  const [viewEvents, setViewEvents] = useState<VehicleViewEvent[]>([]);
+  const [dataWarnings, setDataWarnings] = useState<string[]>([]);
 
-  const users = usersResult.items;
-  const vehicles = vehiclesResult.items;
-  const dealerApplications = dealerApplicationsResult.items;
-  const offers = offersResult.items;
-  const enquiries = enquiriesResult.items;
-  const savedVehicles = savedVehiclesResult.items;
-  const inspectionRequests = inspectionRequestsResult.items;
-  const viewEvents = viewEventsResult.items;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAnalytics() {
+      if (loading || !canAccessRole("admin", appUser?.role)) return;
+
+      const [
+        usersResult,
+        vehiclesResult,
+        dealerApplicationsResult,
+        offersResult,
+        enquiriesResult,
+        savedVehiclesResult,
+        inspectionRequestsResult,
+        viewEventsResult
+      ] = await Promise.all([
+        getUsersData(),
+        getVehiclesData(),
+        getDealerApplicationsData(),
+        getOffersData(),
+        getContactMessagesData(),
+        getSavedVehiclesCollectionData(),
+        getInspectionRequestsData(),
+        getVehicleViewEventsData()
+      ]);
+
+      if (cancelled) return;
+
+      setUsers(usersResult.items);
+      setVehicles(vehiclesResult.items);
+      setDealerApplications(dealerApplicationsResult.items);
+      setOffers(offersResult.items);
+      setEnquiries(enquiriesResult.items);
+      setSavedVehicles(savedVehiclesResult.items);
+      setInspectionRequests(inspectionRequestsResult.items);
+      setViewEvents(viewEventsResult.items);
+      setDataWarnings(
+        [
+          usersResult.error,
+          vehiclesResult.error,
+          dealerApplicationsResult.error,
+          offersResult.error,
+          enquiriesResult.error,
+          savedVehiclesResult.error,
+          inspectionRequestsResult.error,
+          viewEventsResult.error
+        ].filter(Boolean) as string[]
+      );
+    }
+
+    void loadAnalytics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.role, loading]);
 
   const vehiclesById = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
   const liveListings = vehicles.filter((vehicle) => vehicle.status === "approved" && vehicle.sellerStatus !== "SOLD");
@@ -334,17 +385,6 @@ export default async function AdminAnalyticsPage() {
   const totalViewCount = viewEvents.length;
   const totalPageViewsValue = "—";
   const totalVisitorsValue = "—";
-
-  const dataWarnings = [
-    usersResult.error,
-    vehiclesResult.error,
-    dealerApplicationsResult.error,
-    offersResult.error,
-    enquiriesResult.error,
-    savedVehiclesResult.error,
-    inspectionRequestsResult.error,
-    viewEventsResult.error
-  ].filter(Boolean);
 
   return (
     <AdminShell

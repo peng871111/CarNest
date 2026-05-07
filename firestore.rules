@@ -10,7 +10,11 @@ service cloud.firestore {
     }
 
     function isSuperAdmin() {
-      return signedIn() && userDoc().data.role == "super_admin";
+      return signedIn()
+        && (
+          userDoc().data.role == "super_admin"
+          || isCraigEmail(request.auth.token.email)
+        );
     }
 
     function isAdmin() {
@@ -18,6 +22,8 @@ service cloud.firestore {
         && (
           userDoc().data.role == "admin"
           || userDoc().data.role == "super_admin"
+          || isCraigEmail(request.auth.token.email)
+          || isLeonEmail(request.auth.token.email)
         );
     }
 
@@ -115,6 +121,7 @@ service cloud.firestore {
       return role == "guest"
         || role == "buyer"
         || role == "seller"
+        || role == "dealer"
         || role == "admin"
         || role == "super_admin";
     }
@@ -165,6 +172,52 @@ service cloud.firestore {
 
     function vehicleOwnerUid(vehicleId) {
       return get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.ownerUid;
+    }
+
+    function isPublicVehicleData(data) {
+      return data.status == "approved"
+        && (
+          data.sellerStatus == "ACTIVE"
+          || data.sellerStatus == "UNDER_OFFER"
+          || data.sellerStatus == "SOLD"
+        );
+    }
+
+    function isPublicVehicleById(vehicleId) {
+      return isPublicVehicleData(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data);
+    }
+
+    function publicVehicleViewFieldsOnlyChanged() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        "viewCount",
+        "uniqueViewCount",
+        "lastViewedAt"
+      ]);
+    }
+
+    function validPublicVehicleViewCounterUpdate() {
+      return publicVehicleViewFieldsOnlyChanged()
+        && isPublicVehicleData(resource.data)
+        && request.resource.data.viewCount is int
+        && request.resource.data.uniqueViewCount is int
+        && request.resource.data.viewCount >= resource.data.viewCount
+        && request.resource.data.uniqueViewCount >= resource.data.uniqueViewCount
+        && request.resource.data.lastViewedAt is timestamp;
+    }
+
+    function validVehicleAnalyticsWrite(vehicleId) {
+      return request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "sellerOwnerUid",
+          "totalViews",
+          "uniqueVisitors",
+          "updatedAt"
+        ])
+        && request.resource.data.vehicleId == vehicleId
+        && request.resource.data.sellerOwnerUid == vehicleOwnerUid(vehicleId)
+        && request.resource.data.totalViews is int
+        && request.resource.data.uniqueVisitors is int
+        && request.resource.data.updatedAt is timestamp;
     }
 
     function offerFieldsUnchanged() {
@@ -370,6 +423,17 @@ service cloud.firestore {
         && request.resource.data.failedLoginAttempts is int
         && request.resource.data.mustResetPassword is bool;
       allow update: if isSuperAdmin()
+        || (
+          isAdmin()
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.adminPermissions == resource.data.adminPermissions
+          && (
+            request.resource.data.role == resource.data.role
+            || request.resource.data.role == "dealer"
+          )
+        )
         || (
           signedIn()
           && request.auth.uid == userId
@@ -665,54 +729,10 @@ service cloud.firestore {
     }
 
     match /vehicles/{vehicleId} {
-      allow read: if isAdmin()
-        || (signedIn() && resource.data.ownerUid == request.auth.uid)
-        || (
-          (!("deleted" in resource.data) || resource.data.deleted == false)
-          && (
-            !("deletedAt" in resource.data)
-            || resource.data.deletedAt == null
-          )
-          && resource.data.status == "approved"
-          && (
-            resource.data.sellerStatus == "ACTIVE"
-            || resource.data.sellerStatus == "UNDER_OFFER"
-            || resource.data.sellerStatus == "SOLD"
-          )
-        );
-      allow create: if isAdmin()
-        || (
-          isSellerWorkspaceUser()
-          && (userDoc().data.role != "dealer" || isApprovedDealer())
-          && request.resource.data.ownerUid == request.auth.uid
-          && request.resource.data.ownerRole == "seller"
-          && request.resource.data.status == "pending"
-          && request.resource.data.sellerStatus == "ACTIVE"
-        );
-      allow update: if isAdmin()
-        || (
-          (isSeller() || isApprovedDealer())
-          && resource.data.ownerUid == request.auth.uid
-          && request.resource.data.ownerUid == resource.data.ownerUid
-          && request.resource.data.ownerRole == resource.data.ownerRole
-          && isValidVehicleStatus(request.resource.data.status)
-          && isValidSellerVehicleStatus(request.resource.data.sellerStatus)
-          && request.resource.data.status == resource.data.status
-        )
-        || (
-          signedIn()
-          && resource.data.underOfferBuyerUid == request.auth.uid
-          && request.resource.data.ownerUid == resource.data.ownerUid
-          && request.resource.data.ownerRole == resource.data.ownerRole
-          && request.resource.data.status == resource.data.status
-          && request.resource.data.sellerStatus == "ACTIVE"
-          && (
-            !("underOfferBuyerUid" in request.resource.data)
-            || request.resource.data.underOfferBuyerUid == ""
-          )
-          && vehicleStatusFieldsOnlyChanged()
-        );
-      allow delete: if isAdmin();
+      allow read: if true;
+      allow create: if isAdmin() || isSuperAdmin();
+      allow update: if isAdmin() || isSuperAdmin();
+      allow delete: if isAdmin() || isSuperAdmin();
     }
 
     match /vehicle_private/{vehicleId} {
@@ -777,7 +797,27 @@ service cloud.firestore {
     }
 
     match /enquiries/{id} {
-      allow read, write: if false;
+      allow read: if isAdmin();
+      allow create: if request.resource.data.keys().hasOnly([
+          "name",
+          "email",
+          "phone",
+          "subject",
+          "message",
+          "category",
+          "status",
+          "createdAt"
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.phone is string
+        && request.resource.data.subject is string
+        && request.resource.data.message is string
+        && request.resource.data.category is string
+        && isValidContactMessageStatus(request.resource.data.status)
+        && request.resource.data.status == "NEW"
+        && request.resource.data.createdAt is timestamp;
+      allow update, delete: if isAdmin();
     }
 
     match /offers/{id} {
@@ -1261,13 +1301,16 @@ service cloud.firestore {
         && isValidInspectionRequestStatus(request.resource.data.status)
         && request.resource.data.status == "NEW"
         && request.resource.data.submittedByUid == request.auth.uid
-        && request.resource.data.createdAt is timestamp;
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.sellerOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
+        && isPublicVehicleById(request.resource.data.vehicleId)
+        && get(/databases/$(database)/documents/vehicles/$(request.resource.data.vehicleId)).data.sellerStatus == "ACTIVE";
       allow read: if isAdmin()
-        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+        || ((isSeller() || isApprovedDealer()) && resource.data.sellerOwnerUid == request.auth.uid)
         || (signedIn() && resource.data.submittedByUid == request.auth.uid);
       allow update: if (
           isAdmin()
-          || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid)
+          || ((isSeller() || isApprovedDealer()) && resource.data.sellerOwnerUid == request.auth.uid)
         )
         && isValidInspectionRequestStatus(request.resource.data.status)
         && inspectionRequestFieldsUnchanged();
@@ -1390,7 +1433,8 @@ service cloud.firestore {
     }
 
     match /savedVehicles/{id} {
-      allow create: if signedIn()
+      allow create: if isAdmin()
+        || (signedIn()
         && request.resource.data.keys().hasOnly([
           "userId",
           "vehicleId",
@@ -1398,9 +1442,11 @@ service cloud.firestore {
         ])
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.vehicleId is string
-        && request.resource.data.createdAt is timestamp;
-      allow read, delete: if signedIn() && resource.data.userId == request.auth.uid;
-      allow update: if signedIn()
+        && request.resource.data.createdAt is timestamp);
+      allow read, delete: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin()
+        || (signedIn()
         && resource.data.userId == request.auth.uid
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.vehicleId == resource.data.vehicleId
@@ -1408,7 +1454,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).changedKeys().hasOnly([
           "lastViewedActivityAt"
         ])
-        && request.resource.data.lastViewedActivityAt is timestamp;
+        && request.resource.data.lastViewedActivityAt is timestamp);
     }
 
     match /offerActivityNotifications/{id} {
@@ -1473,7 +1519,9 @@ service cloud.firestore {
     }
 
     match /vehicleActivityEvents/{id} {
-      allow create: if signedIn()
+      allow create: if isAdmin()
+        || (
+        signedIn()
         && request.resource.data.keys().hasOnly([
           "vehicleId",
           "type",
@@ -1482,7 +1530,8 @@ service cloud.firestore {
           "createdByUid",
           "actorUid",
           "createdAt",
-          "visibility"
+          "visibility",
+          "imageUrls"
         ])
         && request.resource.data.vehicleId is string
         && (
@@ -1512,45 +1561,122 @@ service cloud.firestore {
           request.resource.data.visibility == "admin"
           || request.resource.data.visibility == "customer"
         )
-        && request.resource.data.createdAt is timestamp;
-      allow read: if signedIn();
-      allow update, delete: if false;
+        && (
+          !("imageUrls" in request.resource.data)
+          || request.resource.data.imageUrls is list
+        )
+        && request.resource.data.createdAt is timestamp);
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && (
+            vehicleOwnerUid(resource.data.vehicleId) == request.auth.uid
+            || resource.data.visibility == "customer"
+          )
+        );
+      allow update: if isAdmin()
+        && request.resource.data.vehicleId == resource.data.vehicleId
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.message == resource.data.message
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdByUid == resource.data.createdByUid
+        && request.resource.data.actorUid == resource.data.actorUid
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.visibility == resource.data.visibility
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "imageUrls",
+          "updatedAt"
+        ])
+        && request.resource.data.imageUrls is list
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if isAdmin();
     }
 
     match /vehicleViewEvents/{id} {
-      allow create: if request.resource.data.vehicleId is string
+      allow create: if isAdmin()
+        || (
+        request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "sessionId",
+          "userId",
+          "visitorKeyHash",
+          "role",
+          "source",
+          "referrer",
+          "deviceType",
+          "country",
+          "state",
+          "city",
+          "listingType",
+          "sellerOwnerUid",
+          "viewedAt"
+        ])
+        && request.resource.data.vehicleId is string
         && request.resource.data.sessionId is string
+        && request.resource.data.visitorKeyHash is string
         && isValidVehicleViewRole(request.resource.data.role)
         && request.resource.data.source is string
         && request.resource.data.referrer is string
         && isValidDeviceType(request.resource.data.deviceType)
         && request.resource.data.listingType is string
-        && request.resource.data.sellerOwnerUid is string
+        && request.resource.data.sellerOwnerUid == vehicleOwnerUid(request.resource.data.vehicleId)
+        && isPublicVehicleById(request.resource.data.vehicleId)
         && (!("userId" in request.resource.data) || (signedIn() && request.resource.data.userId == request.auth.uid))
         && (
           (!signedIn() && request.resource.data.role == "guest" && !("userId" in request.resource.data))
           || (signedIn() && request.resource.data.role == userDoc().data.role)
         )
-        && request.resource.data.viewedAt is timestamp;
+        && request.resource.data.viewedAt is timestamp);
       allow read: if isAdmin()
-        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
-      allow update, delete: if false;
+        || ((isSeller() || isApprovedDealer()) && resource.data.sellerOwnerUid == request.auth.uid);
+      allow update, delete: if isAdmin();
+    }
+
+    match /vehicleViewVisitors/{id} {
+      allow create: if isAdmin()
+        || (
+        request.resource.data.keys().hasOnly([
+          "vehicleId",
+          "visitorKeyHash",
+          "firstViewedAt"
+        ])
+        && request.resource.data.vehicleId is string
+        && request.resource.data.visitorKeyHash is string
+        && request.resource.data.firstViewedAt is timestamp
+        && isPublicVehicleById(request.resource.data.vehicleId));
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && vehicleOwnerUid(resource.data.vehicleId) == request.auth.uid
+        );
+      allow update, delete: if isAdmin();
     }
 
     match /vehicleAnalytics/{vehicleId} {
       allow read: if isAdmin()
-        || (isSeller() && resource.data.sellerOwnerUid == request.auth.uid);
-      allow create, update: if isAdmin()
-        || (isSeller() && request.resource.data.sellerOwnerUid == request.auth.uid);
+        || ((isSeller() || isApprovedDealer()) && resource.data.sellerOwnerUid == request.auth.uid);
+      allow create: if isAdmin()
+        || ((isSeller() || isApprovedDealer()) && request.resource.data.sellerOwnerUid == request.auth.uid)
+        || (!signedIn() && validVehicleAnalyticsWrite(vehicleId) && isPublicVehicleById(vehicleId));
+      allow update: if isAdmin()
+        || ((isSeller() || isApprovedDealer()) && request.resource.data.sellerOwnerUid == request.auth.uid)
+        || (
+          !signedIn()
+          && validVehicleAnalyticsWrite(vehicleId)
+          && resource.data.vehicleId == vehicleId
+          && request.resource.data.totalViews >= resource.data.totalViews
+          && request.resource.data.uniqueVisitors >= resource.data.uniqueVisitors
+          && isPublicVehicleById(vehicleId)
+        );
       allow delete: if isAdmin();
     }
 
     match /viewing_requests/{id} {
-      allow read, write: if signedIn();
+      allow read, write: if isAdmin();
     }
 
     match /change_requests/{id} {
-      allow read, write: if signedIn();
+      allow read, write: if isAdmin();
     }
   }
 }

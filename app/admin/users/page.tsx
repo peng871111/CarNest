@@ -1,13 +1,44 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { getComplianceAlertsData, listUsers } from "@/lib/data";
 import { AdminAccessManager } from "@/components/admin/admin-access-manager";
+import { useAuth } from "@/lib/auth";
+import { canAccessRole } from "@/lib/permissions";
+import { AppUser, ComplianceAlert } from "@/types";
 
-export const dynamic = "force-dynamic";
+export default function AdminUsersPage() {
+  const { appUser, loading } = useAuth();
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [complianceAlerts, setComplianceAlerts] = useState<ComplianceAlert[]>([]);
 
-export default async function AdminUsersPage() {
-  const [users, complianceAlertsResult] = await Promise.all([listUsers(), getComplianceAlertsData()]);
-  const adminUsers = users.filter((user) => user.role === "admin" || user.role === "super_admin");
-  const openComplianceAlerts = complianceAlertsResult.items.filter((item) => item.status === "open");
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUsersPage() {
+      if (loading || !canAccessRole("admin", appUser?.role)) return;
+      const [nextUsers, complianceAlertsResult] = await Promise.all([listUsers(), getComplianceAlertsData()]);
+      if (cancelled) return;
+      setUsers(nextUsers);
+      setComplianceAlerts(complianceAlertsResult.items);
+    }
+
+    void loadUsersPage();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.role, loading]);
+
+  const adminUsers = useMemo(
+    () => users.filter((user) => user.role === "admin" || user.role === "super_admin"),
+    [users]
+  );
+  const openComplianceAlerts = useMemo(
+    () => complianceAlerts.filter((item) => item.status === "open"),
+    [complianceAlerts]
+  );
 
   return (
     <AdminShell
@@ -29,7 +60,7 @@ export default async function AdminUsersPage() {
           Open compliance alerts: {openComplianceAlerts.length}
         </div>
       </div>
-      <AdminAccessManager users={adminUsers} complianceAlerts={complianceAlertsResult.items} />
+      <AdminAccessManager users={adminUsers} complianceAlerts={complianceAlerts} />
     </AdminShell>
   );
 }

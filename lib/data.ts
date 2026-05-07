@@ -1567,17 +1567,48 @@ export async function getOwnedVehiclesData(ownerUid: string) {
 }
 
 export async function listPublishedVehicles() {
-  const result = await getCollection<Vehicle>("vehicles", sampleVehicles, serializeVehicleDoc);
-  return {
-    vehicles: result.items.filter(
-      (vehicle) =>
-        !vehicle.deleted
-        && vehicle.status === "approved"
-        && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
-    ),
-    source: result.source,
-    error: result.error
-  };
+  if (!isFirebaseConfigured) {
+    return {
+      vehicles: sampleVehicles.filter(
+        (vehicle) =>
+          !vehicle.deleted
+          && vehicle.status === "approved"
+          && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
+      ),
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "vehicles"),
+        where("status", "==", "approved"),
+        where("sellerStatus", "in", ["ACTIVE", "UNDER_OFFER"])
+      )
+    );
+
+    const vehicles = snapshot.docs
+      .map((item) => serializeVehicleDoc(item.id, item.data()))
+      .filter(
+        (vehicle) =>
+          !vehicle.deleted
+          && vehicle.status === "approved"
+          && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")
+      )
+      .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+
+    return {
+      vehicles,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      vehicles: [] as Vehicle[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
 }
 
 export async function listSoldVehicles() {
@@ -3914,6 +3945,64 @@ export async function restoreSoftDeletedVehicle(
 
   return {
     vehicle: restoredVehicle,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+async function deleteDocumentsByVehicleId(collectionName: string, vehicleId: string) {
+  let deletedCount = 0;
+
+  while (true) {
+    const snapshot = await getDocs(query(collection(db, collectionName), where("vehicleId", "==", vehicleId), limit(200)));
+    if (snapshot.empty) break;
+
+    const batch = writeBatch(db);
+    snapshot.docs.forEach((item) => batch.delete(item.ref));
+    deletedCount += snapshot.size;
+    await batch.commit();
+  }
+
+  return deletedCount;
+}
+
+export async function permanentlyDeleteVehicle(
+  id: string,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle
+) {
+  assertAdminPermissionForActor(actor, "deleteListings", "You do not have access to permanently delete listings.");
+
+  const targetVehicle = existingVehicle ?? (await getVehicleById(id));
+  if (!targetVehicle) {
+    throw new Error("Vehicle not found.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      deletedVehicleId: id,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await Promise.all([
+    deleteDocumentsByVehicleId("vehicleActivityEvents", id),
+    deleteDocumentsByVehicleId("vehicleViewEvents", id),
+    deleteDocumentsByVehicleId("vehicleViewVisitors", id),
+    deleteDocumentsByVehicleId("offers", id),
+    deleteDocumentsByVehicleId("inspectionRequests", id),
+    deleteDocumentsByVehicleId("savedVehicles", id)
+  ]);
+
+  const cleanupBatch = writeBatch(db);
+  cleanupBatch.delete(doc(db, "vehicles", id));
+  cleanupBatch.delete(doc(db, "vehicleAnalytics", id));
+  cleanupBatch.delete(doc(db, "vehicle_private", id));
+  await cleanupBatch.commit();
+
+  return {
+    deletedVehicleId: id,
     source: "firestore" as const,
     writeSucceeded: true
   };

@@ -1,25 +1,57 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { InspectionStatusActions } from "@/components/inspections/inspection-status-actions";
 import { InspectionStatusBadge } from "@/components/inspections/inspection-status-badge";
+import { useAuth } from "@/lib/auth";
 import { getInspectionRequestsData } from "@/lib/data";
+import { canAccessRole } from "@/lib/permissions";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
+import { InspectionRequest } from "@/types";
 
-export const dynamic = "force-dynamic";
+export default function AdminInspectionsPage() {
+  const searchParams = useSearchParams();
+  const { appUser, loading } = useAuth();
+  const [inspectionRequests, setInspectionRequests] = useState<InspectionRequest[]>([]);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
 
-export default async function AdminInspectionsPage({
-  searchParams
-}: {
-  searchParams?: Promise<{ write?: string; status?: string; inspectionId?: string }>;
-}) {
-  const { items: inspectionRequests, error } = await getInspectionRequestsData();
-  const params = searchParams ? await searchParams : undefined;
-  const writeStatus =
-    params?.write === "success"
-      ? `Inspection status updated to ${params.status ?? "saved"}`
-      : params?.write === "mock"
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadInspectionRequests() {
+      if (loading || !canAccessRole("admin", appUser?.role)) return;
+
+      setIsLoading(true);
+      setError("");
+
+      const inspectionRequestsResult = await getInspectionRequestsData();
+      if (cancelled) return;
+
+      setInspectionRequests(inspectionRequestsResult.items);
+      setError(inspectionRequestsResult.error ?? "");
+      setIsLoading(false);
+    }
+
+    void loadInspectionRequests();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.role, loading]);
+
+  const writeStatus = useMemo(() => {
+    const write = searchParams.get("write");
+    const status = searchParams.get("status");
+    return write === "success"
+      ? `Inspection status updated to ${status ?? "saved"}`
+      : write === "mock"
         ? "Inspection update recorded"
         : "No recent updates";
+  }, [searchParams]);
 
   return (
     <AdminShell
@@ -28,7 +60,7 @@ export default async function AdminInspectionsPage({
     >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
-          Inspection requests loaded: {inspectionRequests.length}
+          Inspection requests loaded: {isLoading ? "Loading..." : inspectionRequests.length}
         </div>
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
           Recent activity: {writeStatus}
@@ -85,7 +117,7 @@ export default async function AdminInspectionsPage({
             ))
           ) : (
             <div className="px-6 py-12 text-sm text-ink/60">
-              No inspection requests yet.
+              {isLoading ? "Loading inspection requests..." : "No inspection requests yet."}
             </div>
           )}
         </div>

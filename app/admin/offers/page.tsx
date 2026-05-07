@@ -1,50 +1,90 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
+import { useAuth } from "@/lib/auth";
 import { getOffersData, getVehicleById } from "@/lib/data";
+import { canAccessRole } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { Offer, Vehicle } from "@/types";
 
-export const dynamic = "force-dynamic";
+export default function AdminOffersPage() {
+  const searchParams = useSearchParams();
+  const { appUser, loading } = useAuth();
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [vehicleMap, setVehicleMap] = useState<Map<string, Vehicle | null>>(new Map());
 
-export default async function AdminOffersPage({
-  searchParams
-}: {
-  searchParams?: Promise<{ write?: string; status?: string; offerId?: string }>;
-}) {
-  const { items: offers, error } = await getOffersData();
-  const vehiclesByOffer = await Promise.all(
-    offers.map(async (offer) => ({
-      offerId: offer.id,
-      vehicle: offer.vehicleId ? await getVehicleById(offer.vehicleId) : null
-    }))
-  );
-  const vehicleMap = new Map(vehiclesByOffer.map((entry) => [entry.offerId, entry.vehicle]));
-  const params = searchParams ? await searchParams : undefined;
-  const writeStatus =
-    params?.write === "success"
-      ? params.status === "accepted"
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadOffers() {
+      if (loading || !canAccessRole("admin", appUser?.role)) return;
+
+      setIsLoading(true);
+      setError("");
+
+      const offersResult = await getOffersData();
+      if (cancelled) return;
+
+      setOffers(offersResult.items);
+      setError(offersResult.error ?? "");
+
+      const vehiclesByOffer = await Promise.all(
+        offersResult.items.map(async (offer) => ({
+          offerId: offer.id,
+          vehicle: offer.vehicleId ? await getVehicleById(offer.vehicleId) : null
+        }))
+      );
+
+      if (cancelled) return;
+
+      setVehicleMap(new Map(vehiclesByOffer.map((entry) => [entry.offerId, entry.vehicle])));
+      setIsLoading(false);
+    }
+
+    void loadOffers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser?.role, loading]);
+
+  const writeStatus = useMemo(() => {
+    const write = searchParams.get("write");
+    const status = searchParams.get("status");
+
+    return write === "success"
+      ? status === "accepted"
         ? "Offer accepted"
-        : params.status === "declined"
+        : status === "declined"
           ? "Offer declined"
-          : params.status === "countered"
+          : status === "countered"
             ? "Counteroffer sent"
-            : params.status === "accepted_pending_buyer_confirmation"
+            : status === "accepted_pending_buyer_confirmation"
               ? "Offer accepted and vehicle moved under offer"
-              : params.status === "rejected"
+              : status === "rejected"
                 ? "Offer rejected"
-                : params.status === "buyer_confirmed"
+                : status === "buyer_confirmed"
                   ? "Buyer confirmed the accepted offer"
-                  : params.status === "buyer_declined"
+                  : status === "buyer_declined"
                     ? "Buyer declined the accepted offer"
                     : "Offer updated"
-      : params?.write === "mock"
+      : write === "mock"
         ? "Offer update recorded"
         : "No recent updates";
+  }, [searchParams]);
 
   return (
     <AdminShell title="Offers" description="Review every incoming offer and update its progression across the marketplace.">
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Offers loaded: {offers.length}</div>
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+          Offers loaded: {isLoading ? "Loading..." : offers.length}
+        </div>
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
           Recent activity: {writeStatus}
         </div>
@@ -98,7 +138,7 @@ export default async function AdminOffersPage({
             })
           ) : (
             <div className="px-6 py-12 text-sm text-ink/60">
-              No offers yet.
+              {isLoading ? "Loading offers..." : "No offers yet."}
             </div>
           )}
         </div>

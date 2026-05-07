@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import {
   addVehicleActivityNote,
   getVehicleActivityLog,
+  permanentlyDeleteVehicle,
   restoreSoftDeletedVehicle,
   softDeleteVehicle,
   updateVehicleActivityImageUrls,
@@ -338,15 +339,7 @@ export function AdminVehiclesReviewBoard({
     setNotice("");
 
     try {
-      const response = await fetch(`/api/admin/vehicle/${vehicle.id}`, {
-        method: "DELETE",
-        cache: "no-store"
-      });
-      const payload = await response.json().catch(() => null);
-
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || "Unable to permanently delete the vehicle.");
-      }
+      await permanentlyDeleteVehicle(vehicle.id, appUser, vehicle);
 
       setVehicles((current) => current.filter((item) => item.id !== vehicle.id));
       setSelectedIds((current) => {
