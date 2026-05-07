@@ -1,4 +1,5 @@
 export type UserRole = "buyer" | "seller" | "dealer" | "admin" | "super_admin";
+export type AccountType = "private" | "dealer";
 export type ComplianceStatus = "clear" | "possible_unlicensed_trader" | "verified_dealer";
 export type DealerStatus = "none" | "submitted_unverified" | "pending" | "pending_review" | "info_requested" | "approved" | "rejected";
 export type DealerLicenceVerificationStatus = "verified" | "manual_review_required" | "auto_failed";
@@ -79,11 +80,13 @@ export interface AppUser {
   email: string;
   displayName: string;
   name?: string;
+  photoURL?: string;
   phone?: string;
   emailVerified?: boolean;
   accountBanned?: boolean;
   accountReference?: string;
   role: UserRole;
+  accountType?: AccountType;
   adminPermissions?: AdminPermissions;
   complianceStatus?: ComplianceStatus;
   complianceFlaggedAt?: string;

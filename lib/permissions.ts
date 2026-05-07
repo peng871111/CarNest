@@ -67,6 +67,10 @@ export function isSeededAdminEmail(email?: string | null) {
 }
 
 export function resolveStoredUserRole(input?: string | null): UserRole {
+  if (input === "private") {
+    return "seller";
+  }
+
   if (input === "super_admin" || input === "admin" || input === "seller" || input === "dealer" || input === "buyer") {
     return input;
   }

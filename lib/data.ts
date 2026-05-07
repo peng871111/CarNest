@@ -18,6 +18,7 @@ import {
 import { buildAbsoluteUrl } from "@/lib/seo";
 import { deleteVehicleImageFiles } from "@/lib/storage";
 import {
+  AccountType,
   AdminPermissions,
   AppUser,
   ComplianceAlert,
@@ -379,9 +380,13 @@ function normalizeAdminPermissions(value: unknown, role?: UserRole, email?: stri
 
 function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
   const email = typeof data.email === "string" ? data.email : "";
+  const accountType: AccountType =
+    data.accountType === "dealer" || data.role === "dealer"
+      ? "dealer"
+      : "private";
   const managedAccess = resolveManagedUserAccess({
     email,
-    storedRole: typeof data.role === "string" ? data.role : "seller",
+    storedRole: typeof data.role === "string" ? data.role : accountType === "dealer" ? "dealer" : "private",
     storedPermissions: data.adminPermissions && typeof data.adminPermissions === "object" ? (data.adminPermissions as Record<string, boolean>) : undefined
   });
 
@@ -398,11 +403,13 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     email,
     displayName: String(data.displayName ?? data.name ?? "CarNest User"),
     name: typeof data.name === "string" ? data.name : String(data.displayName ?? "CarNest User"),
+    photoURL: typeof data.photoURL === "string" ? data.photoURL : undefined,
     phone: typeof data.phone === "string" ? data.phone : "",
     emailVerified: typeof data.emailVerified === "boolean" ? data.emailVerified : undefined,
     accountBanned: Boolean(data.accountBanned),
     accountReference: typeof data.accountReference === "string" ? data.accountReference : undefined,
     role: managedAccess.role,
+    accountType,
     adminPermissions: normalizeAdminPermissions(data.adminPermissions, managedAccess.role, email),
     complianceStatus:
       data.complianceStatus === "possible_unlicensed_trader" || data.complianceStatus === "verified_dealer"

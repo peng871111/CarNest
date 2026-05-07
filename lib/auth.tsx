@@ -4,6 +4,7 @@ import {
   ActionCodeSettings,
   AuthError,
   EmailAuthProvider,
+  GoogleAuthProvider,
   UserCredential,
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -11,6 +12,7 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signOut,
   updatePassword,
   updateProfile,
@@ -19,7 +21,7 @@ import {
 import { Timestamp, doc, getDoc, setDoc } from "firebase/firestore";
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
 import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from "@/lib/firebase";
-import { AppUser } from "@/types";
+import { AccountType, AppUser } from "@/types";
 import { createAdminPermissions, resolveManagedUserAccess } from "@/lib/permissions";
 import { getSiteUrl } from "@/lib/seo";
 
@@ -29,7 +31,8 @@ interface AuthContextValue {
   loading: boolean;
   authError: string;
   login: (email: string, password: string) => Promise<AppUser>;
-  register: (input: { name: string; email: string; password: string; role: "buyer" | "seller" | "dealer" }) => Promise<AppUser>;
+  register: (input: { name: string; email: string; password: string; accountType: AccountType }) => Promise<AppUser>;
+  continueWithGoogle: (accountType?: AccountType) => Promise<AppUser>;
   requestPasswordReset: (email: string) => Promise<void>;
   changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -47,7 +50,7 @@ const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
 const ACCOUNT_BANNED_MESSAGE = "This account has been banned. Please contact CarNest support.";
 const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
 const LOGIN_PROTECTION_SESSION_KEY = "carnest_login_protection_session";
-const pendingProfileSeeds = new Map<string, { name: string; role: "buyer" | "seller" | "dealer" }>();
+const pendingProfileSeeds = new Map<string, { name: string; accountType: AccountType; role: "private" | "dealer" }>();
 const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageVehicles: false,
   manageOffers: false,
@@ -299,6 +302,10 @@ export function mapAuthError(error: unknown) {
       return "Please use a stronger password.";
     case "auth/email-already-in-use":
       return "An account with this email already exists. Please sign in instead.";
+    case "auth/popup-closed-by-user":
+      return "Google sign-in was cancelled before it finished.";
+    case "auth/account-exists-with-different-credential":
+      return "An account with this email already exists. Please sign in using your existing method.";
     case "auth/too-many-requests":
       return "Too many attempts. Please wait a moment and try again.";
     case "auth/invalid-login-credentials":
@@ -348,11 +355,32 @@ function getProfilePermissions(user: Pick<AppUser, "role" | "adminPermissions">)
   return user.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS;
 }
 
-function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" | "dealer" }, existingData?: Record<string, unknown>) {
+function getStoredAccountType(existingData?: Record<string, unknown>, pendingSeed?: { accountType: AccountType; role: "private" | "dealer" }) {
+  if (existingData?.accountType === "dealer" || existingData?.role === "dealer") {
+    return "dealer" as const;
+  }
+
+  if (existingData?.accountType === "private" || existingData?.role === "private") {
+    return "private" as const;
+  }
+
+  if (pendingSeed?.accountType === "dealer" || pendingSeed?.role === "dealer") {
+    return "dealer" as const;
+  }
+
+  return "private" as const;
+}
+
+function buildManagedUserProfile(
+  firebaseUser: User,
+  pendingSeed?: { name: string; accountType: AccountType; role: "private" | "dealer" },
+  existingData?: Record<string, unknown>
+) {
   const email = String(existingData?.email ?? firebaseUser.email ?? "");
+  const accountType = getStoredAccountType(existingData, pendingSeed);
   const managedAccess = resolveManagedUserAccess({
     email,
-    storedRole: typeof existingData?.role === "string" ? existingData.role : pendingSeed?.role ?? "seller",
+    storedRole: typeof existingData?.role === "string" ? existingData.role : pendingSeed?.role ?? "private",
     storedPermissions:
       existingData?.adminPermissions && typeof existingData.adminPermissions === "object"
         ? (existingData.adminPermissions as Record<string, boolean>)
@@ -364,8 +392,10 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
     email,
     displayName: String(existingData?.displayName ?? existingData?.name ?? pendingSeed?.name ?? firebaseUser.displayName ?? "CarNest User"),
     name: String(existingData?.name ?? existingData?.displayName ?? pendingSeed?.name ?? firebaseUser.displayName ?? "CarNest User"),
+    photoURL: typeof existingData?.photoURL === "string" ? existingData.photoURL : firebaseUser.photoURL ?? undefined,
     phone: typeof existingData?.phone === "string" ? existingData.phone : "",
     role: managedAccess.role,
+    accountType,
     adminPermissions: managedAccess.adminPermissions ?? EMPTY_ADMIN_PERMISSIONS,
     emailVerified: firebaseUser.emailVerified,
     accountBanned: Boolean(existingData?.accountBanned),
@@ -408,40 +438,81 @@ function buildManagedUserProfile(firebaseUser: User, pendingSeed?: { name: strin
   } satisfies AppUser;
 }
 
-async function createUserProfileDocument(firebaseUser: User, pendingSeed?: { name: string; role: "buyer" | "seller" | "dealer" }) {
-  const ref = doc(db, "users", firebaseUser.uid);
-  const user = buildManagedUserProfile(firebaseUser, pendingSeed);
+function buildStoredProfilePayload(
+  firebaseUser: User,
+  pendingSeed?: { name: string; accountType: AccountType; role: "private" | "dealer" },
+  existingData?: Record<string, unknown>
+) {
+  const user = buildManagedUserProfile(firebaseUser, pendingSeed, existingData);
+  const storedRole =
+    typeof existingData?.role === "string"
+      ? existingData.role
+      : user.role === "admin" || user.role === "super_admin"
+        ? user.role
+        : user.accountType === "dealer"
+          ? "dealer"
+          : "private";
+
   const payload: Record<string, unknown> = {
     uid: firebaseUser.uid,
     email: user.email,
     name: user.name,
     displayName: user.displayName,
+    photoURL: user.photoURL ?? "",
     phone: user.phone ?? "",
     emailVerified: firebaseUser.emailVerified,
-    role: user.role,
-    complianceStatus: "clear",
-    dealerStatus: "none",
-    dealerVerified: false,
-    agreedToDealerTerms: false,
-    agreedToTerms: false,
-    dealerPlan: "free",
-    planType: "free",
-    maxListings: 3,
-    shopPublicVisible: false,
-    shopVisible: false,
-    brandingEnabled: false,
-    contactDisplayEnabled: false,
-    accountBanned: false,
-    listingRestricted: false,
-    createdAt: Timestamp.now(),
-    failedLoginAttempts: 0,
-    mustResetPassword: false
+    role: storedRole,
+    accountType: user.accountType ?? "private",
+    complianceStatus: user.complianceStatus ?? "clear",
+    dealerStatus: user.dealerStatus ?? "none",
+    dealerVerified: user.dealerVerified ?? false,
+    agreedToDealerTerms: user.agreedToDealerTerms ?? false,
+    agreedToTerms: user.agreedToDealerTerms ?? user.agreedToTerms ?? false,
+    dealerPlan: user.dealerPlan ?? "free",
+    planType: user.dealerPlan ?? user.planType ?? "free",
+    maxListings: user.maxListings ?? 3,
+    shopPublicVisible: user.shopPublicVisible ?? false,
+    shopVisible: user.shopPublicVisible ?? user.shopVisible ?? false,
+    brandingEnabled: user.brandingEnabled ?? false,
+    contactDisplayEnabled: user.contactDisplayEnabled ?? false,
+    accountBanned: user.accountBanned ?? false,
+    listingRestricted: user.listingRestricted ?? false,
+    failedLoginAttempts:
+      typeof existingData?.failedLoginAttempts === "number"
+        ? existingData.failedLoginAttempts
+        : 0,
+    mustResetPassword:
+      typeof existingData?.mustResetPassword === "boolean"
+        ? existingData.mustResetPassword
+        : false,
+    updatedAt: Timestamp.now()
   };
+
+  if (typeof existingData?.createdAt === "string" || (existingData?.createdAt && typeof existingData.createdAt === "object")) {
+    payload.createdAt = existingData.createdAt;
+  } else {
+    payload.createdAt = Timestamp.now();
+  }
+
+  if (user.dealerApplicationId) {
+    payload.dealerApplicationId = user.dealerApplicationId;
+  }
 
   if (user.role === "admin" || user.role === "super_admin") {
     payload.adminPermissions = getProfilePermissions(user);
   }
 
+  return { user, payload };
+}
+
+async function upsertUserProfileDocument(
+  firebaseUser: User,
+  pendingSeed?: { name: string; accountType: AccountType; role: "private" | "dealer" }
+) {
+  const ref = doc(db, "users", firebaseUser.uid);
+  const snapshot = await getDoc(ref);
+  const existingData = snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : undefined;
+  const { user, payload } = buildStoredProfilePayload(firebaseUser, pendingSeed, existingData);
   await setDoc(ref, payload, { merge: true });
   return user;
 }
@@ -494,8 +565,10 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
       if (
         !data.uid ||
         !data.name ||
+        !("photoURL" in data) ||
         !("phone" in data) ||
         !("emailVerified" in data) ||
+        !("accountType" in data) ||
         !("complianceStatus" in data) ||
         !("dealerStatus" in data) ||
         !("dealerVerified" in data) ||
@@ -509,43 +582,11 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
         !("listingRestricted" in data) ||
         !("failedLoginAttempts" in data) ||
         !("mustResetPassword" in data) ||
-        data.role !== user.role ||
+        (data.role !== user.role && !(data.role === "private" && user.accountType === "private")) ||
         JSON.stringify(data.adminPermissions ?? null) !== JSON.stringify(user.adminPermissions ?? null)
       ) {
-        const profileUpdate: Record<string, unknown> = {
-          uid: firebaseUser.uid,
-          name: user.name,
-          displayName: user.displayName,
-          email: user.email,
-          phone: user.phone ?? "",
-          emailVerified: firebaseUser.emailVerified,
-          role: user.role,
-          complianceStatus: user.complianceStatus ?? "clear",
-          dealerStatus: user.dealerStatus ?? "none",
-          dealerVerified: user.dealerVerified ?? false,
-          agreedToDealerTerms: user.agreedToDealerTerms ?? false,
-          agreedToTerms: user.agreedToDealerTerms ?? user.agreedToTerms ?? false,
-          dealerPlan: user.dealerPlan ?? "free",
-          planType: user.dealerPlan ?? user.planType ?? "free",
-          maxListings: user.maxListings ?? 3,
-          shopPublicVisible: user.shopPublicVisible ?? false,
-          shopVisible: user.shopPublicVisible ?? user.shopVisible ?? false,
-          brandingEnabled: user.brandingEnabled ?? false,
-          contactDisplayEnabled: user.contactDisplayEnabled ?? false,
-          accountBanned: user.accountBanned ?? false,
-          listingRestricted: user.listingRestricted ?? false,
-          ...(user.dealerApplicationId ? { dealerApplicationId: user.dealerApplicationId } : {}),
-          failedLoginAttempts: getUserSecurityState(data).failedLoginAttempts,
-          mustResetPassword: getUserSecurityState(data).mustResetPassword
-        };
-
-        profileUpdate.adminPermissions = getProfilePermissions(user);
-
-        await setDoc(
-          ref,
-          profileUpdate,
-          { merge: true }
-        );
+        const { payload: profileUpdate } = buildStoredProfilePayload(firebaseUser, pendingSeed, data);
+        await setDoc(ref, profileUpdate, { merge: true });
       }
 
       setSessionCookies(user);
@@ -553,7 +594,7 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
       return user;
     }
 
-    const user = await createUserProfileDocument(firebaseUser, pendingSeed);
+    const user = await upsertUserProfileDocument(firebaseUser, pendingSeed);
     setSessionCookies(user);
     pendingProfileSeeds.delete(firebaseUser.uid);
     return user;
@@ -695,7 +736,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(mapAuthError(error));
         }
       },
-      register: async ({ name, email, password, role }) => {
+      register: async ({ name, email, password, accountType }) => {
         if (!isFirebaseConfigured) {
           if (process.env.NODE_ENV === "development") {
             console.error("Firebase Authentication is not configured for this deployment.", {
@@ -706,16 +747,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          const credential: UserCredential = await createUserWithEmailAndPassword(auth, email, password);
-          pendingProfileSeeds.set(credential.user.uid, { name, role });
+          const normalizedEmail = normalizeAuthEmail(email);
+          const credential: UserCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+          const role = accountType === "dealer" ? "dealer" : "private";
+          pendingProfileSeeds.set(credential.user.uid, { name, accountType, role });
           await updateProfile(credential.user, { displayName: name });
-          if (role === "dealer") {
+          if (accountType === "dealer") {
             await sendEmailVerification(credential.user).catch(() => undefined);
           }
           await credential.user.getIdToken(true);
 
           try {
-            await withProfileRetry(credential.user, () => createUserProfileDocument(credential.user, { name, role }));
+            await withProfileRetry(credential.user, () => upsertUserProfileDocument(credential.user, { name, accountType, role }));
           } catch (profileCreateError) {
             if (process.env.NODE_ENV === "development") {
               console.error("User profile creation failed during signup", profileCreateError);
@@ -755,6 +798,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           if (process.env.NODE_ENV === "development") {
             console.error("Registration failed", error);
+          }
+          throw new Error(mapAuthError(error));
+        }
+      },
+      continueWithGoogle: async (accountType = "private") => {
+        if (!isFirebaseConfigured) {
+          throw new Error(AUTH_UNAVAILABLE_MESSAGE);
+        }
+
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: "select_account" });
+
+        try {
+          const credential = await signInWithPopup(auth, provider);
+          const normalizedEmail = normalizeAuthEmail(credential.user.email ?? "");
+          const role = accountType === "dealer" ? "dealer" : "private";
+          pendingProfileSeeds.set(credential.user.uid, {
+            name: credential.user.displayName ?? normalizedEmail.split("@")[0] ?? "CarNest User",
+            accountType,
+            role
+          });
+          await credential.user.getIdToken(true);
+
+          const user = await withProfileRetry(credential.user, () =>
+            upsertUserProfileDocument(credential.user, {
+              name: credential.user.displayName ?? normalizedEmail.split("@")[0] ?? "CarNest User",
+              accountType,
+              role
+            })
+          );
+
+          await assertAccountNotBanned(user);
+          setAppUser(user);
+          setSessionCookies(user);
+          setAuthError("");
+          return user;
+        } catch (error) {
+          if (process.env.NODE_ENV === "development") {
+            console.error("Google sign-in failed", error);
           }
           throw new Error(mapAuthError(error));
         }

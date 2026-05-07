@@ -7,9 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clearAllLoginProtectionBrowserState, useAuth } from "@/lib/auth";
 import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
-import { AppUser, UserRole } from "@/types";
+import { AppUser } from "@/types";
 
-const DEFAULT_PRIVATE_SIGNUP_ROLE = "seller" as const;
 const REGISTER_PASSWORD_HELPER_TEXT = "Password must be at least 8 characters and include uppercase, lowercase, and a number.";
 const DEALER_ACCOUNT_NOTE = "Dealer accounts require manual verification before activation.";
 const DEALER_ACCOUNT_TIMELINE_NOTE = "Verification usually takes 7–14 days after required documents are submitted.";
@@ -37,7 +36,7 @@ function getRegisterPasswordError(password: string) {
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, register } = useAuth();
+  const { login, register, continueWithGoogle } = useAuth();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -65,6 +64,24 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     router.refresh();
   }
 
+  function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus">, flow: "login" | "register") {
+    const redirect = searchParams.get("redirect");
+
+    if (user.role === "admin" || user.role === "super_admin") return "/admin/vehicles";
+    if (user.role === "dealer") {
+      if (flow === "register") return "/dealer/apply";
+      if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
+      return user.dealerStatus === "approved"
+        ? "/dealer/dashboard"
+        : user.dealerStatus === "none"
+          ? "/dealer/apply"
+          : "/dealer/application-status";
+    }
+
+    if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
+    return "/seller/vehicles";
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -75,22 +92,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const email = String(form.get("email") ?? "").trim().toLowerCase();
     const password = String(form.get("password") ?? "");
     const name = String(form.get("name") ?? "").trim();
-
-    function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus">, flow: "login" | "register") {
-      if (user.role === "admin" || user.role === "super_admin") return "/admin/vehicles";
-      if (user.role === "dealer") {
-        if (flow === "register") return "/dealer/apply";
-        if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-        return user.dealerStatus === "approved"
-          ? "/dealer/dashboard"
-          : user.dealerStatus === "none"
-            ? "/dealer/apply"
-            : "/dealer/application-status";
-      }
-
-      if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-      return "/seller/vehicles";
-    }
 
     try {
       if (!email) {
@@ -127,16 +128,31 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         setSuccess("Signed in successfully. Redirecting...");
         navigateToDestination(resolveDestination(user, "login"));
       } else {
-        const selectedRole: UserRole = accountType === "dealer" ? "dealer" : DEFAULT_PRIVATE_SIGNUP_ROLE;
         const user = await register({
           name,
           email,
           password,
-          role: selectedRole
+          accountType
         });
         setSuccess("Account created successfully. Redirecting...");
         navigateToDestination(resolveDestination(user, "register"));
       }
+    } catch (submissionError) {
+      setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleContinue() {
+    setLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const user = await continueWithGoogle(accountType);
+      setSuccess(mode === "login" ? "Signed in successfully. Redirecting..." : "Account created successfully. Redirecting...");
+      navigateToDestination(resolveDestination(user, mode));
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
     } finally {
@@ -196,6 +212,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       ) : null}
       {success ? <p className="text-sm text-emerald-700">{success}</p> : null}
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      <Button type="button" className="w-full bg-white text-ink border border-black/10 hover:bg-shell" disabled={loading} onClick={() => void handleGoogleContinue()}>
+        {loading ? "Please wait..." : "Continue with Google"}
+      </Button>
+      <div className="flex items-center gap-3 text-xs uppercase tracking-[0.22em] text-ink/35">
+        <span className="h-px flex-1 bg-black/10" />
+        <span>Email</span>
+        <span className="h-px flex-1 bg-black/10" />
+      </div>
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? "Please wait..." : mode === "login" ? "Sign in" : "Create account"}
       </Button>

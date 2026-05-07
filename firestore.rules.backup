@@ -28,7 +28,7 @@ service cloud.firestore {
     }
 
     function isSeller() {
-      return signedIn() && (userDoc().data.role == "seller" || userDoc().data.role == "private");
+      return signedIn() && userDoc().data.role == "seller";
     }
 
     function isApprovedDealer() {
@@ -40,8 +40,7 @@ service cloud.firestore {
     function isSellerWorkspaceUser() {
       return signedIn()
         && (
-          userDoc().data.role == "private"
-          || userDoc().data.role == "seller"
+          userDoc().data.role == "seller"
           || userDoc().data.role == "buyer"
           || userDoc().data.role == "dealer"
         );
@@ -56,8 +55,7 @@ service cloud.firestore {
     }
 
     function isAllowedProfileRole(role, email) {
-      return role == "private"
-        || role == "buyer"
+      return role == "buyer"
         || role == "seller"
         || role == "dealer"
         || (role == "admin" && isLeonEmail(email))
@@ -323,14 +321,10 @@ service cloud.firestore {
           "uid",
           "email",
           "role",
-          "accountType",
           "createdAt",
-          "updatedAt",
           "displayName",
           "name",
-          "photoURL",
           "phone",
-          "emailVerified",
           "accountReference",
           "adminPermissions",
           "complianceStatus",
@@ -348,7 +342,6 @@ service cloud.firestore {
           "shopVisible",
           "brandingEnabled",
           "contactDisplayEnabled",
-          "accountBanned",
           "listingRestricted",
           "failedLoginAttempts",
           "mustResetPassword"
@@ -356,15 +349,7 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
         && isAllowedProfileRole(request.resource.data.role, request.resource.data.email)
-        && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer")
         && request.resource.data.createdAt is timestamp
-        && request.resource.data.updatedAt is timestamp
-        && request.resource.data.emailVerified is bool
-        && request.resource.data.accountBanned is bool
-        && (
-          !("photoURL" in request.resource.data)
-          || request.resource.data.photoURL is string
-        )
         && (
           !("complianceStatus" in request.resource.data)
           || request.resource.data.complianceStatus == "clear"
@@ -447,7 +432,6 @@ service cloud.firestore {
           && (
             request.resource.data.role == resource.data.role
             || request.resource.data.role == "dealer"
-            || request.resource.data.role == "private"
           )
         )
         || (
@@ -456,22 +440,8 @@ service cloud.firestore {
           && request.resource.data.uid == resource.data.uid
           && request.resource.data.email == resource.data.email
           && request.resource.data.role == resource.data.role
-          && (
-            request.resource.data.accountType == resource.data.accountType
-            || (!("accountType" in resource.data) && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer"))
-          )
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.adminPermissions == resource.data.adminPermissions
-          && request.resource.data.updatedAt is timestamp
-          && request.resource.data.emailVerified is bool
-          && (
-            request.resource.data.accountBanned == resource.data.accountBanned
-            || (!("accountBanned" in resource.data) && request.resource.data.accountBanned is bool)
-          )
-          && (
-            !("photoURL" in request.resource.data)
-            || request.resource.data.photoURL is string
-          )
           && (
             !("complianceStatus" in request.resource.data)
             || request.resource.data.complianceStatus == "clear"
@@ -1654,10 +1624,7 @@ service cloud.firestore {
         && (!("userId" in request.resource.data) || (signedIn() && request.resource.data.userId == request.auth.uid))
         && (
           (!signedIn() && request.resource.data.role == "guest" && !("userId" in request.resource.data))
-          || (signedIn() && (
-            request.resource.data.role == userDoc().data.role
-            || (userDoc().data.role == "private" && request.resource.data.role == "seller")
-          ))
+          || (signedIn() && request.resource.data.role == userDoc().data.role)
         )
         && request.resource.data.viewedAt is timestamp);
       allow read: if isAdmin()
