@@ -55,7 +55,7 @@ function isDeletedVehicle(vehicle: Vehicle) {
 }
 
 function isSoldVehicle(vehicle: Vehicle) {
-  return vehicle.sellerStatus === "SOLD" && !isDeletedVehicle(vehicle);
+  return (vehicle.sellerStatus === "SOLD" || Boolean(vehicle.soldAt)) && !isDeletedVehicle(vehicle);
 }
 
 function isRejectedVehicle(vehicle: Vehicle) {
@@ -63,11 +63,21 @@ function isRejectedVehicle(vehicle: Vehicle) {
 }
 
 function isActiveVehicle(vehicle: Vehicle) {
-  return vehicle.status === "approved" && !isDeletedVehicle(vehicle) && vehicle.sellerStatus !== "SOLD";
+  return (
+    !isDeletedVehicle(vehicle)
+    && !isSoldVehicle(vehicle)
+    && (
+      vehicle.status === "approved"
+      || (
+        vehicle.publishAuthorized === true
+        && vehicle.sellerStatus !== "WITHDRAWN"
+      )
+    )
+  );
 }
 
 function isPendingReviewVehicle(vehicle: Vehicle) {
-  return vehicle.status !== "approved" && vehicle.status !== "rejected" && !isDeletedVehicle(vehicle) && vehicle.sellerStatus !== "SOLD";
+  return !isDeletedVehicle(vehicle) && !isSoldVehicle(vehicle) && !isRejectedVehicle(vehicle) && !isActiveVehicle(vehicle);
 }
 
 function getModerationStatus(vehicle: Vehicle): ModerationGroup {
@@ -205,6 +215,18 @@ export function AdminVehiclesReviewBoard({
   const [activityAttachmentFilesByVehicleId, setActivityAttachmentFilesByVehicleId] = useState<Record<string, File[]>>({});
   const [customerEmailDrafts, setCustomerEmailDrafts] = useState<Record<string, string>>({});
   const [editingCustomerEmailByVehicleId, setEditingCustomerEmailByVehicleId] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setVehicles(initialVehicles);
+  }, [initialVehicles]);
+
+  useEffect(() => {
+    setLocalError(error ?? "");
+  }, [error]);
+
+  useEffect(() => {
+    setNotice(writeStatus ?? "");
+  }, [writeStatus]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
