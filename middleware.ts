@@ -1,12 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const CANONICAL_ORIGIN = "https://carnest.au";
-const CANONICAL_HOST = "carnest.au";
-const CANONICAL_REDIRECT_HOSTS = new Set([
-  "www.carnest.au",
-  "carnest-alpha.vercel.app"
-]);
-
 const protectedRoutes = [
   { prefix: "/dashboard" },
   { prefix: "/dealer", roles: ["dealer"] },
@@ -45,24 +38,7 @@ function parsePermissions(value?: string) {
   }
 }
 
-function isLocalDevelopmentHost(hostname: string) {
-  return hostname === "localhost"
-    || hostname === "127.0.0.1"
-    || hostname === "::1";
-}
-
 export function middleware(request: NextRequest) {
-  const hostname = request.nextUrl.hostname.toLowerCase();
-
-  if (
-    !isLocalDevelopmentHost(hostname)
-    && hostname !== CANONICAL_HOST
-    && CANONICAL_REDIRECT_HOSTS.has(hostname)
-  ) {
-    const canonicalUrl = new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, CANONICAL_ORIGIN);
-    return NextResponse.redirect(canonicalUrl, 308);
-  }
-
   const session = request.cookies.get("carnest_session")?.value;
   const role = request.cookies.get("carnest_role")?.value;
   const dealerStatus = request.cookies.get("carnest_dealer_status")?.value;
