@@ -356,7 +356,13 @@ service cloud.firestore {
         ])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == "private"
+        && (
+          request.resource.data.role == "private"
+          || request.resource.data.role == "seller"
+          || request.resource.data.role == "dealer"
+        )
+        && request.resource.data.role != "admin"
+        && request.resource.data.role != "super_admin"
         && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer")
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp
@@ -443,6 +449,8 @@ service cloud.firestore {
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.email == resource.data.email
         && request.resource.data.role == resource.data.role
+        && request.resource.data.role != "admin"
+        && request.resource.data.role != "super_admin"
         && (
           request.resource.data.accountType == resource.data.accountType
           || (
