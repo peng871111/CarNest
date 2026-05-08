@@ -619,10 +619,6 @@ export function UserSupportPanel({
                     <p className="mt-2 text-sm text-ink">{matchedUser.phone || "Not provided"}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-ink/45">User ID</p>
-                    <p className="mt-2 text-sm text-ink">{matchedUser.id}</p>
-                  </div>
-                  <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Reference</p>
                     <p className="mt-2 text-sm text-ink">{getAccountDisplayReference(matchedUser)}</p>
                   </div>
@@ -643,6 +639,16 @@ export function UserSupportPanel({
                     <p className="mt-2 text-sm text-ink">{matchedUser.accountBanned ? "Yes" : "No"}</p>
                   </div>
                 </div>
+
+                <details className="mt-6 rounded-[20px] border border-black/5 bg-shell px-4 py-3">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.18em] text-ink/55">
+                    Technical details
+                  </summary>
+                  <div className="mt-3">
+                    <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Firebase UID</p>
+                    <p className="mt-2 break-all text-sm text-ink">{matchedUser.id}</p>
+                  </div>
+                </details>
 
                 <div className="mt-6 flex flex-wrap gap-3">
                   <Button onClick={handlePasswordReset} disabled={busyAction === "password-reset"}>
