@@ -423,6 +423,14 @@ function buildSafeDefaultPrivateProfilePayload(firebaseUser: User, displayNameOv
   };
 }
 
+function buildPrivateProfileContext(firebaseUser: User, displayNameOverride?: string) {
+  return {
+    name: displayNameOverride?.trim() || buildPrivateProfileSeed(firebaseUser).name,
+    accountType: "private" as const,
+    role: "private" as const
+  };
+}
+
 function shouldFallbackToGoogleRedirect(error: unknown) {
   const code = getErrorCode(error);
   return code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment";
@@ -577,16 +585,16 @@ async function upsertUserProfileDocument(
   return user;
 }
 
+async function upsertPrivateUserProfileDocument(firebaseUser: User, displayNameOverride?: string) {
+  const privateContext = buildPrivateProfileContext(firebaseUser, displayNameOverride);
+  return await upsertUserProfileDocument(firebaseUser, privateContext);
+}
+
 function createProfileSetupError(context: "signup" | "login", error: unknown) {
   const code = getErrorCode(error);
   const message = getErrorMessage(error);
   const baseMessage = context === "signup" ? PROFILE_CREATE_FAILED_MESSAGE : PROFILE_LOAD_MESSAGE;
-
-  if (process.env.NODE_ENV === "development" && (code || message)) {
-    return new Error(`${baseMessage}${code || message ? ` [${code || "unknown"}] ${message}` : ""}`);
-  }
-
-  return new Error(baseMessage);
+  return new Error(`${baseMessage}${code || message ? ` [${code || "unknown"}] ${message}` : ""}`);
 }
 
 function mapProfileError(error: unknown, context: "signup" | "login") {
@@ -666,7 +674,7 @@ async function ensureUserProfile(firebaseUser: User): Promise<AppUser> {
       return user;
     }
 
-    const user = await upsertUserProfileDocument(firebaseUser, pendingSeed);
+    const user = await upsertPrivateUserProfileDocument(firebaseUser, pendingSeed?.name);
     setSessionCookies(user);
     pendingProfileSeeds.delete(firebaseUser.uid);
     return user;
@@ -705,7 +713,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const redirectResult = await getRedirectResult(auth);
         if (redirectResult?.user) {
           const pendingSeed = pendingProfileSeeds.get(redirectResult.user.uid) ?? buildPrivateProfileSeed(redirectResult.user);
-          await withProfileRetry(redirectResult.user, () => upsertUserProfileDocument(redirectResult.user, pendingSeed));
+          await withProfileRetry(redirectResult.user, () => upsertPrivateUserProfileDocument(redirectResult.user, pendingSeed.name));
         }
       } catch (error) {
         if (process.env.NODE_ENV === "development") {
@@ -778,14 +786,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             profile = await ensureUserProfile(credential.user);
             await assertAccountNotBanned(profile);
           } catch (profileError) {
-            if (process.env.NODE_ENV === "development") {
-              console.error("Login profile load failed", profileError);
-            }
+            console.error("Login profile load failed", {
+              code: getErrorCode(profileError),
+              message: getErrorMessage(profileError),
+              error: profileError
+            });
             try {
               await signOut(auth);
             } catch {}
             setSessionCookies(null);
-            throw new Error(mapProfileError(profileError, "login"));
+            throw createProfileSetupError("login", profileError);
           }
 
           if (
@@ -845,7 +855,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await credential.user.getIdToken(true);
 
           try {
-            await withProfileRetry(credential.user, () => upsertUserProfileDocument(credential.user, { name, accountType: "private", role }));
+            await withProfileRetry(credential.user, () => upsertPrivateUserProfileDocument(credential.user, name));
           } catch (profileCreateError) {
             console.error("User profile creation failed during signup", {
               code: getErrorCode(profileCreateError),
@@ -909,7 +919,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             await credential.user.getIdToken(true);
 
             const user = await withProfileRetry(credential.user, () =>
-              upsertUserProfileDocument(credential.user, pendingSeed)
+              upsertPrivateUserProfileDocument(credential.user, pendingSeed.name)
             );
 
             await assertAccountNotBanned(user);
