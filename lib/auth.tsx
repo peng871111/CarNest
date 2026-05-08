@@ -52,6 +52,7 @@ const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
 const ACCOUNT_BANNED_MESSAGE = "This account has been banned. Please contact CarNest support.";
 const LOGIN_PROTECTION_STORAGE_KEY = "carnest_login_protection";
 const LOGIN_PROTECTION_SESSION_KEY = "carnest_login_protection_session";
+export const GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY = "carnest_google_post_login_redirect";
 const pendingProfileSeeds = new Map<string, { name: string; accountType: AccountType; role: "private" | "dealer" }>();
 const EMPTY_ADMIN_PERMISSIONS = createAdminPermissions({
   manageVehicles: false,
@@ -94,6 +95,11 @@ function setSessionCookies(user: AppUser | null) {
 
 function getErrorCode(error: unknown) {
   return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error ?? "");
 }
 
 function normalizeAuthEmail(email: string) {
@@ -382,6 +388,41 @@ function buildPrivateProfileSeed(firebaseUser: User, accountType: AccountType = 
   };
 }
 
+function buildSafeDefaultPrivateProfilePayload(firebaseUser: User, displayNameOverride?: string) {
+  const displayName = displayNameOverride?.trim() || firebaseUser.displayName?.trim() || normalizeAuthEmail(firebaseUser.email ?? "").split("@")[0] || "CarNest User";
+  const now = Timestamp.now();
+
+  return {
+    uid: firebaseUser.uid,
+    email: normalizeAuthEmail(firebaseUser.email ?? ""),
+    name: displayName,
+    displayName,
+    photoURL: firebaseUser.photoURL ?? "",
+    phone: "",
+    emailVerified: firebaseUser.emailVerified,
+    role: "private" as const,
+    accountType: "private" as const,
+    complianceStatus: "clear" as const,
+    dealerStatus: "none" as const,
+    dealerVerified: false,
+    agreedToDealerTerms: false,
+    agreedToTerms: false,
+    dealerPlan: "free" as const,
+    planType: "free" as const,
+    maxListings: 3,
+    shopPublicVisible: false,
+    shopVisible: false,
+    brandingEnabled: false,
+    contactDisplayEnabled: false,
+    accountBanned: false,
+    listingRestricted: false,
+    failedLoginAttempts: 0,
+    mustResetPassword: false,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
 function shouldFallbackToGoogleRedirect(error: unknown) {
   const code = getErrorCode(error);
   return code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment";
@@ -526,9 +567,26 @@ async function upsertUserProfileDocument(
   const ref = doc(db, "users", firebaseUser.uid);
   const snapshot = await getDoc(ref);
   const existingData = snapshot.exists() ? (snapshot.data() as Record<string, unknown>) : undefined;
-  const { user, payload } = buildStoredProfilePayload(firebaseUser, pendingSeed, existingData);
+  const { user, payload } = existingData
+    ? buildStoredProfilePayload(firebaseUser, pendingSeed, existingData)
+    : {
+        user: buildManagedUserProfile(firebaseUser, { name: pendingSeed?.name ?? buildPrivateProfileSeed(firebaseUser).name, accountType: "private", role: "private" }),
+        payload: buildSafeDefaultPrivateProfilePayload(firebaseUser, pendingSeed?.name)
+      };
   await setDoc(ref, payload, { merge: true });
   return user;
+}
+
+function createProfileSetupError(context: "signup" | "login", error: unknown) {
+  const code = getErrorCode(error);
+  const message = getErrorMessage(error);
+  const baseMessage = context === "signup" ? PROFILE_CREATE_FAILED_MESSAGE : PROFILE_LOAD_MESSAGE;
+
+  if (process.env.NODE_ENV === "development" && (code || message)) {
+    return new Error(`${baseMessage}${code || message ? ` [${code || "unknown"}] ${message}` : ""}`);
+  }
+
+  return new Error(baseMessage);
 }
 
 function mapProfileError(error: unknown, context: "signup" | "login") {
@@ -779,7 +837,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const normalizedEmail = normalizeAuthEmail(email);
           const credential: UserCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
           const role = "private" as const;
-          pendingProfileSeeds.set(credential.user.uid, { name, accountType, role });
+          pendingProfileSeeds.set(credential.user.uid, { name, accountType: "private", role });
           await updateProfile(credential.user, { displayName: name });
           if (accountType === "dealer") {
             await sendEmailVerification(credential.user).catch(() => undefined);
@@ -787,16 +845,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await credential.user.getIdToken(true);
 
           try {
-            await withProfileRetry(credential.user, () => upsertUserProfileDocument(credential.user, { name, accountType, role }));
+            await withProfileRetry(credential.user, () => upsertUserProfileDocument(credential.user, { name, accountType: "private", role }));
           } catch (profileCreateError) {
-            if (process.env.NODE_ENV === "development") {
-              console.error("User profile creation failed during signup", profileCreateError);
-            }
+            console.error("User profile creation failed during signup", {
+              code: getErrorCode(profileCreateError),
+              message: getErrorMessage(profileCreateError),
+              error: profileCreateError
+            });
             try {
               await signOut(auth);
             } catch {}
             setSessionCookies(null);
-            throw new Error(mapProfileError(profileCreateError, "signup"));
+            throw createProfileSetupError("signup", profileCreateError);
           }
 
           let user: AppUser;
@@ -804,14 +864,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             user = await ensureUserProfile(credential.user);
           } catch (profileError) {
-            if (process.env.NODE_ENV === "development") {
-              console.error("Registration profile setup failed", profileError);
-            }
+            console.error("Registration profile setup failed", {
+              code: getErrorCode(profileError),
+              message: getErrorMessage(profileError),
+              error: profileError
+            });
             try {
               await signOut(auth);
             } catch {}
             setSessionCookies(null);
-            throw new Error(mapProfileError(profileError, "signup"));
+            throw createProfileSetupError("signup", profileError);
           }
 
           setAppUser(user);

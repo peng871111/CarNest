@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { TurnstileField } from "@/components/forms/turnstile-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { clearAllLoginProtectionBrowserState, useAuth } from "@/lib/auth";
+import { clearAllLoginProtectionBrowserState, GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY, useAuth } from "@/lib/auth";
 import { TURNSTILE_ENABLED, validateTurnstileToken, verifyTurnstileToken } from "@/lib/form-safety";
 import { AppUser } from "@/types";
 
@@ -74,9 +74,16 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setAccountType(searchParams.get("accountType") === "dealer" ? "dealer" : "private");
   }, [mode, searchParams]);
 
-  function navigateToDestination(destination: string) {
+  function navigateToDestination(destination: string, forceWindowFallback = false) {
     router.replace(destination);
     router.refresh();
+
+    if (forceWindowFallback && typeof window !== "undefined") {
+      window.setTimeout(() => {
+        if (window.location.pathname === destination) return;
+        window.location.assign(destination);
+      }, 250);
+    }
   }
 
   function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus" | "accountType">, flow: "login" | "register") {
@@ -171,14 +178,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setSuccess("");
 
     try {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY, "/inventory");
+      }
       const user = await continueWithGoogle(accountType);
       if (!user) {
         setSuccess("Redirecting to Google...");
         return;
       }
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY);
+      }
       setSuccess(mode === "login" ? "Signed in successfully. Redirecting..." : "Account created successfully. Redirecting...");
-      navigateToDestination(resolveDestination(user, mode));
+      navigateToDestination("/inventory", true);
     } catch (submissionError) {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY);
+      }
       setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
     } finally {
       setLoading(false);
@@ -187,6 +203,14 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   useEffect(() => {
     if (loading || authLoading || !appUser) return;
+    if (typeof window !== "undefined") {
+      const googleRedirectDestination = window.sessionStorage.getItem(GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY);
+      if (googleRedirectDestination) {
+        window.sessionStorage.removeItem(GOOGLE_POST_LOGIN_REDIRECT_STORAGE_KEY);
+        navigateToDestination("/inventory", true);
+        return;
+      }
+    }
     navigateToDestination(resolveDestination(appUser, mode));
   }, [appUser, authLoading, loading, mode]);
 
