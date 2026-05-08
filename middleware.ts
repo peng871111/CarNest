@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const CANONICAL_ORIGIN = "https://carnest.au";
+const CANONICAL_HOST = "carnest.au";
 const CANONICAL_REDIRECT_HOSTS = new Set([
   "www.carnest.au",
-  "carnest-alpha.vercel.app",
-  "carnest-8b52f.firebaseapp.com"
+  "carnest-alpha.vercel.app"
 ]);
 
 const protectedRoutes = [
@@ -54,7 +54,11 @@ function isLocalDevelopmentHost(hostname: string) {
 export function middleware(request: NextRequest) {
   const hostname = request.nextUrl.hostname.toLowerCase();
 
-  if (!isLocalDevelopmentHost(hostname) && CANONICAL_REDIRECT_HOSTS.has(hostname)) {
+  if (
+    !isLocalDevelopmentHost(hostname)
+    && hostname !== CANONICAL_HOST
+    && CANONICAL_REDIRECT_HOSTS.has(hostname)
+  ) {
     const canonicalUrl = new URL(`${request.nextUrl.pathname}${request.nextUrl.search}`, CANONICAL_ORIGIN);
     return NextResponse.redirect(canonicalUrl, 308);
   }
