@@ -1,6 +1,6 @@
 import { AdminShell } from "@/components/layout/admin-shell";
 import { UserSupportPanel } from "@/components/admin/user-support-panel";
-import { getDealerRiskSupportAccounts, getHighActivityUserSupportAccounts, getUserSupportRecord } from "@/lib/data";
+import { getDealerRiskSupportAccounts, getHighActivityUserSupportAccounts } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,8 +10,7 @@ export default async function AdminUserSupportPage({
   searchParams?: Promise<{ q?: string }>;
 }) {
   const query = ((await searchParams)?.q ?? "").trim();
-  const [record, highActivityAccounts, dealerRiskAccounts] = await Promise.all([
-    getUserSupportRecord(query),
+  const [highActivityAccounts, dealerRiskAccounts] = await Promise.all([
     getHighActivityUserSupportAccounts(20),
     getDealerRiskSupportAccounts(20)
   ]);
@@ -24,7 +23,20 @@ export default async function AdminUserSupportPage({
     >
       <UserSupportPanel
         initialQuery={query}
-        initialRecord={record}
+        initialRecord={{
+          matchedUser: null,
+          matchedVehicle: null,
+          ownedVehicles: [],
+          metrics: {
+            totalListings: 0,
+            liveListings: 0,
+            soldListings: 0,
+            pendingListings: 0,
+            totalOffers: 0,
+            totalEnquiries: 0,
+            totalInspections: 0
+          }
+        }}
         initialHighActivityAccounts={highActivityAccounts}
         initialDealerRiskAccounts={dealerRiskAccounts}
       />

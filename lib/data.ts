@@ -1762,12 +1762,16 @@ function createEmptyUserSupportRecord(): UserSupportRecord {
   };
 }
 
+function normalizeSupportEmail(email?: string | null) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
 async function findUserByExactEmail(email: string) {
-  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedEmail = normalizeSupportEmail(email);
   if (!normalizedEmail) return null;
 
   if (!isFirebaseConfigured) {
-    return (await listUsers()).find((user) => user.email.trim().toLowerCase() === normalizedEmail) ?? null;
+    return (await listUsers()).find((user) => normalizeSupportEmail(user.email) === normalizedEmail) ?? null;
   }
 
   const snapshot = await getDocs(query(collection(db, "users"), where("email", "==", normalizedEmail), limit(1)));
@@ -1789,7 +1793,13 @@ async function findVehiclesByOwnerForSupport(ownerUid: string) {
 }
 
 async function getUserSupportMetrics(user: AppUser, ownedVehicles: Vehicle[]) {
-  const email = user.email.trim().toLowerCase();
+  const email = normalizeSupportEmail(user.email);
+  const baseMetrics = {
+    totalListings: ownedVehicles.length,
+    liveListings: ownedVehicles.filter((vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")).length,
+    soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
+    pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length
+  } satisfies Pick<UserSupportAccountMetrics, "totalListings" | "liveListings" | "soldListings" | "pendingListings">;
 
   if (!isFirebaseConfigured) {
     const allOffers = (await getOffersData()).items;
@@ -1797,31 +1807,36 @@ async function getUserSupportMetrics(user: AppUser, ownedVehicles: Vehicle[]) {
     const allMessages = (await getContactMessagesData()).items;
 
     return {
-      totalListings: ownedVehicles.length,
-      liveListings: ownedVehicles.filter((vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")).length,
-      soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
-      pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length,
+      ...baseMetrics,
       totalOffers: allOffers.filter((offer) => offer.listingOwnerUid === user.id).length,
-      totalEnquiries: allMessages.filter((message) => message.email.trim().toLowerCase() === email).length,
+      totalEnquiries: allMessages.filter((message) => normalizeSupportEmail(message.email) === email).length,
       totalInspections: allInspections.filter((request) => request.sellerOwnerUid === user.id).length
     } satisfies UserSupportAccountMetrics;
   }
 
-  const [offersSnapshot, enquiriesSnapshot, inspectionsSnapshot] = await Promise.all([
-    getDocs(query(collection(db, "offers"), where("listingOwnerUid", "==", user.id))),
-    getDocs(query(collection(db, "contact_messages"), where("email", "==", email))),
-    getDocs(query(collection(db, "inspectionRequests"), where("sellerOwnerUid", "==", user.id)))
-  ]);
+  try {
+    const [offersSnapshot, enquiriesSnapshot, inspectionsSnapshot] = await Promise.all([
+      getDocs(query(collection(db, "offers"), where("listingOwnerUid", "==", user.id))),
+      email
+        ? getDocs(query(collection(db, "contact_messages"), where("email", "==", email)))
+        : Promise.resolve(null),
+      getDocs(query(collection(db, "inspectionRequests"), where("sellerOwnerUid", "==", user.id)))
+    ]);
 
-  return {
-    totalListings: ownedVehicles.length,
-    liveListings: ownedVehicles.filter((vehicle) => vehicle.status === "approved" && (vehicle.sellerStatus === "ACTIVE" || vehicle.sellerStatus === "UNDER_OFFER")).length,
-    soldListings: ownedVehicles.filter((vehicle) => vehicle.sellerStatus === "SOLD").length,
-    pendingListings: ownedVehicles.filter((vehicle) => vehicle.status === "pending").length,
-    totalOffers: offersSnapshot.size,
-    totalEnquiries: enquiriesSnapshot.size,
-    totalInspections: inspectionsSnapshot.size
-  } satisfies UserSupportAccountMetrics;
+    return {
+      ...baseMetrics,
+      totalOffers: offersSnapshot.size,
+      totalEnquiries: enquiriesSnapshot?.size ?? 0,
+      totalInspections: inspectionsSnapshot.size
+    } satisfies UserSupportAccountMetrics;
+  } catch {
+    return {
+      ...baseMetrics,
+      totalOffers: 0,
+      totalEnquiries: 0,
+      totalInspections: 0
+    } satisfies UserSupportAccountMetrics;
+  }
 }
 
 export async function getUserSupportRecord(searchQuery: string) {
@@ -1872,13 +1887,13 @@ export async function getUserSupportSuggestions(searchQuery: string, maxResults 
 
   if (!isFirebaseConfigured) {
     const users = (await listUsers())
-      .filter((user) => user.email.trim().toLowerCase().startsWith(normalizedQuery))
+      .filter((user) => normalizeSupportEmail(user.email).startsWith(normalizedQuery))
       .slice(0, userLimit)
       .map((user) => ({
         type: "user" as const,
-        queryValue: user.email,
-        email: user.email,
-        name: user.displayName || user.name || user.email,
+        queryValue: user.email || user.id,
+        email: user.email || "",
+        name: user.displayName || user.name || user.email || "Unknown user",
         id: user.id
       }));
 
@@ -1925,9 +1940,9 @@ export async function getUserSupportSuggestions(searchQuery: string, maxResults 
     const user = serializeUserDoc(item.id, item.data());
     return {
       type: "user" as const,
-      queryValue: user.email,
-      email: user.email,
-      name: user.displayName || user.name || user.email,
+      queryValue: user.email || user.id,
+      email: user.email || "",
+      name: user.displayName || user.name || user.email || "Unknown user",
       id: user.id
     } satisfies UserSupportSuggestion;
   });

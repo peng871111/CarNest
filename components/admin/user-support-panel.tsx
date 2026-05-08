@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { getUserSupportActionTarget, getUserSupportSuggestions, softDeleteVehicle, updateUserSupportStatus } from "@/lib/data";
+import { getUserSupportActionTarget, getUserSupportRecord, getUserSupportSuggestions, softDeleteVehicle, updateUserSupportStatus } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, UserSupportDealerRiskAccount, UserSupportHighActivityAccount, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
@@ -27,6 +27,23 @@ function buildActor(appUser: AppUser | null): VehicleActor | null {
     dealerVerified: appUser.dealerVerified,
     dealerStatus: appUser.dealerStatus,
     listingRestricted: appUser.listingRestricted
+  };
+}
+
+function createEmptyUserSupportRecord(): UserSupportRecord {
+  return {
+    matchedUser: null,
+    matchedVehicle: null,
+    ownedVehicles: [],
+    metrics: {
+      totalListings: 0,
+      liveListings: 0,
+      soldListings: 0,
+      pendingListings: 0,
+      totalOffers: 0,
+      totalEnquiries: 0,
+      totalInspections: 0
+    }
   };
 }
 
@@ -55,16 +72,57 @@ export function UserSupportPanel({
   const [busyAction, setBusyAction] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const [loadingRecord, setLoadingRecord] = useState(false);
   const normalizedQuery = normalizeQuery(query);
   const matchedUser = record.matchedUser;
   const matchedVehicle = record.matchedVehicle;
   const ownedVehicles = record.ownedVehicles;
   const accountMetrics = record.metrics;
   const canDeleteListings = hasAdminPermission(appUser, "deleteListings");
+  const matchedUserDisplayName = matchedUser?.displayName || matchedUser?.name || matchedUser?.email || "Unknown user";
+  const matchedUserEmail = matchedUser?.email || "No email on file";
+  const matchedUserSearchValue = matchedUser?.email || "";
 
   useEffect(() => {
     setRecord(initialRecord);
   }, [initialRecord]);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    const nextQuery = initialQuery.trim();
+    let isCancelled = false;
+
+    if (!nextQuery) {
+      setRecord(initialRecord);
+      setLoadingRecord(false);
+      return;
+    }
+
+    setLoadingRecord(true);
+    setError("");
+
+    void getUserSupportRecord(nextQuery)
+      .then((nextRecord) => {
+        if (isCancelled) return;
+        setRecord(nextRecord);
+      })
+      .catch((recordError) => {
+        if (isCancelled) return;
+        setRecord(createEmptyUserSupportRecord());
+        setError(recordError instanceof Error ? recordError.message : "Unable to load that support record right now.");
+      })
+      .finally(() => {
+        if (isCancelled) return;
+        setLoadingRecord(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [initialQuery, initialRecord]);
 
   useEffect(() => {
     const trimmedQuery = query.trim();
@@ -466,6 +524,10 @@ export function UserSupportPanel({
         <div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">
           Enter an exact email, listing ID, or vehicle ID to open a support record.
         </div>
+      ) : loadingRecord ? (
+        <div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">
+          Loading support record...
+        </div>
       ) : !matchedUser && !matchedVehicle ? (
         <div className="rounded-[28px] border border-black/5 bg-white p-8 text-sm text-ink/60 shadow-panel">
           No exact match found for that email or listing reference.
@@ -504,9 +566,9 @@ export function UserSupportPanel({
                       {matchedVehicle.deleted ? "Deleted" : busyAction === `delete-${matchedVehicle.id}` ? "Deleting..." : "Delete listing"}
                     </button>
                   ) : null}
-                  {matchedUser ? (
+                  {matchedUser && matchedUserSearchValue ? (
                     <Link
-                      href={`/admin/user-support?q=${encodeURIComponent(matchedUser.email)}`}
+                      href={`/admin/user-support?q=${encodeURIComponent(matchedUserSearchValue)}`}
                       className="rounded-full border border-black/10 bg-shell px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15"
                     >
                       Open owner support view
@@ -533,8 +595,8 @@ export function UserSupportPanel({
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <p className="text-xs uppercase tracking-[0.22em] text-bronze">Account</p>
-                    <h3 className="mt-2 text-2xl font-semibold text-ink">{matchedUser.displayName || matchedUser.name || matchedUser.email}</h3>
-                    <p className="mt-2 text-sm text-ink/65">{matchedUser.email}</p>
+                    <h3 className="mt-2 text-2xl font-semibold text-ink">{matchedUserDisplayName}</h3>
+                    <p className="mt-2 text-sm text-ink/65">{matchedUserEmail}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className="rounded-full border border-black/10 bg-shell px-3 py-2 text-xs font-medium text-ink/72">{matchedUser.role}</span>
@@ -550,7 +612,7 @@ export function UserSupportPanel({
                 <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Name</p>
-                    <p className="mt-2 text-sm text-ink">{matchedUser.displayName || matchedUser.name || "Not provided"}</p>
+                    <p className="mt-2 text-sm text-ink">{matchedUserDisplayName}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Phone</p>
