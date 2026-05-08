@@ -82,7 +82,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       window.setTimeout(() => {
         if (window.location.pathname === destination) return;
         window.location.assign(destination);
-      }, 250);
+      }, 300);
     }
   }
 
@@ -116,6 +116,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setLoading(true);
     setError("");
     setSuccess("");
+    let navigationStarted = false;
     const form = new FormData(event.currentTarget);
     const email = String(form.get("email") ?? "").trim().toLowerCase();
     const password = String(form.get("password") ?? "");
@@ -154,21 +155,25 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       if (mode === "login") {
         const user = await login(email, password);
         setSuccess("Signed in successfully. Redirecting...");
-        navigateToDestination(resolveDestination(user, "login"));
+        navigationStarted = true;
+        navigateToDestination(resolveDestination(user, "login"), true);
       } else {
-        const user = await register({
+        await register({
           name,
           email,
           password,
           accountType
         });
         setSuccess("Account created successfully. Redirecting...");
-        navigateToDestination(resolveDestination(user, "register"));
+        navigationStarted = true;
+        navigateToDestination("/", true);
       }
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Authentication failed");
     } finally {
-      setLoading(false);
+      if (!navigationStarted) {
+        setLoading(false);
+      }
     }
   }
 
