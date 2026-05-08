@@ -7,12 +7,14 @@ import {
   GoogleAuthProvider,
   UserCredential,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   reauthenticateWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updatePassword,
   updateProfile,
@@ -32,7 +34,7 @@ interface AuthContextValue {
   authError: string;
   login: (email: string, password: string) => Promise<AppUser>;
   register: (input: { name: string; email: string; password: string; accountType: AccountType }) => Promise<AppUser>;
-  continueWithGoogle: (accountType?: AccountType) => Promise<AppUser>;
+  continueWithGoogle: (accountType?: AccountType) => Promise<AppUser | null>;
   requestPasswordReset: (email: string) => Promise<void>;
   changePassword: (input: { currentPassword: string; newPassword: string }) => Promise<void>;
   logout: () => Promise<void>;
@@ -41,10 +43,10 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_UNAVAILABLE_MESSAGE = "Account signup is temporarily unavailable because authentication is not configured for this deployment.";
 const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
-const PRODUCTION_SITE_URL = "https://carnest-alpha.vercel.app";
+const PRODUCTION_SITE_URL = "https://carnest.au";
 const PROFILE_SETUP_MESSAGE = "Your account was created, but we couldn’t finish setting up your profile. Please sign in to continue.";
 const PROFILE_LOAD_MESSAGE = "We signed you in, but couldn’t load your account profile. Please try again.";
-const PROFILE_CREATE_FAILED_MESSAGE = "Failed to create user profile. Please try signing in again.";
+const PROFILE_CREATE_FAILED_MESSAGE = "Your account was created, but we couldn’t finish setting up your profile. Please sign in again and we’ll restore it automatically.";
 const PROFILE_NOT_FOUND_MESSAGE = "User profile not found. We’re creating it for you now.";
 const PASSWORD_RESET_REQUIRED_MESSAGE = "Please reset your password via email.";
 const ACCOUNT_BANNED_MESSAGE = "This account has been banned. Please contact CarNest support.";
@@ -371,6 +373,20 @@ function getStoredAccountType(existingData?: Record<string, unknown>, pendingSee
   return "private" as const;
 }
 
+function buildPrivateProfileSeed(firebaseUser: User, accountType: AccountType = "private") {
+  const normalizedEmail = normalizeAuthEmail(firebaseUser.email ?? "");
+  return {
+    name: firebaseUser.displayName?.trim() || normalizedEmail.split("@")[0] || "CarNest User",
+    accountType,
+    role: "private" as const
+  };
+}
+
+function shouldFallbackToGoogleRedirect(error: unknown) {
+  const code = getErrorCode(error);
+  return code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment";
+}
+
 function buildManagedUserProfile(
   firebaseUser: User,
   pendingSeed?: { name: string; accountType: AccountType; role: "private" | "dealer" },
@@ -449,9 +465,7 @@ function buildStoredProfilePayload(
       ? existingData.role
       : user.role === "admin" || user.role === "super_admin"
         ? user.role
-        : user.accountType === "dealer"
-          ? "dealer"
-          : "private";
+        : pendingSeed?.role ?? "private";
 
   const payload: Record<string, unknown> = {
     uid: firebaseUser.uid,
@@ -628,6 +642,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    void (async () => {
+      try {
+        const redirectResult = await getRedirectResult(auth);
+        if (redirectResult?.user) {
+          const pendingSeed = pendingProfileSeeds.get(redirectResult.user.uid) ?? buildPrivateProfileSeed(redirectResult.user);
+          await withProfileRetry(redirectResult.user, () => upsertUserProfileDocument(redirectResult.user, pendingSeed));
+        }
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.error("Google redirect result failed", error);
+        }
+        setAuthError(mapAuthError(error));
+      }
+    })();
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       if (!user) {
@@ -749,7 +778,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           const normalizedEmail = normalizeAuthEmail(email);
           const credential: UserCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-          const role = accountType === "dealer" ? "dealer" : "private";
+          const role = "private" as const;
           pendingProfileSeeds.set(credential.user.uid, { name, accountType, role });
           await updateProfile(credential.user, { displayName: name });
           if (accountType === "dealer") {
@@ -802,7 +831,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(mapAuthError(error));
         }
       },
-      continueWithGoogle: async (accountType = "private") => {
+      continueWithGoogle: async (_accountType = "private") => {
         if (!isFirebaseConfigured) {
           throw new Error(AUTH_UNAVAILABLE_MESSAGE);
         }
@@ -811,29 +840,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         provider.setCustomParameters({ prompt: "select_account" });
 
         try {
-          const credential = await signInWithPopup(auth, provider);
-          const normalizedEmail = normalizeAuthEmail(credential.user.email ?? "");
-          const role = accountType === "dealer" ? "dealer" : "private";
-          pendingProfileSeeds.set(credential.user.uid, {
-            name: credential.user.displayName ?? normalizedEmail.split("@")[0] ?? "CarNest User",
-            accountType,
-            role
-          });
-          await credential.user.getIdToken(true);
+          try {
+            const credential = await signInWithPopup(auth, provider);
+            const pendingSeed = buildPrivateProfileSeed(credential.user);
+            pendingProfileSeeds.set(credential.user.uid, pendingSeed);
+            await credential.user.getIdToken(true);
 
-          const user = await withProfileRetry(credential.user, () =>
-            upsertUserProfileDocument(credential.user, {
-              name: credential.user.displayName ?? normalizedEmail.split("@")[0] ?? "CarNest User",
-              accountType,
-              role
-            })
-          );
+            const user = await withProfileRetry(credential.user, () =>
+              upsertUserProfileDocument(credential.user, pendingSeed)
+            );
 
-          await assertAccountNotBanned(user);
-          setAppUser(user);
-          setSessionCookies(user);
-          setAuthError("");
-          return user;
+            await assertAccountNotBanned(user);
+            setAppUser(user);
+            setSessionCookies(user);
+            setAuthError("");
+            return user;
+          } catch (popupError) {
+            if (!shouldFallbackToGoogleRedirect(popupError)) {
+              throw popupError;
+            }
+
+            await signInWithRedirect(auth, provider);
+            return null;
+          }
         } catch (error) {
           if (process.env.NODE_ENV === "development") {
             console.error("Google sign-in failed", error);

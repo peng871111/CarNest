@@ -316,7 +316,8 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || isAdmin());
+      allow read, write: if isAdmin() || isSuperAdmin();
+      allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn()
         && request.auth.uid == userId
         && request.resource.data.keys().hasOnly([
@@ -355,7 +356,7 @@ service cloud.firestore {
         ])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.email == request.auth.token.email
-        && isAllowedProfileRole(request.resource.data.role, request.resource.data.email)
+        && request.resource.data.role == "private"
         && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer")
         && request.resource.data.createdAt is timestamp
         && request.resource.data.updatedAt is timestamp
@@ -437,113 +438,109 @@ service cloud.firestore {
         )
         && request.resource.data.failedLoginAttempts is int
         && request.resource.data.mustResetPassword is bool;
-      allow update: if isSuperAdmin()
-        || (
-          isAdmin()
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.email == resource.data.email
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.adminPermissions == resource.data.adminPermissions
-          && (
-            request.resource.data.role == resource.data.role
-            || request.resource.data.role == "dealer"
-            || request.resource.data.role == "private"
+      allow update: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && (
+          request.resource.data.accountType == resource.data.accountType
+          || (
+            !("accountType" in resource.data)
+            && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer")
           )
         )
-        || (
-          signedIn()
-          && request.auth.uid == userId
-          && request.resource.data.uid == resource.data.uid
-          && request.resource.data.email == resource.data.email
-          && request.resource.data.role == resource.data.role
-          && (
-            request.resource.data.accountType == resource.data.accountType
-            || (!("accountType" in resource.data) && (request.resource.data.accountType == "private" || request.resource.data.accountType == "dealer"))
-          )
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.adminPermissions == resource.data.adminPermissions
-          && request.resource.data.updatedAt is timestamp
-          && request.resource.data.emailVerified is bool
-          && (
-            request.resource.data.accountBanned == resource.data.accountBanned
-            || (!("accountBanned" in resource.data) && request.resource.data.accountBanned is bool)
-          )
-          && (
-            !("photoURL" in request.resource.data)
-            || request.resource.data.photoURL is string
-          )
-          && (
-            !("complianceStatus" in request.resource.data)
-            || request.resource.data.complianceStatus == "clear"
-            || request.resource.data.complianceStatus == "possible_unlicensed_trader"
-          )
-          && (
-            !("complianceFlaggedAt" in request.resource.data)
-            || request.resource.data.complianceFlaggedAt is timestamp
-          )
-          && (
-            !("dealerStatus" in request.resource.data)
-            || request.resource.data.dealerStatus == "none"
-            || request.resource.data.dealerStatus == "submitted_unverified"
-            || request.resource.data.dealerStatus == "pending"
-            || request.resource.data.dealerStatus == "pending_review"
-            || request.resource.data.dealerStatus == "info_requested"
-            || request.resource.data.dealerStatus == "approved"
-            || request.resource.data.dealerStatus == "rejected"
-          )
-          && (
-            !("dealerVerified" in request.resource.data)
-            || request.resource.data.dealerVerified is bool
-          )
-          && (
-            !("dealerApplicationId" in request.resource.data)
-            || request.resource.data.dealerApplicationId is string
-          )
-          && (
-            !("agreedToDealerTerms" in request.resource.data)
-            || request.resource.data.agreedToDealerTerms is bool
-          )
-          && (
-            !("agreedToTerms" in request.resource.data)
-            || request.resource.data.agreedToTerms is bool
-          )
-          && (
-            !("agreedAt" in request.resource.data)
-            || request.resource.data.agreedAt is timestamp
-          )
-          && (
-            !("dealerPlan" in request.resource.data)
-            || isValidDealerPlan(request.resource.data.dealerPlan)
-          )
-          && (
-            !("planType" in request.resource.data)
-            || isValidDealerPlan(request.resource.data.planType)
-          )
-          && (
-            !("maxListings" in request.resource.data)
-            || request.resource.data.maxListings is int
-          )
-          && (
-            !("shopPublicVisible" in request.resource.data)
-            || request.resource.data.shopPublicVisible is bool
-          )
-          && (
-            !("shopVisible" in request.resource.data)
-            || request.resource.data.shopVisible is bool
-          )
-          && (
-            !("brandingEnabled" in request.resource.data)
-            || request.resource.data.brandingEnabled is bool
-          )
-          && (
-            !("contactDisplayEnabled" in request.resource.data)
-            || request.resource.data.contactDisplayEnabled is bool
-          )
-          && (
-            !("listingRestricted" in request.resource.data)
-            || request.resource.data.listingRestricted is bool
-          )
-        );
+        && (
+          request.resource.data.createdAt == resource.data.createdAt
+          || (!("createdAt" in resource.data) && request.resource.data.createdAt is timestamp)
+        )
+        && request.resource.data.updatedAt is timestamp
+        && (
+          !("adminPermissions" in resource.data)
+          || request.resource.data.adminPermissions == resource.data.adminPermissions
+        )
+        && request.resource.data.emailVerified is bool
+        && (
+          request.resource.data.accountBanned == resource.data.accountBanned
+          || (!("accountBanned" in resource.data) && request.resource.data.accountBanned is bool)
+        )
+        && (
+          !("photoURL" in request.resource.data)
+          || request.resource.data.photoURL is string
+        )
+        && (
+          !("complianceStatus" in request.resource.data)
+          || request.resource.data.complianceStatus == "clear"
+          || request.resource.data.complianceStatus == "possible_unlicensed_trader"
+        )
+        && (
+          !("complianceFlaggedAt" in request.resource.data)
+          || request.resource.data.complianceFlaggedAt is timestamp
+        )
+        && (
+          !("dealerStatus" in request.resource.data)
+          || request.resource.data.dealerStatus == "none"
+          || request.resource.data.dealerStatus == "submitted_unverified"
+          || request.resource.data.dealerStatus == "pending"
+          || request.resource.data.dealerStatus == "pending_review"
+          || request.resource.data.dealerStatus == "info_requested"
+          || request.resource.data.dealerStatus == "approved"
+          || request.resource.data.dealerStatus == "rejected"
+        )
+        && (
+          !("dealerVerified" in request.resource.data)
+          || request.resource.data.dealerVerified is bool
+        )
+        && (
+          !("dealerApplicationId" in request.resource.data)
+          || request.resource.data.dealerApplicationId is string
+        )
+        && (
+          !("agreedToDealerTerms" in request.resource.data)
+          || request.resource.data.agreedToDealerTerms is bool
+        )
+        && (
+          !("agreedToTerms" in request.resource.data)
+          || request.resource.data.agreedToTerms is bool
+        )
+        && (
+          !("agreedAt" in request.resource.data)
+          || request.resource.data.agreedAt is timestamp
+        )
+        && (
+          !("dealerPlan" in request.resource.data)
+          || isValidDealerPlan(request.resource.data.dealerPlan)
+        )
+        && (
+          !("planType" in request.resource.data)
+          || isValidDealerPlan(request.resource.data.planType)
+        )
+        && (
+          !("maxListings" in request.resource.data)
+          || request.resource.data.maxListings is int
+        )
+        && (
+          !("shopPublicVisible" in request.resource.data)
+          || request.resource.data.shopPublicVisible is bool
+        )
+        && (
+          !("shopVisible" in request.resource.data)
+          || request.resource.data.shopVisible is bool
+        )
+        && (
+          !("brandingEnabled" in request.resource.data)
+          || request.resource.data.brandingEnabled is bool
+        )
+        && (
+          !("contactDisplayEnabled" in request.resource.data)
+          || request.resource.data.contactDisplayEnabled is bool
+        )
+        && (
+          !("listingRestricted" in request.resource.data)
+          || request.resource.data.listingRestricted is bool
+        )
+        && request.resource.data.failedLoginAttempts is int
+        && request.resource.data.mustResetPassword is bool;
       allow delete: if isSuperAdmin();
     }
 

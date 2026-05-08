@@ -33,10 +33,30 @@ function getRegisterPasswordError(password: string) {
   return "";
 }
 
+function normalizeRedirectPath(value: string | null) {
+  if (!value) return null;
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\") || value.includes("://")) {
+    return null;
+  }
+
+  try {
+    if (typeof window !== "undefined") {
+      const nextUrl = new URL(value, window.location.origin);
+      return nextUrl.origin === window.location.origin
+        ? `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`
+        : null;
+    }
+  } catch {
+    return null;
+  }
+
+  return value;
+}
+
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, register, continueWithGoogle } = useAuth();
+  const { appUser, loading: authLoading, login, register, continueWithGoogle } = useAuth();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
@@ -55,31 +75,33 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
   }, [mode, searchParams]);
 
   function navigateToDestination(destination: string) {
-    if (typeof window !== "undefined") {
-      window.location.assign(destination);
-      return;
-    }
-
     router.replace(destination);
     router.refresh();
   }
 
-  function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus">, flow: "login" | "register") {
-    const redirect = searchParams.get("redirect");
+  function resolveDestination(user: Pick<AppUser, "role" | "dealerStatus" | "accountType">, flow: "login" | "register") {
+    const redirect = normalizeRedirectPath(searchParams.get("redirect"));
+    const isDealerIntent = user.role === "dealer" || user.accountType === "dealer";
+
+    if (redirect) {
+      if (redirect.startsWith("/admin") && user.role !== "admin" && user.role !== "super_admin") {
+        return user.role === "dealer" ? (user.dealerStatus === "approved" ? "/dealer/dashboard" : "/dealer/application-status") : "/inventory";
+      }
+
+      return redirect;
+    }
 
     if (user.role === "admin" || user.role === "super_admin") return "/admin/vehicles";
-    if (user.role === "dealer") {
+    if (isDealerIntent) {
       if (flow === "register") return "/dealer/apply";
-      if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-      return user.dealerStatus === "approved"
+      return user.role === "dealer" && user.dealerStatus === "approved"
         ? "/dealer/dashboard"
         : user.dealerStatus === "none"
           ? "/dealer/apply"
           : "/dealer/application-status";
     }
 
-    if (redirect && redirect.startsWith("/") && !redirect.startsWith("//")) return redirect;
-    return "/seller/vehicles";
+    return "/inventory";
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -88,7 +110,6 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError("");
     setSuccess("");
     const form = new FormData(event.currentTarget);
-    const redirect = searchParams.get("redirect");
     const email = String(form.get("email") ?? "").trim().toLowerCase();
     const password = String(form.get("password") ?? "");
     const name = String(form.get("name") ?? "").trim();
@@ -151,6 +172,10 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
     try {
       const user = await continueWithGoogle(accountType);
+      if (!user) {
+        setSuccess("Redirecting to Google...");
+        return;
+      }
       setSuccess(mode === "login" ? "Signed in successfully. Redirecting..." : "Account created successfully. Redirecting...");
       navigateToDestination(resolveDestination(user, mode));
     } catch (submissionError) {
@@ -159,6 +184,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (loading || authLoading || !appUser) return;
+    navigateToDestination(resolveDestination(appUser, mode));
+  }, [appUser, authLoading, loading, mode]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
