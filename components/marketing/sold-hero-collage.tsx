@@ -9,15 +9,17 @@ const TILE_ASPECTS = [
   "aspect-[2/3]",
   "aspect-[16/10]",
   "aspect-[10/16]",
-  "aspect-square"
+  "aspect-square",
+  "aspect-[6/5]",
+  "aspect-[5/3]"
 ] as const;
 
-const ROTATIONS = [-2.4, 1.7, -1.1, 2.1, -0.5, 1, -1.6] as const;
-const TRANSLATE_X = [0, -6, 5, -4, 6, -3, 4] as const;
-const TRANSLATE_Y = [0, 7, -8, 10, -6, 8, -7] as const;
-const OVERLAP_TOP = [0, -10, 0, -12, -6, -10, -5] as const;
-const OPACITY = [0.94, 0.87, 0.9, 0.88, 0.95, 0.85, 0.91] as const;
-const SCALE = [1, 1.02, 1.01, 1.03, 1.01, 0.995, 1.02] as const;
+const ROTATIONS = [-1.8, 1.4, -0.9, 1.7, -0.4, 0.8, -1.2] as const;
+const TRANSLATE_X = [0, -4, 3, -3, 4, -2, 3] as const;
+const TRANSLATE_Y = [0, 5, -5, 7, -4, 6, -5] as const;
+const OVERLAP_TOP = [0, -8, 0, -9, -4, -7, -3] as const;
+const OPACITY = [0.95, 0.89, 0.92, 0.9, 0.96, 0.88, 0.93] as const;
+const SCALE = [1, 1.01, 1.005, 1.015, 1.01, 0.995, 1.01] as const;
 
 type SoldHeroTile = {
   id: string;
@@ -25,31 +27,11 @@ type SoldHeroTile = {
   alt: string;
 };
 
-function buildSoldHeroTiles(vehicles: Vehicle[], minimumTiles = 132) {
-  const primaryTiles = vehicles
-    .map((vehicle) => {
-      const thumbnails = Array.from(new Set(getVehicleGalleryThumbnails(vehicle).filter(Boolean)));
-      const primaryImage = thumbnails[0];
-      if (!primaryImage) return null;
-
-      return {
-        id: `${vehicle.id}:primary`,
-        src: primaryImage,
-        alt: `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} sold vehicle photo on CarNest`
-          .replace(/\s+/g, " ")
-          .trim()
-      } satisfies SoldHeroTile;
-    })
-    .filter((tile): tile is SoldHeroTile => Boolean(tile));
-
-  if (primaryTiles.length >= minimumTiles) {
-    return primaryTiles;
-  }
-
-  const secondaryTiles = vehicles.flatMap((vehicle) => {
+function buildSoldHeroTiles(vehicles: Vehicle[], minimumTiles = 220) {
+  const allTiles = vehicles.flatMap((vehicle) => {
     const thumbnails = Array.from(new Set(getVehicleGalleryThumbnails(vehicle).filter(Boolean)));
-    return thumbnails.slice(1, 5).map((src, imageIndex) => ({
-      id: `${vehicle.id}:secondary:${imageIndex}`,
+    return thumbnails.slice(0, 5).map((src, imageIndex) => ({
+      id: `${vehicle.id}:${imageIndex}`,
       src,
       alt: `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} sold vehicle photo on CarNest`
         .replace(/\s+/g, " ")
@@ -57,7 +39,23 @@ function buildSoldHeroTiles(vehicles: Vehicle[], minimumTiles = 132) {
     })) satisfies SoldHeroTile[];
   });
 
-  return [...primaryTiles, ...secondaryTiles].slice(0, Math.max(minimumTiles, primaryTiles.length));
+  if (allTiles.length >= minimumTiles) {
+    return allTiles.slice(0, minimumTiles);
+  }
+
+  const repeatedTiles: SoldHeroTile[] = [];
+  let duplicateRound = 1;
+  while (allTiles.length + repeatedTiles.length < minimumTiles && allTiles.length) {
+    repeatedTiles.push(
+      ...allTiles.map((tile) => ({
+        ...tile,
+        id: `${tile.id}:repeat:${duplicateRound}`
+      }))
+    );
+    duplicateRound += 1;
+  }
+
+  return [...allTiles, ...repeatedTiles].slice(0, Math.max(minimumTiles, allTiles.length));
 }
 
 export function SoldHeroCollage({ vehicles }: { vehicles: Vehicle[] }) {
@@ -74,8 +72,8 @@ export function SoldHeroCollage({ vehicles }: { vehicles: Vehicle[] }) {
 
   return (
     <div aria-hidden="true" className="absolute inset-0 overflow-hidden pointer-events-none select-none">
-      <div className="hero-collage-pan absolute inset-[-12%] origin-center scale-[1.08] md:inset-[-9%] md:scale-[1.09]">
-        <div className="columns-4 gap-1.5 sm:columns-5 sm:gap-2 lg:columns-8 lg:gap-2 xl:columns-10 2xl:columns-11">
+      <div className="hero-collage-pan absolute inset-[-14%] origin-center scale-[1.04] md:inset-[-10%] md:scale-[1.05]">
+        <div className="columns-5 gap-1 sm:columns-6 sm:gap-1.5 lg:columns-10 lg:gap-1.5 xl:columns-12 2xl:columns-14">
           {tiles.map((tile, index) => {
             const aspectClass = TILE_ASPECTS[index % TILE_ASPECTS.length];
             const rotation = ROTATIONS[index % ROTATIONS.length];
@@ -84,12 +82,12 @@ export function SoldHeroCollage({ vehicles }: { vehicles: Vehicle[] }) {
             const overlapTop = index < 3 ? 0 : OVERLAP_TOP[index % OVERLAP_TOP.length];
             const opacity = OPACITY[index % OPACITY.length];
             const scale = SCALE[index % SCALE.length];
-            const eager = index < 12;
+            const eager = index < 14;
 
             return (
               <figure
                 key={tile.id}
-                className={`relative mb-1.5 break-inside-avoid overflow-hidden rounded-[16px] border border-white/7 bg-black/20 shadow-[0_12px_34px_rgba(0,0,0,0.28)] sm:mb-2 sm:rounded-[18px] ${aspectClass}`}
+                className={`relative mb-1 break-inside-avoid overflow-hidden rounded-[14px] border border-white/6 bg-black/20 shadow-[0_10px_26px_rgba(0,0,0,0.22)] sm:mb-1.5 sm:rounded-[16px] ${aspectClass}`}
                 style={{
                   marginTop: overlapTop,
                   opacity,
@@ -100,12 +98,12 @@ export function SoldHeroCollage({ vehicles }: { vehicles: Vehicle[] }) {
                 <PublicVehicleImage
                   src={tile.src}
                   alt={tile.alt}
-                  className="object-cover scale-[1.05]"
-                  sizes="(max-width: 639px) 24vw, (max-width: 1023px) 20vw, (max-width: 1535px) 11vw, 9vw"
+                  className="object-cover object-center scale-[1.015]"
+                  sizes="(max-width: 639px) 19vw, (max-width: 1023px) 16vw, (max-width: 1535px) 8.5vw, 7vw"
                   priority={eager}
                   loading={eager ? "eager" : "lazy"}
                   eager={eager}
-                  quality={68}
+                  quality={64}
                 />
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.05),transparent_36%,rgba(0,0,0,0.38))]" />
               </figure>
