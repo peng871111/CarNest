@@ -94,14 +94,13 @@ export default async function HomePage() {
       />
       <section className="relative isolate left-1/2 right-1/2 w-screen -translate-x-1/2 overflow-hidden bg-[#030405]">
         <SoldHeroCollage vehicles={soldVehicles} />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,4,5,0.18)_0%,rgba(3,4,5,0.26)_10%,rgba(3,4,5,0.5)_24%,rgba(3,4,5,0.78)_52%,rgba(3,4,5,0.93)_78%,rgba(3,4,5,0.99)_100%),linear-gradient(90deg,rgba(0,0,0,0.94)_0%,rgba(0,0,0,0.84)_14%,rgba(0,0,0,0.58)_30%,rgba(0,0,0,0.26)_48%,rgba(0,0,0,0.12)_68%,rgba(0,0,0,0.18)_100%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(214,171,92,0.16),transparent_18%),radial-gradient(circle_at_16%_34%,rgba(0,0,0,0.8),transparent_34%),radial-gradient(circle_at_40%_56%,rgba(0,0,0,0.22),transparent_24%),radial-gradient(circle_at_72%_24%,rgba(0,0,0,0.3),transparent_30%),radial-gradient(circle_at_96%_28%,rgba(0,0,0,0.22),transparent_34%),radial-gradient(circle_at_center,transparent_10%,rgba(0,0,0,0.14)_42%,rgba(0,0,0,0.68)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,4,5,0.28)_0%,rgba(3,4,5,0.36)_12%,rgba(3,4,5,0.64)_32%,rgba(3,4,5,0.86)_62%,rgba(3,4,5,0.97)_100%),linear-gradient(90deg,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.76)_22%,rgba(0,0,0,0.42)_48%,rgba(0,0,0,0.22)_100%)] md:bg-[linear-gradient(180deg,rgba(3,4,5,0.18)_0%,rgba(3,4,5,0.26)_10%,rgba(3,4,5,0.5)_24%,rgba(3,4,5,0.78)_52%,rgba(3,4,5,0.93)_78%,rgba(3,4,5,0.99)_100%),linear-gradient(90deg,rgba(0,0,0,0.94)_0%,rgba(0,0,0,0.84)_14%,rgba(0,0,0,0.58)_30%,rgba(0,0,0,0.26)_48%,rgba(0,0,0,0.12)_68%,rgba(0,0,0,0.18)_100%)]" />
+        <div className="absolute inset-0 hidden md:block md:bg-[radial-gradient(circle_at_top,rgba(214,171,92,0.16),transparent_18%),radial-gradient(circle_at_16%_34%,rgba(0,0,0,0.8),transparent_34%),radial-gradient(circle_at_40%_56%,rgba(0,0,0,0.22),transparent_24%),radial-gradient(circle_at_72%_24%,rgba(0,0,0,0.3),transparent_30%),radial-gradient(circle_at_96%_28%,rgba(0,0,0,0.22),transparent_34%),radial-gradient(circle_at_center,transparent_10%,rgba(0,0,0,0.14)_42%,rgba(0,0,0,0.68)_100%)]" />
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#030405]/88 via-[#030405]/38 to-transparent md:h-40" />
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#030405]/55 to-shell md:h-44" />
-        <div className="absolute inset-y-0 left-0 w-full bg-[radial-gradient(circle_at_42%_34%,rgba(0,0,0,0.02),rgba(0,0,0,0.86)_100%)] md:hidden" />
         <div className="relative mx-auto flex min-h-[33rem] max-w-7xl items-end px-6 pb-12 pt-24 md:min-h-[42rem] md:items-center md:pb-20 md:pt-20">
           <div className="relative w-full max-w-4xl">
-            <div className="absolute inset-y-0 left-0 w-full rounded-[30px] bg-[radial-gradient(circle_at_top_left,rgba(196,152,79,0.16),transparent_24%),linear-gradient(90deg,rgba(2,2,2,0.66)_0%,rgba(2,2,2,0.44)_46%,rgba(2,2,2,0.12)_100%)] opacity-100 backdrop-blur-[14px] md:w-[46rem]" />
+            <div className="absolute inset-y-0 left-0 w-full rounded-[30px] bg-[linear-gradient(180deg,rgba(2,2,2,0.76)_0%,rgba(2,2,2,0.62)_100%)] opacity-100 md:w-[46rem] md:bg-[radial-gradient(circle_at_top_left,rgba(196,152,79,0.16),transparent_24%),linear-gradient(90deg,rgba(2,2,2,0.66)_0%,rgba(2,2,2,0.44)_46%,rgba(2,2,2,0.12)_100%)] md:backdrop-blur-[14px]" />
             <div className="relative flex max-w-4xl flex-col items-center space-y-6 rounded-[30px] px-5 py-7 text-center shadow-[0_24px_80px_rgba(0,0,0,0.26)] md:max-w-[44rem] md:items-start md:px-8 md:py-10 md:text-left">
               <p className="text-sm uppercase tracking-[0.35em] text-bronze">
                 A more transparent way to buy and sell cars
@@ -130,7 +129,7 @@ export default async function HomePage() {
                 {HERO_TRUST_FEATURES.map((feature) => (
                   <div
                     key={feature.label}
-                    className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/18 px-4 py-3 text-sm text-white backdrop-blur-[8px]"
+                    className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/32 px-4 py-3 text-sm text-white md:bg-black/18 md:backdrop-blur-[8px]"
                   >
                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C6A87D]/55 text-[#C6A87D]">
                       <HeroTrustIcon kind={feature.icon} />

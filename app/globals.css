@@ -43,3 +43,11 @@ a {
   animation: hero-collage-pan 28s ease-in-out infinite alternate;
   will-change: transform;
 }
+
+@media (max-width: 767px) {
+  .hero-collage-pan {
+    animation: none;
+    transform: translate3d(0, 0, 0) scale(1.02);
+    will-change: auto;
+  }
+}
