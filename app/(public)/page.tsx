@@ -43,7 +43,7 @@ const HOW_IT_WORKS_STEPS = [
   },
   {
     title: "Receive enquiries & inspections",
-    text: "CarNest helps qualify genuine buyer interest and coordinate inspection opportunities."
+    text: "CarNest helps connect genuine buyers and coordinate vehicle inspections."
   },
   {
     title: "Transact directly",
@@ -195,65 +195,6 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 py-10">
-        <div className="mb-8 max-w-2xl">
-          <p className="text-sm uppercase tracking-[0.35em] text-bronze">How it works</p>
-          <h2 className="mt-3 font-display text-4xl text-ink">How it works</h2>
-          <p className="mt-3 text-sm leading-7 text-ink/65">
-            A calm private marketplace flow where inspections are arranged first and the transaction stays between buyer and seller.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))] xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,0.9fr)]">
-          {HOW_IT_WORKS_STEPS.map((step, index) => (
-            <div key={step.title} className="rounded-[24px] border border-black/5 bg-white px-5 py-5 shadow-panel">
-              <p className="text-xs uppercase tracking-[0.24em] text-bronze">Step {index + 1}</p>
-              <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
-              <p className="mt-3 text-sm leading-6 text-ink/62">{step.text}</p>
-            </div>
-          ))}
-          <div className="rounded-[24px] border border-[#C6A87D]/20 bg-[#141414] px-5 py-5 text-white shadow-[0_24px_60px_rgba(0,0,0,0.14)]">
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Optional</p>
-            <h3 className="mt-3 text-lg font-semibold">Warehouse assistance available</h3>
-            <p className="mt-3 text-sm leading-6 text-white/72">
-              Available for selected vehicles, CarNest can assist with presentation, storage, and inspection logistics while the vehicle remains privately owned.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="mb-8 max-w-3xl">
-          <p className="text-sm uppercase tracking-[0.35em] text-bronze">Marketplace value</p>
-          <h2 className="mt-3 font-display text-4xl text-ink">A better framework for buying and selling cars</h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {VALUE_CARDS.map((card) => (
-            <div key={card.title} className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">{card.title}</h3>
-              <p className="mt-3 max-w-sm text-sm leading-6 text-ink/65">{card.text}</p>
-            </div>
-          ))}
-        </div>
-        <div className="mt-6 rounded-[28px] border border-[#C6A87D]/14 bg-[#141414] px-5 py-5 text-white shadow-[0_20px_44px_rgba(0,0,0,0.12)]">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Private seller marketplace</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">
-                Private seller marketplace where inspections are arranged first and buyers transact directly with sellers when ready.
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Independent mechanic inspections welcome</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">Serious buyers are encouraged to inspect properly before proceeding.</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Warehouse-assisted verification</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">Ownership verification is required for vehicles receiving warehouse support.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section className="mx-auto max-w-7xl px-6 pb-16">
         <div className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
           <div className="mb-4 flex items-center justify-between gap-4">
@@ -304,6 +245,68 @@ export default async function HomePage() {
               Recently sold vehicles will appear here as completed listings move through the CarNest marketplace.
             </div>
           )}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 pb-16">
+        <div className="rounded-[28px] border border-[#C6A87D]/14 bg-[#141414] px-5 py-5 text-white shadow-[0_20px_44px_rgba(0,0,0,0.12)]">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Private seller marketplace</p>
+              <p className="mt-2 text-sm leading-6 text-white/72">
+                Private seller marketplace where inspections are arranged first and buyers transact directly with sellers when ready.
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Independent mechanic inspections welcome</p>
+              <p className="mt-2 text-sm leading-6 text-white/72">Serious buyers are encouraged to inspect properly before proceeding.</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Warehouse-assisted verification</p>
+              <p className="mt-2 text-sm leading-6 text-white/72">Ownership verification is required for vehicles receiving warehouse support.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 pb-16">
+        <div className="mb-8 max-w-2xl">
+          <p className="text-sm uppercase tracking-[0.35em] text-bronze">How it works</p>
+          <h2 className="mt-3 font-display text-4xl text-ink">How it works</h2>
+          <p className="mt-3 text-sm leading-7 text-ink/65">
+            A calm private marketplace flow where inspections are arranged first and the transaction stays between buyer and seller.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))] xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,0.9fr)]">
+          {HOW_IT_WORKS_STEPS.map((step, index) => (
+            <div key={step.title} className="rounded-[24px] border border-black/5 bg-white px-5 py-5 shadow-panel">
+              <p className="text-xs uppercase tracking-[0.24em] text-bronze">Step {index + 1}</p>
+              <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
+              <p className="mt-3 text-sm leading-6 text-ink/62">{step.text}</p>
+            </div>
+          ))}
+          <div className="rounded-[24px] border border-[#C6A87D]/20 bg-[#141414] px-5 py-5 text-white shadow-[0_24px_60px_rgba(0,0,0,0.14)]">
+            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Optional</p>
+            <h3 className="mt-3 text-lg font-semibold">Warehouse assistance available</h3>
+            <p className="mt-3 text-sm leading-6 text-white/72">
+              Available for selected vehicles, CarNest can assist with presentation, storage, and inspection logistics while the vehicle remains privately owned.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 pb-16">
+        <div className="mb-8 max-w-3xl">
+          <p className="text-sm uppercase tracking-[0.35em] text-bronze">Marketplace value</p>
+          <h2 className="mt-3 font-display text-4xl text-ink">A better framework for buying and selling cars</h2>
+        </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {VALUE_CARDS.map((card) => (
+            <div key={card.title} className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
+              <h3 className="text-xl font-semibold text-ink">{card.title}</h3>
+              <p className="mt-3 max-w-sm text-sm leading-6 text-ink/65">{card.text}</p>
+            </div>
+          ))}
         </div>
       </section>
     </main>
