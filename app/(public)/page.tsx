@@ -52,42 +52,50 @@ export default async function HomePage() {
   };
 
   return (
-    <main>
+    <main className="-mx-6 -mt-10">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationStructuredData) }}
       />
-      <section className="relative isolate overflow-hidden bg-[#050608]">
+      <section className="relative isolate left-1/2 right-1/2 w-screen -translate-x-1/2 overflow-hidden bg-[#030405]">
         <SoldHeroCollage vehicles={soldVehicles} />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(247,243,236,0.96)_0%,rgba(244,239,231,0.88)_18%,rgba(244,239,231,0.62)_32%,rgba(10,15,20,0.7)_62%,rgba(5,6,8,0.94)_100%)]" />
-        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#050608]/45 to-shell md:h-40" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(196,152,79,0.2),transparent_36%)]" />
-        <div className="relative mx-auto max-w-7xl px-6 pb-14 pt-24 md:min-h-[34rem] md:pb-16 md:pt-28">
-          <div className="mx-auto flex max-w-4xl flex-col items-center space-y-6 text-center">
-            <p className="text-sm uppercase tracking-[0.35em] text-bronze">
-              A more transparent way to buy and sell cars
-            </p>
-            <h1 className="max-w-3xl font-display text-6xl leading-none text-ink">Buy and sell cars with confidence</h1>
-            <p className="max-w-3xl text-lg leading-8 text-ink/70">
-              Browse verified private listings, book inspections, and deal directly with owners.
-            </p>
-            <div className="flex flex-wrap justify-center gap-4 pt-2">
-              <Link
-                href="/sell"
-                className="rounded-full bg-ink px-8 py-4 text-base font-semibold text-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-ink/92 hover:shadow-lg"
-              >
-                Sell your car
-              </Link>
-              <Link
-                href="/inventory"
-                className="rounded-full border border-ink px-8 py-4 text-base font-semibold text-ink shadow-sm transition duration-200 hover:-translate-y-0.5 hover:bg-white/70 hover:shadow-md"
-              >
-                Browse cars
-              </Link>
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,4,5,0.14)_0%,rgba(3,4,5,0.36)_12%,rgba(3,4,5,0.76)_34%,rgba(3,4,5,0.9)_72%,rgba(3,4,5,0.98)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(214,171,92,0.14),transparent_24%),radial-gradient(circle_at_18%_32%,rgba(0,0,0,0.76),transparent_36%),radial-gradient(circle_at_86%_22%,rgba(0,0,0,0.68),transparent_28%),radial-gradient(circle_at_center,transparent_18%,rgba(0,0,0,0.26)_58%,rgba(0,0,0,0.72)_100%)]" />
+        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#030405]/88 via-[#030405]/38 to-transparent md:h-40" />
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#030405]/55 to-shell md:h-44" />
+        <div className="absolute inset-y-0 left-0 w-full bg-[linear-gradient(90deg,rgba(0,0,0,0.82)_0%,rgba(0,0,0,0.72)_18%,rgba(0,0,0,0.45)_38%,rgba(0,0,0,0.16)_58%,rgba(0,0,0,0.3)_100%)] md:w-[68%]" />
+        <div className="absolute inset-y-0 left-0 w-full bg-[radial-gradient(circle_at_50%_38%,rgba(0,0,0,0.1),rgba(0,0,0,0.82)_100%)] md:hidden" />
+        <div className="relative mx-auto flex min-h-[35rem] max-w-7xl items-end px-6 pb-14 pt-24 md:min-h-[42rem] md:items-center md:pb-20 md:pt-20">
+          <div className="relative w-full max-w-4xl">
+            <div className="absolute inset-0 rounded-[34px] bg-[radial-gradient(circle_at_top_left,rgba(196,152,79,0.18),transparent_26%),linear-gradient(135deg,rgba(2,2,2,0.76),rgba(2,2,2,0.52)_42%,rgba(2,2,2,0.18)_100%)] opacity-100 backdrop-blur-[10px] md:max-w-[42rem]" />
+            <div className="relative flex max-w-4xl flex-col items-center space-y-6 rounded-[34px] border border-white/10 px-6 py-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.45)] md:max-w-[42rem] md:items-start md:px-8 md:py-10 md:text-left">
+              <p className="text-sm uppercase tracking-[0.35em] text-bronze">
+                A more transparent way to buy and sell cars
+              </p>
+              <h1 className="max-w-3xl font-display text-5xl leading-[0.96] text-white drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)] md:text-7xl">
+                Buy and sell cars with confidence
+              </h1>
+              <p className="max-w-3xl text-lg leading-8 text-white/84 md:text-[1.15rem]">
+                Browse verified private listings, book inspections, and deal directly with owners.
+              </p>
+              <div className="flex flex-wrap justify-center gap-4 pt-2 md:justify-start">
+                <Link
+                  href="/sell"
+                  className="rounded-full bg-white px-8 py-4 text-base font-semibold text-ink shadow-[0_16px_34px_rgba(0,0,0,0.34)] transition duration-200 hover:-translate-y-0.5 hover:bg-white/92 hover:shadow-[0_22px_40px_rgba(0,0,0,0.42)]"
+                >
+                  Sell your car
+                </Link>
+                <Link
+                  href="/inventory"
+                  className="rounded-full border border-white/28 bg-white/8 px-8 py-4 text-base font-semibold text-white shadow-[0_16px_34px_rgba(0,0,0,0.2)] transition duration-200 hover:-translate-y-0.5 hover:border-white/40 hover:bg-white/14 hover:shadow-[0_22px_40px_rgba(0,0,0,0.28)]"
+                >
+                  Browse cars
+                </Link>
+              </div>
+              <p className="max-w-3xl text-sm leading-7 text-white/70">
+                we simply help arrange the viewing. You deal directly with the owner if you proceed.
+              </p>
             </div>
-            <p className="max-w-3xl text-sm leading-7 text-ink/58">
-              we simply help arrange the viewing. You deal directly with the owner if you proceed.
-            </p>
           </div>
         </div>
       </section>
