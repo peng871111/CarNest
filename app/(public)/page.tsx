@@ -43,7 +43,7 @@ const HOW_IT_WORKS_STEPS = [
   },
   {
     title: "Receive enquiries & inspections",
-    text: "CarNest helps organise genuine buyer interest and inspection opportunities without the dealership feel."
+    text: "CarNest helps qualify genuine buyer interest and coordinate inspection opportunities."
   },
   {
     title: "Transact directly",
@@ -111,7 +111,7 @@ export default async function HomePage() {
         <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#030405]/88 via-[#030405]/38 to-transparent md:h-40" />
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#030405]/55 to-shell md:h-44" />
         <div className="relative mx-auto flex min-h-[33rem] max-w-7xl items-end px-6 pb-12 pt-24 md:min-h-[42rem] md:items-center md:pb-20 md:pt-20">
-          <div className="grid w-full items-end gap-8 lg:grid-cols-[minmax(0,44rem)_minmax(15rem,19rem)] lg:gap-10">
+          <div className="grid w-full items-center gap-8 lg:grid-cols-[minmax(0,44rem)_minmax(16rem,19rem)] lg:gap-16 xl:gap-20">
             <div className="relative w-full max-w-4xl">
               <div className="absolute inset-y-0 left-0 w-full rounded-[30px] bg-[linear-gradient(180deg,rgba(2,2,2,0.76)_0%,rgba(2,2,2,0.62)_100%)] opacity-100 md:w-[46rem] md:bg-[radial-gradient(circle_at_top_left,rgba(196,152,79,0.16),transparent_24%),linear-gradient(90deg,rgba(2,2,2,0.66)_0%,rgba(2,2,2,0.44)_46%,rgba(2,2,2,0.12)_100%)] md:backdrop-blur-[14px]" />
               <div className="relative flex max-w-4xl flex-col items-center space-y-6 rounded-[30px] px-5 py-7 text-center shadow-[0_24px_80px_rgba(0,0,0,0.26)] md:max-w-[44rem] md:items-start md:px-8 md:py-10 md:text-left">
@@ -157,7 +157,7 @@ export default async function HomePage() {
               </div>
             </div>
             {recentHeroVehicles.length ? (
-              <div className="hidden lg:flex lg:flex-col lg:gap-3 lg:pb-4">
+              <div className="hidden self-center lg:flex lg:flex-col lg:gap-3">
                 <div className="rounded-[26px] border border-white/10 bg-black/34 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-[10px]">
                   <p className="text-[11px] uppercase tracking-[0.28em] text-bronze">Recently Added</p>
                   <div className="mt-4 space-y-3">
@@ -215,7 +215,7 @@ export default async function HomePage() {
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">Optional</p>
             <h3 className="mt-3 text-lg font-semibold">Warehouse assistance available</h3>
             <p className="mt-3 text-sm leading-6 text-white/72">
-              For selected vehicles, CarNest can assist with presentation, storage, and inspection logistics without becoming the seller.
+              Available for selected vehicles, CarNest can assist with presentation, storage, and inspection logistics while the vehicle remains privately owned.
             </p>
           </div>
         </div>
@@ -238,7 +238,9 @@ export default async function HomePage() {
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-bronze">Private seller marketplace</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">A calmer way to buy and sell without dealership pressure.</p>
+              <p className="mt-2 text-sm leading-6 text-white/72">
+                Private seller marketplace where inspections are arranged first and buyers transact directly with sellers when ready.
+              </p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-bronze">Independent mechanic inspections welcome</p>

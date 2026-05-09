@@ -12,7 +12,6 @@ interface InventoryFilters {
   maxPrice: string;
   minYear: string;
   maxYear: string;
-  maxKilometres: string;
 }
 
 const initialFilters: InventoryFilters = {
@@ -21,8 +20,7 @@ const initialFilters: InventoryFilters = {
   minPrice: "",
   maxPrice: "",
   minYear: "",
-  maxYear: "",
-  maxKilometres: ""
+  maxYear: ""
 };
 
 function toNumber(value: string) {
@@ -52,7 +50,6 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
     const maxPrice = toNumber(filters.maxPrice);
     const minYear = toNumber(filters.minYear);
     const maxYear = toNumber(filters.maxYear);
-    const maxKilometres = toNumber(filters.maxKilometres);
 
     return vehicles.filter((vehicle) => {
       if (filters.make && vehicle.make !== filters.make) return false;
@@ -61,7 +58,6 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
       if (maxPrice !== null && vehicle.price > maxPrice) return false;
       if (minYear !== null && vehicle.year < minYear) return false;
       if (maxYear !== null && vehicle.year > maxYear) return false;
-      if (maxKilometres !== null && vehicle.mileage > maxKilometres) return false;
       return true;
     });
   }, [filters, vehicles]);
@@ -75,8 +71,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
       filters.make || "",
       filters.transmission || "",
       filters.minPrice || filters.maxPrice ? `Price ${filters.minPrice || "Any"}-${filters.maxPrice || "Any"}` : "",
-      filters.minYear || filters.maxYear ? `Year ${filters.minYear || "Any"}-${filters.maxYear || "Any"}` : "",
-      filters.maxKilometres ? `Up to ${filters.maxKilometres} km` : ""
+      filters.minYear || filters.maxYear ? `Year ${filters.minYear || "Any"}-${filters.maxYear || "Any"}` : ""
     ].filter(Boolean);
 
     return parts.length ? parts.join(" · ") : "No filters applied";
@@ -101,7 +96,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
           </div>
         </div>
 
-        <div className={`${mobileFiltersExpanded ? "mt-4 grid" : "hidden"} gap-3 md:mt-0 md:grid md:gap-4 md:grid-cols-3 xl:grid-cols-6`}>
+        <div className={`${mobileFiltersExpanded ? "mt-4 grid" : "hidden"} gap-3 md:mt-0 md:grid md:grid-cols-3 md:gap-3 xl:grid-cols-6`}>
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Make</span>
             <select
@@ -172,18 +167,8 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
               placeholder="Any"
             />
           </label>
-          <label className="space-y-2">
-            <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Max kilometres</span>
-            <input
-              value={filters.maxKilometres}
-              onChange={(event) => updateFilter("maxKilometres", toNumericValue(event.target.value))}
-              inputMode="numeric"
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm"
-              placeholder="Any"
-            />
-          </label>
         </div>
-        <div className={`${mobileFiltersExpanded ? "mt-4" : "mt-3 md:mt-4"} flex flex-wrap items-center justify-between gap-3`}>
+        <div className={`${mobileFiltersExpanded ? "mt-4" : "mt-3 md:mt-4"} flex flex-wrap items-center justify-between gap-3 border-t border-black/5 pt-3 md:pt-4`}>
           <p className="text-sm text-ink/60">
             Showing {filteredVehicles.length} of {vehicles.length} vehicles
           </p>
