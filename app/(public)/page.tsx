@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Metadata } from "next";
+import { SoldHeroCollage } from "@/components/marketing/sold-hero-collage";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
 import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
 import { getPublicSoldVehicles } from "@/lib/data";
@@ -56,8 +57,12 @@ export default async function HomePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationStructuredData) }}
       />
-      <section className="bg-hero-glow">
-        <div className="mx-auto max-w-7xl px-6 pb-14 pt-24">
+      <section className="relative isolate overflow-hidden bg-[#050608]">
+        <SoldHeroCollage vehicles={soldVehicles} />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(247,243,236,0.96)_0%,rgba(244,239,231,0.88)_18%,rgba(244,239,231,0.62)_32%,rgba(10,15,20,0.7)_62%,rgba(5,6,8,0.94)_100%)]" />
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#050608]/45 to-shell md:h-40" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(196,152,79,0.2),transparent_36%)]" />
+        <div className="relative mx-auto max-w-7xl px-6 pb-14 pt-24 md:min-h-[34rem] md:pb-16 md:pt-28">
           <div className="mx-auto flex max-w-4xl flex-col items-center space-y-6 text-center">
             <p className="text-sm uppercase tracking-[0.35em] text-bronze">
               A more transparent way to buy and sell cars
