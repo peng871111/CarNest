@@ -135,7 +135,7 @@ export default async function HomePage() {
                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C6A87D]/55 text-[#C6A87D]">
                       <HeroTrustIcon kind={feature.icon} />
                     </span>
-                    <span className="font-semibold tracking-[0.01em] text-white">{feature.label}</span>
+                    <span className="font-semibold tracking-[0.01em] text-bronze">{feature.label}</span>
                   </div>
                 ))}
               </div>
