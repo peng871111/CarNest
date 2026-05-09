@@ -44,7 +44,7 @@ const HOW_IT_WORKS_STEPS = [
 const HERO_TRUST_FEATURES = [
   { label: "Verified Listings", icon: "shield" },
   { label: "Book Inspections", icon: "calendar" },
-  { label: "Deal Directly", icon: "handshake" }
+  { label: "Transact Directly", icon: "handshake" }
 ] as const;
 
 function HeroTrustIcon({ kind }: { kind: (typeof HERO_TRUST_FEATURES)[number]["icon"] }) {
@@ -122,7 +122,7 @@ export default async function HomePage() {
                 </Link>
                 <Link
                   href="/inventory"
-                  className="rounded-full border border-white/28 bg-white/8 px-8 py-4 text-base font-semibold text-white shadow-[0_16px_34px_rgba(0,0,0,0.2)] transition duration-200 hover:-translate-y-0.5 hover:border-white/40 hover:bg-white/14 hover:shadow-[0_22px_40px_rgba(0,0,0,0.28)]"
+                  className="rounded-full border border-white/20 bg-white/10 px-8 py-4 text-base font-semibold text-white shadow-[0_16px_34px_rgba(0,0,0,0.2)] transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/15 hover:shadow-[0_22px_40px_rgba(0,0,0,0.28)]"
                 >
                   Browse cars
                 </Link>
@@ -131,12 +131,12 @@ export default async function HomePage() {
                 {HERO_TRUST_FEATURES.map((feature) => (
                   <div
                     key={feature.label}
-                    className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/18 px-4 py-3 text-sm text-white/92 backdrop-blur-[8px]"
+                    className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/18 px-4 py-3 text-sm text-white backdrop-blur-[8px]"
                   >
                     <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C6A87D]/55 text-[#C6A87D]">
                       <HeroTrustIcon kind={feature.icon} />
                     </span>
-                    <span className="font-medium tracking-[0.01em]">{feature.label}</span>
+                    <span className="font-semibold tracking-[0.01em] text-white">{feature.label}</span>
                   </div>
                 ))}
               </div>
