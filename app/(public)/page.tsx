@@ -140,7 +140,7 @@ export default async function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="max-w-3xl text-sm leading-7 text-white/92">
+              <p className="relative z-10 max-w-3xl text-sm leading-7 text-white">
                 we simply help arrange the viewing. You deal directly with the owner if you proceed.
               </p>
             </div>
