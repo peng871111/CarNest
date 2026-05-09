@@ -41,6 +41,41 @@ const HOW_IT_WORKS_STEPS = [
   "Meet the owner and proceed if it’s the right car"
 ];
 
+const HERO_TRUST_FEATURES = [
+  { label: "Verified Listings", icon: "shield" },
+  { label: "Book Inspections", icon: "calendar" },
+  { label: "Deal Directly", icon: "handshake" }
+] as const;
+
+function HeroTrustIcon({ kind }: { kind: (typeof HERO_TRUST_FEATURES)[number]["icon"] }) {
+  if (kind === "shield") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
+        <path d="M12 3 5.5 5.6v5.7c0 4.4 2.7 8.3 6.5 9.7 3.8-1.4 6.5-5.3 6.5-9.7V5.6L12 3Z" />
+        <path d="m9.2 12 1.8 1.8 4-4.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "calendar") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
+        <path d="M7 3.5v3M17 3.5v3M4.5 8.5h15" strokeLinecap="round" />
+        <rect x="4.5" y="5.5" width="15" height="14" rx="2.5" />
+        <path d="M9 12h2M13 12h2M9 15.5h2M13 15.5h2" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
+      <path d="M7.5 13.5 10 11a2.5 2.5 0 0 1 3.5 0l.5.5a2.5 2.5 0 0 0 3.5 0l1.5-1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m3.5 11 3-3a2.6 2.6 0 0 1 3.7 0l1.3 1.3M20.5 13l-3 3a2.6 2.6 0 0 1-3.7 0L12.5 14.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 10.5 5 8m14 8 2.5-2.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export default async function HomePage() {
   const { vehicles: soldVehicles, error: soldVehiclesError } = await getPublicSoldVehicles();
   const soldStripVehicles = soldVehicles.slice(0, 8);
@@ -91,6 +126,19 @@ export default async function HomePage() {
                 >
                   Browse cars
                 </Link>
+              </div>
+              <div className="grid w-full max-w-3xl grid-cols-1 gap-3 text-left sm:grid-cols-2 md:grid-cols-3">
+                {HERO_TRUST_FEATURES.map((feature) => (
+                  <div
+                    key={feature.label}
+                    className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/18 px-4 py-3 text-sm text-white/92 backdrop-blur-[8px]"
+                  >
+                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C6A87D]/55 text-[#C6A87D]">
+                      <HeroTrustIcon kind={feature.icon} />
+                    </span>
+                    <span className="font-medium tracking-[0.01em]">{feature.label}</span>
+                  </div>
+                ))}
               </div>
               <p className="max-w-3xl text-sm leading-7 text-white/92">
                 we simply help arrange the viewing. You deal directly with the owner if you proceed.
