@@ -7,6 +7,7 @@ import { Vehicle } from "@/types";
 
 interface InventoryFilters {
   make: string;
+  transmission: string;
   minPrice: string;
   maxPrice: string;
   minYear: string;
@@ -16,6 +17,7 @@ interface InventoryFilters {
 
 const initialFilters: InventoryFilters = {
   make: "",
+  transmission: "",
   minPrice: "",
   maxPrice: "",
   minYear: "",
@@ -39,6 +41,11 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
     () => Array.from(new Set(vehicles.map((vehicle) => vehicle.make).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     [vehicles]
   );
+  const transmissionOptions = useMemo(
+    () =>
+      Array.from(new Set(vehicles.map((vehicle) => vehicle.transmission).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [vehicles]
+  );
 
   const filteredVehicles = useMemo(() => {
     const minPrice = toNumber(filters.minPrice);
@@ -49,6 +56,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
 
     return vehicles.filter((vehicle) => {
       if (filters.make && vehicle.make !== filters.make) return false;
+      if (filters.transmission && vehicle.transmission !== filters.transmission) return false;
       if (minPrice !== null && vehicle.price < minPrice) return false;
       if (maxPrice !== null && vehicle.price > maxPrice) return false;
       if (minYear !== null && vehicle.year < minYear) return false;
@@ -65,6 +73,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
   const activeFilterSummary = useMemo(() => {
     const parts = [
       filters.make || "",
+      filters.transmission || "",
       filters.minPrice || filters.maxPrice ? `Price ${filters.minPrice || "Any"}-${filters.maxPrice || "Any"}` : "",
       filters.minYear || filters.maxYear ? `Year ${filters.minYear || "Any"}-${filters.maxYear || "Any"}` : "",
       filters.maxKilometres ? `Up to ${filters.maxKilometres} km` : ""
@@ -75,7 +84,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
 
   return (
     <>
-      <div className="mb-6 rounded-[28px] border border-black/5 bg-white p-4 sm:mb-8 sm:p-5 shadow-panel">
+      <div className="sticky top-[86px] z-20 mb-6 rounded-[28px] border border-black/5 bg-white/95 p-4 shadow-panel backdrop-blur-sm sm:mb-8 sm:p-5 md:top-[96px]">
         <div className="md:hidden rounded-[22px] border border-black/5 bg-shell px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -92,7 +101,7 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
           </div>
         </div>
 
-        <div className={`${mobileFiltersExpanded ? "mt-4 grid" : "hidden"} gap-3 md:mt-0 md:grid md:gap-4 md:grid-cols-2 xl:grid-cols-6`}>
+        <div className={`${mobileFiltersExpanded ? "mt-4 grid" : "hidden"} gap-3 md:mt-0 md:grid md:gap-4 md:grid-cols-3 xl:grid-cols-6`}>
           <label className="space-y-2">
             <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Make</span>
             <select
@@ -104,6 +113,21 @@ export function InventoryBrowser({ vehicles, source }: { vehicles: Vehicle[]; so
               {makeOptions.map((make) => (
                 <option key={make} value={make}>
                   {make}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-2">
+            <span className="text-xs uppercase tracking-[0.22em] text-ink/45">Transmission</span>
+            <select
+              value={filters.transmission}
+              onChange={(event) => updateFilter("transmission", event.target.value)}
+              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm"
+            >
+              <option value="">All types</option>
+              {transmissionOptions.map((transmission) => (
+                <option key={transmission} value={transmission}>
+                  {transmission}
                 </option>
               ))}
             </select>
