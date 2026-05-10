@@ -59,7 +59,7 @@ export function VehicleWarehouseIntakeSummary({ vehicleId }: { vehicleId: string
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.22em] text-ink/45">PDF available</p>
-            <p className="mt-1 text-ink">{intake.signedPdfUrl ? "Yes" : "Pending"}</p>
+            <p className="mt-1 text-ink">{intake.signedPdfStoragePath ? "Yes" : "Pending"}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Admin staff responsible</p>

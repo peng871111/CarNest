@@ -16,6 +16,7 @@ import {
   resolveManagedUserAccess
 } from "@/lib/permissions";
 import { buildAbsoluteUrl } from "@/lib/seo";
+import { extractFirebaseStoragePath } from "@/lib/firebase-storage-paths";
 import { deleteVehicleImageFiles } from "@/lib/storage";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import {
@@ -573,12 +574,20 @@ function normalizeWarehouseConditionStatus(value: unknown): WarehouseConditionIt
 function serializeWarehouseFileRecord(value: unknown): WarehouseIntakeFileRecord | null {
   if (!value || typeof value !== "object") return null;
   const input = value as Record<string, unknown>;
-  if (typeof input.url !== "string" || !input.url) return null;
+  const storagePath = extractFirebaseStoragePath(
+    typeof input.storagePath === "string"
+      ? input.storagePath
+      : typeof input.url === "string"
+        ? input.url
+        : ""
+  );
+  if (!storagePath) return null;
 
   return {
-    url: input.url,
+    storagePath,
     name: typeof input.name === "string" ? input.name : "Uploaded file",
-    uploadedAt: serializeDate(input.uploadedAt)
+    uploadedAt: serializeDate(input.uploadedAt),
+    contentType: typeof input.contentType === "string" ? input.contentType : ""
   };
 }
 
@@ -713,7 +722,7 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     photos: [],
     agreement: createEmptyWarehouseAgreement(),
     signature: createEmptyWarehouseSignature(),
-    signedPdfUrl: "",
+    signedPdfStoragePath: "",
     signedPdfFileName: "",
     pdfGeneratedAt: "",
     completedAt: "",
@@ -739,11 +748,18 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
           id: typeof item.id === "string" && item.id ? item.id : `${id}-photo-${index + 1}`,
           category: typeof item.category === "string" ? item.category : "extraPhotos",
           label: typeof item.label === "string" && item.label ? item.label : "Vehicle photo",
-          url: typeof item.url === "string" ? item.url : "",
+          storagePath: extractFirebaseStoragePath(
+            typeof item.storagePath === "string"
+              ? item.storagePath
+              : typeof item.url === "string"
+                ? item.url
+                : ""
+          ),
           name: typeof item.name === "string" ? item.name : "",
-          uploadedAt: serializeDate(item.uploadedAt)
+          uploadedAt: serializeDate(item.uploadedAt),
+          contentType: typeof item.contentType === "string" ? item.contentType : ""
         }))
-        .filter((item) => item.url)
+        .filter((item) => item.storagePath)
     : [];
 
   return {
@@ -804,9 +820,21 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       signerName: typeof signatureInput.signerName === "string" ? signatureInput.signerName : "",
       adminStaffName: typeof signatureInput.adminStaffName === "string" ? signatureInput.adminStaffName : "",
       signedAt: serializeDate(signatureInput.signedAt),
-      signatureImageUrl: typeof signatureInput.signatureImageUrl === "string" ? signatureInput.signatureImageUrl : ""
+      signatureStoragePath: extractFirebaseStoragePath(
+        typeof signatureInput.signatureStoragePath === "string"
+          ? signatureInput.signatureStoragePath
+          : typeof signatureInput.signatureImageUrl === "string"
+            ? signatureInput.signatureImageUrl
+            : ""
+      )
     },
-    signedPdfUrl: typeof data.signedPdfUrl === "string" ? data.signedPdfUrl : "",
+    signedPdfStoragePath: extractFirebaseStoragePath(
+      typeof data.signedPdfStoragePath === "string"
+        ? data.signedPdfStoragePath
+        : typeof data.signedPdfUrl === "string"
+          ? data.signedPdfUrl
+          : ""
+    ),
     signedPdfFileName: typeof data.signedPdfFileName === "string" ? data.signedPdfFileName : "",
     pdfGeneratedAt: serializeDate(data.pdfGeneratedAt),
     completedAt: serializeDate(data.completedAt),
@@ -3109,16 +3137,17 @@ function buildWarehouseIntakeWritePayload(
   const photos = Array.from(
     new Map(
       (input.photos ?? [])
-        .filter((photo) => typeof photo.url === "string" && photo.url.trim().length > 0)
+        .filter((photo) => typeof photo.storagePath === "string" && photo.storagePath.trim().length > 0)
         .map((photo, index) => [
           photo.id || `${Date.now()}-${index}`,
           {
             id: photo.id || `${Date.now()}-${index}`,
             category: photo.category || "extraPhotos",
             label: photo.label || "Vehicle photo",
-            url: photo.url.trim(),
+            storagePath: photo.storagePath.trim(),
             name: photo.name || "",
-            uploadedAt: photo.uploadedAt || new Date().toISOString()
+            uploadedAt: photo.uploadedAt || new Date().toISOString(),
+            contentType: photo.contentType || ""
           } satisfies WarehouseIntakePhotoRecord
         ])
     ).values()
@@ -3164,6 +3193,7 @@ function buildWarehouseIntakeWritePayload(
     signature: {
       ...base.signature,
       ...input.signature,
+      signatureStoragePath: input.signature?.signatureStoragePath || "",
       adminStaffName:
         input.signature?.adminStaffName
         || input.adminStaffName
@@ -3172,7 +3202,7 @@ function buildWarehouseIntakeWritePayload(
         || actor.email
         || "CarNest Admin"
     } satisfies WarehouseIntakeSignature,
-    signedPdfUrl: input.signedPdfUrl || "",
+    signedPdfStoragePath: input.signedPdfStoragePath || "",
     signedPdfFileName: input.signedPdfFileName || "",
     pdfGeneratedAt: input.pdfGeneratedAt || "",
     completedAt: input.completedAt || "",
@@ -3208,10 +3238,32 @@ export async function saveWarehouseIntake(
   }
 
   if (existingId) {
+    const ownerDetails = {
+      ...payload.ownerDetails,
+      licencePhoto: payload.ownerDetails.licencePhoto
+        ? {
+            ...payload.ownerDetails.licencePhoto,
+            url: deleteField()
+          }
+        : null,
+      ownershipVerification: payload.ownerDetails.ownershipVerification
+        ? {
+            ...payload.ownerDetails.ownershipVerification,
+            url: deleteField()
+          }
+        : null
+    };
+
     await setDoc(
       doc(db, "warehouseIntakes", existingId),
       {
         ...payload,
+        ownerDetails,
+        signature: {
+          ...payload.signature,
+          signatureImageUrl: deleteField()
+        },
+        signedPdfUrl: deleteField(),
         updatedAt: serverTimestamp()
       },
       { merge: true }

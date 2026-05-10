@@ -33,14 +33,6 @@ function wrapText(text: string, maxChars = 92) {
   return lines.length ? lines : [""];
 }
 
-async function fetchImageBytes(url: string) {
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.status}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
 function createPage(pdfDoc: PDFDocument) {
   const page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   let cursorY = PAGE_HEIGHT - PAGE_MARGIN;
@@ -64,7 +56,12 @@ function drawPageChrome(page: PDFPage, pageNumber: number, totalPages: number) {
   });
 }
 
-export async function generateWarehouseIntakePdf(record: WarehouseIntakeRecord) {
+export async function generateWarehouseIntakePdf(
+  record: WarehouseIntakeRecord,
+  options?: {
+    resolveStorageBytes?: (storagePath: string) => Promise<Uint8Array>;
+  }
+) {
   const pdfDoc = await PDFDocument.create();
   const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
@@ -287,10 +284,14 @@ export async function generateWarehouseIntakePdf(record: WarehouseIntakeRecord) 
     ["PDF generated", sanitizeText(record.pdfGeneratedAt, "Pending")]
   ]);
 
-  if (record.signature.signatureImageUrl) {
+  if (record.signature.signatureStoragePath) {
     try {
-      const bytes = await fetchImageBytes(record.signature.signatureImageUrl);
-      const signatureImage = record.signature.signatureImageUrl.toLowerCase().includes(".png")
+      const bytes = options?.resolveStorageBytes
+        ? await options.resolveStorageBytes(record.signature.signatureStoragePath)
+        : (() => {
+            throw new Error("Storage byte resolver unavailable.");
+          })();
+      const signatureImage = record.signature.signatureStoragePath.toLowerCase().includes(".png")
         ? await pdfDoc.embedPng(bytes)
         : await pdfDoc.embedJpg(bytes);
       ensureSpace(90);
@@ -326,9 +327,13 @@ export async function generateWarehouseIntakePdf(record: WarehouseIntakeRecord) 
       const y = cursorY - photoHeight;
 
       try {
-        const bytes = await fetchImageBytes(photo.url);
-        const lowerUrl = photo.url.toLowerCase();
-        const embedded = lowerUrl.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const bytes = options?.resolveStorageBytes
+          ? await options.resolveStorageBytes(photo.storagePath)
+          : (() => {
+              throw new Error("Storage byte resolver unavailable.");
+            })();
+        const lowerPath = photo.storagePath.toLowerCase();
+        const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
         page.drawImage(embedded, {
           x,
           y,

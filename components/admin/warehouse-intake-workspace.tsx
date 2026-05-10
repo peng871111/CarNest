@@ -20,6 +20,8 @@ import {
 } from "@/lib/warehouse-intake-config";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
+  fetchAdminWarehouseIntakeFileBlob,
+  fetchAdminWarehouseIntakeFileBytes,
   uploadWarehouseIntakePdf,
   uploadWarehouseIntakePhotos,
   uploadWarehouseIntakeSignature,
@@ -115,10 +117,66 @@ function StatusPill({ label, tone = "default" }: { label: string; tone?: "defaul
   return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>;
 }
 
+function WarehouseIntakeSecureImage({
+  storagePath,
+  fileName,
+  alt
+}: {
+  storagePath: string;
+  fileName?: string;
+  alt: string;
+}) {
+  const { firebaseUser } = useAuth();
+  const [objectUrl, setObjectUrl] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    let currentObjectUrl = "";
+
+    async function load() {
+      try {
+        const idToken = await firebaseUser?.getIdToken();
+        if (!idToken) {
+          throw new Error("Missing admin authentication token.");
+        }
+        const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
+        if (cancelled) return;
+        currentObjectUrl = URL.createObjectURL(blob);
+        setObjectUrl(currentObjectUrl);
+      } catch {
+        if (!cancelled) {
+          setObjectUrl("");
+        }
+      }
+    }
+
+    void load();
+
+    return () => {
+      cancelled = true;
+      if (currentObjectUrl) {
+        URL.revokeObjectURL(currentObjectUrl);
+      }
+    };
+  }, [firebaseUser, storagePath]);
+
+  return (
+    <div className="overflow-hidden rounded-[18px] border border-black/6 bg-white">
+      {objectUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={objectUrl} alt={alt} className="h-28 w-full object-cover object-center" />
+      ) : (
+        <div className="flex h-28 items-center justify-center bg-shell text-xs text-ink/45">Preview unavailable</div>
+      )}
+      <div className="px-3 py-2 text-xs text-ink/62">{fileName || alt}</div>
+    </div>
+  );
+}
+
 export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { appUser } = useAuth();
+  const { appUser, firebaseUser } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const selectedVehicleId = searchParams.get("vehicleId") || "";
   const signatureRef = useRef<SignaturePadHandle | null>(null);
@@ -138,6 +196,35 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     () => vehicles.find((vehicle) => vehicle.id === draft.vehicleId) || null,
     [vehicles, draft.vehicleId]
   );
+
+  async function getAdminIdToken() {
+    const idToken = await firebaseUser?.getIdToken();
+    if (!idToken) {
+      throw new Error("Admin authentication has expired. Please sign in again.");
+    }
+    return idToken;
+  }
+
+  async function openPrivatePdf(storagePath: string) {
+    const idToken = await getAdminIdToken();
+    const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
+    const objectUrl = URL.createObjectURL(blob);
+    window.open(objectUrl, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  }
+
+  async function downloadPrivatePdf(storagePath: string, fileName: string) {
+    const idToken = await getAdminIdToken();
+    const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = fileName || "carnest-warehouse-intake.pdf";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -369,17 +456,21 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       };
     }
 
+    const idToken = await getAdminIdToken();
+
     const response = await fetch("/api/warehouse-intake-notifications", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
       },
       body: JSON.stringify({
         customerEmail: finalRecord.ownerDetails.email,
         customerName: finalRecord.ownerDetails.fullName,
         vehicleTitle: finalRecord.vehicleTitle || "Vehicle listing",
         referenceId: finalRecord.vehicleReference || finalRecord.id,
-        pdfUrl: finalRecord.signedPdfUrl,
+        pdfStoragePath: finalRecord.signedPdfStoragePath,
+        pdfFileName: finalRecord.signedPdfFileName,
         adminStaffName: finalRecord.signature.adminStaffName || finalRecord.adminStaffName,
         signedAt: finalRecord.signature.signedAt,
         financeOwing: finalRecord.declarations.financeOwing
@@ -406,7 +497,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       setNotice("");
 
       const signedAt = new Date().toISOString();
-      const signatureImageUrl = await uploadWarehouseIntakeSignature(signatureRef.current?.toDataUrl() || "", recordId);
+      const signatureStoragePath = await uploadWarehouseIntakeSignature(signatureRef.current?.toDataUrl() || "", recordId);
       const signedDraft = {
         ...draft,
         status: "signed" as const,
@@ -418,7 +509,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           ...draft.signature,
           adminStaffName: draft.signature.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin",
           signedAt,
-          signatureImageUrl
+          signatureStoragePath
         },
         completedAt: signedAt,
         adminStaffName: draft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
@@ -431,14 +522,17 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         createdAt: draft.createdAt,
         updatedAt: signedAt
       } satisfies WarehouseIntakeRecord;
-      const pdfBytes = await generateWarehouseIntakePdf(previewRecord);
+      const idToken = await getAdminIdToken();
+      const pdfBytes = await generateWarehouseIntakePdf(previewRecord, {
+        resolveStorageBytes: async (storagePath) => await fetchAdminWarehouseIntakeFileBytes(storagePath, idToken)
+      });
       const pdfFileName = `${(signedDraft.vehicleReference || recordId).replace(/\s+/g, "-").toLowerCase()}-warehouse-intake.pdf`;
-      const signedPdfUrl = await uploadWarehouseIntakePdf(pdfBytes, recordId, pdfFileName);
+      const signedPdfStoragePath = await uploadWarehouseIntakePdf(pdfBytes, recordId, pdfFileName);
 
       const saved = await persistDraft(
         {
           ...signedDraft,
-          signedPdfUrl,
+          signedPdfStoragePath,
           signedPdfFileName: pdfFileName,
           pdfGeneratedAt: signedAt
         },
@@ -493,19 +587,17 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   }
 
   function handlePrintPdf() {
-    if (draft.signedPdfUrl) {
-      window.open(draft.signedPdfUrl, "_blank", "noopener,noreferrer");
-    }
+    if (!draft.signedPdfStoragePath) return;
+    void openPrivatePdf(draft.signedPdfStoragePath).catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't open the signed PDF.");
+    });
   }
 
   function handleDownloadPdf() {
-    if (!draft.signedPdfUrl) return;
-    const anchor = document.createElement("a");
-    anchor.href = draft.signedPdfUrl;
-    anchor.download = draft.signedPdfFileName || "carnest-warehouse-intake.pdf";
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
+    if (!draft.signedPdfStoragePath) return;
+    void downloadPrivatePdf(draft.signedPdfStoragePath, draft.signedPdfFileName || "carnest-warehouse-intake.pdf").catch((error) => {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't download the signed PDF.");
+    });
   }
 
   if (!hasAdminPermission(appUser, "manageVehicles")) {
@@ -536,7 +628,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
-          {draft.signedPdfUrl ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
+          {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
           {draft.signature.signedAt ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
         </div>
       </div>
@@ -787,11 +879,12 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {sectionPhotos.map((photo) => (
-                          <div key={photo.id} className="overflow-hidden rounded-[18px] border border-black/6 bg-white">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={photo.url} alt={photo.label} className="h-28 w-full object-cover object-center" />
-                            <div className="px-3 py-2 text-xs text-ink/62">{photo.name || photo.label}</div>
-                          </div>
+                          <WarehouseIntakeSecureImage
+                            key={photo.id}
+                            storagePath={photo.storagePath}
+                            fileName={photo.name}
+                            alt={photo.label}
+                          />
                         ))}
                       </div>
                     </div>
@@ -879,7 +972,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.signedPdfUrl ? "Generated and stored" : "Generate on final sign-off"}</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
                 </div>
               </div>
               <div className="mt-6 flex flex-wrap gap-3">
@@ -894,7 +987,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <button
                   type="button"
                   onClick={handlePrintPdf}
-                  disabled={!draft.signedPdfUrl}
+                  disabled={!draft.signedPdfStoragePath}
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Print PDF
@@ -902,7 +995,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <button
                   type="button"
                   onClick={handleDownloadPdf}
-                  disabled={!draft.signedPdfUrl}
+                  disabled={!draft.signedPdfStoragePath}
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Download PDF
@@ -910,7 +1003,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <button
                   type="button"
                   onClick={() => void handleResendEmail()}
-                  disabled={!draft.signedPdfUrl || saving}
+                  disabled={!draft.signedPdfStoragePath || saving}
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Email PDF to customer
@@ -958,7 +1051,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Condition report:</span> {draft.photos.length ? "In progress" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Ownership verification:</span> {draft.ownerDetails.ownershipVerification ? "Uploaded" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
-              <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfUrl ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
             {draft.vehicleId ? (

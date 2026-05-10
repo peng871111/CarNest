@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getBearerToken, hasAdminApiAccess } from "@/lib/admin-api-auth";
+import { extractFirebaseStoragePath } from "@/lib/firebase-storage-paths";
 import { isValidEmailAddress } from "@/lib/form-safety";
 import { WAREHOUSE_INTAKE_EMAIL_FROM, sendWarehouseIntakeEmail } from "@/lib/warehouse-intake-email";
+import { fetchPrivateWarehouseIntakeStorageObject } from "@/lib/warehouse-intake-storage-server";
 
 interface WarehouseIntakeNotificationRequest {
   customerEmail: string;
   customerName?: string;
   vehicleTitle: string;
   referenceId: string;
-  pdfUrl: string;
+  pdfStoragePath?: string;
+  pdfFileName?: string;
   adminStaffName?: string;
   signedAt?: string;
   financeOwing?: string;
@@ -32,11 +36,15 @@ function isValidPayload(body: unknown): body is WarehouseIntakeNotificationReque
     && input.vehicleTitle.trim().length > 0
     && typeof input.referenceId === "string"
     && input.referenceId.trim().length > 0
-    && typeof input.pdfUrl === "string"
-    && /^https?:\/\//i.test(input.pdfUrl);
+    && typeof input.pdfStoragePath === "string"
+    && input.pdfStoragePath.trim().length > 0;
 }
 
 export async function POST(request: NextRequest) {
+  if (!hasAdminApiAccess(request, "manageVehicles")) {
+    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
 
@@ -53,12 +61,33 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    const idToken = getBearerToken(request);
+    const pdfStoragePath = extractFirebaseStoragePath(body.pdfStoragePath);
+    let pdfAttachment: { filename: string; content: string } | null = null;
+
+    if (pdfStoragePath) {
+      if (!pdfStoragePath.startsWith("warehouse-intakes/")) {
+        return NextResponse.json({ success: false, error: "Invalid warehouse intake PDF path." }, { status: 400 });
+      }
+
+      if (!idToken) {
+        return NextResponse.json({ success: false, error: "Missing Firebase ID token." }, { status: 401 });
+      }
+
+      const pdfResponse = await fetchPrivateWarehouseIntakeStorageObject(pdfStoragePath, idToken);
+      const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+      pdfAttachment = {
+        filename: body.pdfFileName?.trim() || `carnest-warehouse-intake-${body.referenceId || "record"}.pdf`,
+        content: pdfBuffer.toString("base64")
+      };
+    }
+
     const result = await sendWarehouseIntakeEmail({
       to: recipients,
       customerName: body.customerName,
       vehicleTitle: body.vehicleTitle,
       referenceId: body.referenceId,
-      pdfUrl: body.pdfUrl,
+      pdfAttachment,
       adminStaffName: body.adminStaffName,
       signedAt: body.signedAt,
       financeOwing: body.financeOwing

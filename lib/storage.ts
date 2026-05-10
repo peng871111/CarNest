@@ -1,6 +1,6 @@
 "use client";
 
-import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import { deleteObject, getBlob, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { isFirebaseStorageConfigured, storage } from "@/lib/firebase";
 import { compressVehicleImage } from "@/lib/image-processing";
 import { PreparedVehicleImageUpload, VehicleImageAsset } from "@/types";
@@ -216,9 +216,10 @@ export async function uploadWarehouseIntakeSupportingFile(file: File, intakeId: 
   });
 
   return {
-    url: await getDownloadURL(storageRef),
+    storagePath: storageRef.fullPath,
     name: file.name,
-    uploadedAt: new Date().toISOString()
+    uploadedAt: new Date().toISOString(),
+    contentType: file.type || undefined
   };
 }
 
@@ -260,9 +261,10 @@ export async function uploadWarehouseIntakePhotos(
       id: `${category}-${Date.now()}-${index + 1}`,
       category,
       label,
-      url: await getDownloadURL(storageRef),
+      storagePath: storageRef.fullPath,
       name: file.name,
-      uploadedAt: new Date().toISOString()
+      uploadedAt: new Date().toISOString(),
+      contentType: optimizedFile.type || "image/jpeg"
     });
   }
 
@@ -288,7 +290,7 @@ export async function uploadWarehouseIntakeSignature(dataUrl: string, intakeId: 
     contentType: signatureFile.type || "image/png"
   });
 
-  return await getDownloadURL(storageRef);
+  return storageRef.fullPath;
 }
 
 export async function uploadWarehouseIntakePdf(pdfBytes: Uint8Array, intakeId: string, fileName: string) {
@@ -315,5 +317,48 @@ export async function uploadWarehouseIntakePdf(pdfBytes: Uint8Array, intakeId: s
     contentType: "application/pdf"
   });
 
-  return await getDownloadURL(storageRef);
+  return storageRef.fullPath;
+}
+
+export async function readWarehouseIntakeStorageBlob(storagePath: string) {
+  if (!storagePath) {
+    throw new Error("Storage path is required.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("File access is temporarily unavailable. Please try again later.");
+  }
+
+  const storageRef = ref(storage, storagePath);
+  return await getBlob(storageRef);
+}
+
+export async function fetchAdminWarehouseIntakeFileBlob(storagePath: string, idToken: string) {
+  if (!storagePath) {
+    throw new Error("Storage path is required.");
+  }
+
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
+  }
+
+  const response = await fetch(`/api/admin/warehouse-intake/file?path=${encodeURIComponent(storagePath)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${idToken}`
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(errorPayload?.error || "Unable to load the requested intake file.");
+  }
+
+  return await response.blob();
+}
+
+export async function fetchAdminWarehouseIntakeFileBytes(storagePath: string, idToken: string) {
+  const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
+  return new Uint8Array(await blob.arrayBuffer());
 }

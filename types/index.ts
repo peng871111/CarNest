@@ -172,9 +172,10 @@ export interface Vehicle {
 }
 
 export interface WarehouseIntakeFileRecord {
-  url: string;
+  storagePath: string;
   name: string;
   uploadedAt?: string;
+  contentType?: string;
 }
 
 export interface WarehouseConditionItem {
@@ -186,9 +187,10 @@ export interface WarehouseIntakePhotoRecord {
   id: string;
   category: string;
   label: string;
-  url: string;
+  storagePath: string;
   name?: string;
   uploadedAt?: string;
+  contentType?: string;
 }
 
 export interface WarehouseIntakeOwnerDetails {
@@ -251,7 +253,7 @@ export interface WarehouseIntakeSignature {
   signerName: string;
   adminStaffName: string;
   signedAt?: string;
-  signatureImageUrl?: string;
+  signatureStoragePath?: string;
 }
 
 export interface WarehouseIntakeRecord {
@@ -267,7 +269,7 @@ export interface WarehouseIntakeRecord {
   photos: WarehouseIntakePhotoRecord[];
   agreement: WarehouseIntakeAgreement;
   signature: WarehouseIntakeSignature;
-  signedPdfUrl?: string;
+  signedPdfStoragePath?: string;
   signedPdfFileName?: string;
   pdfGeneratedAt?: string;
   completedAt?: string;
