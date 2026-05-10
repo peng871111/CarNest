@@ -6,15 +6,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   createEmptyWarehouseIntakeRecord,
+  getCustomerProfilesData,
   getVehiclesData,
+  getVehicleRecordsData,
   getWarehouseIntakeById,
   saveWarehouseIntake
 } from "@/lib/data";
 import {
   CARNEST_CONCIERGE_AGREEMENT_COPY,
-  WAREHOUSE_CONDITION_OPTIONS,
+  WAREHOUSE_CONTACT_METHOD_OPTIONS,
   WAREHOUSE_CONDITION_SECTIONS,
   WAREHOUSE_DECLARATION_OPTIONS,
+  WAREHOUSE_DOCUMENTATION_OPTIONS,
+  WAREHOUSE_IDENTIFICATION_OPTIONS,
   WAREHOUSE_INTAKE_STEPS,
   WAREHOUSE_PHOTO_SECTIONS
 } from "@/lib/warehouse-intake-config";
@@ -32,8 +36,10 @@ import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
 import {
+  CustomerProfile,
   Vehicle,
   VehicleActor,
+  VehicleRecord,
   WarehouseConditionItem,
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
@@ -54,6 +60,122 @@ function createActorFromUser(user: ReturnType<typeof useAuth>["appUser"]): Vehic
     displayName: user.displayName,
     name: user.name,
     adminPermissions: user.adminPermissions
+  };
+}
+
+function getCustomerProfileLabel(profile?: CustomerProfile | null) {
+  if (!profile) return "Select a customer profile";
+  return profile.fullName || profile.email || profile.phone || "Customer profile";
+}
+
+function getVehicleRecordLabel(record?: VehicleRecord | null) {
+  if (!record) return "Add or select a vehicle";
+  return record.title || [record.year, record.make, record.model, record.variant].filter(Boolean).join(" ").trim() || record.registrationPlate || "Vehicle record";
+}
+
+function applyCustomerProfileToDraft(
+  draft: Omit<WarehouseIntakeRecord, "id">,
+  profile?: CustomerProfile | null
+): Omit<WarehouseIntakeRecord, "id"> {
+  if (!profile) {
+    return {
+      ...draft,
+      customerProfileId: "",
+      ownerDetails: {
+        ...draft.ownerDetails,
+        fullName: "",
+        email: "",
+        phone: "",
+        address: "",
+        preferredContactMethod: "either",
+        customerVerificationNotes: "",
+        identificationDocumentType: "",
+        identificationDocumentNumber: "",
+        identificationDocument: null,
+        isLegalOwnerConfirmed: false
+      }
+    };
+  }
+
+  return {
+    ...draft,
+    customerProfileId: profile.id,
+    ownerDetails: {
+      ...draft.ownerDetails,
+      fullName: profile.fullName,
+      email: profile.email,
+      phone: profile.phone,
+      address: profile.address,
+      preferredContactMethod: profile.preferredContactMethod,
+      customerVerificationNotes: profile.customerVerificationNotes,
+      identificationDocumentType: profile.identificationDocumentType,
+      identificationDocumentNumber: profile.identificationDocumentNumber,
+      identificationDocument: profile.identificationDocument ?? null,
+      isLegalOwnerConfirmed: profile.isLegalOwnerConfirmed
+    }
+  };
+}
+
+function applyVehicleRecordToDraft(
+  draft: Omit<WarehouseIntakeRecord, "id">,
+  record?: VehicleRecord | null
+): Omit<WarehouseIntakeRecord, "id"> {
+  if (!record) {
+    return {
+      ...draft,
+      vehicleRecordId: "",
+      vehicleTitle: "",
+      vehicleReference: "",
+      vehicleDetails: {
+        ...draft.vehicleDetails,
+        make: "",
+        model: "",
+        variant: "",
+        year: "",
+        registrationPlate: "",
+        vin: "",
+        colour: "",
+        odometer: "",
+        registrationExpiry: "",
+        numberOfKeys: "",
+        serviceHistory: "",
+        accidentHistory: "",
+        ownershipProof: null,
+        notes: ""
+      },
+      declarations: createEmptyWarehouseIntakeRecord().declarations
+    };
+  }
+
+  const inferredTitle = record.title || [record.year, record.make, record.model, record.variant].filter(Boolean).join(" ").trim();
+  return {
+    ...draft,
+    customerProfileId: record.customerProfileId || draft.customerProfileId,
+    vehicleRecordId: record.id,
+    vehicleId: record.publicListingId || draft.vehicleId,
+    vehicleReference: record.displayReference || draft.vehicleReference,
+    vehicleTitle: inferredTitle || draft.vehicleTitle,
+    vehicleDetails: {
+      ...draft.vehicleDetails,
+      make: record.make,
+      model: record.model,
+      variant: record.variant,
+      year: record.year,
+      registrationPlate: record.registrationPlate,
+      vin: record.vin,
+      colour: record.colour,
+      odometer: record.odometer,
+      registrationExpiry: record.registrationExpiry,
+      numberOfKeys: record.numberOfKeys,
+      serviceHistory: record.serviceHistory,
+      accidentHistory: record.accidentHistory,
+      ownershipProof: record.ownershipProof ?? null,
+      notes: record.notes
+    },
+    declarations: {
+      ...draft.declarations,
+      ...record.declarations
+    }
   };
 }
 
@@ -117,6 +239,13 @@ function StatusPill({ label, tone = "default" }: { label: string; tone?: "defaul
   return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>;
 }
 
+function isWarehouseIntakePermissionError(message?: string) {
+  const normalized = (message ?? "").toLowerCase();
+  return normalized.includes("missing or insufficient permissions")
+    || normalized.includes("permission-denied")
+    || normalized.includes("unauthenticated");
+}
+
 function WarehouseIntakeSecureImage({
   storagePath,
   fileName,
@@ -176,13 +305,15 @@ function WarehouseIntakeSecureImage({
 export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { appUser, firebaseUser } = useAuth();
+  const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const selectedVehicleId = searchParams.get("vehicleId") || "";
   const signatureRef = useRef<SignaturePadHandle | null>(null);
   const bootstrappedRef = useRef(false);
 
   const [recordId, setRecordId] = useState(intakeId || "");
+  const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
+  const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [draft, setDraft] = useState<Omit<WarehouseIntakeRecord, "id">>(createEmptyWarehouseIntakeRecord());
   const [currentStep, setCurrentStep] = useState(0);
@@ -192,9 +323,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const activeVehicle = useMemo(
-    () => vehicles.find((vehicle) => vehicle.id === draft.vehicleId) || null,
-    [vehicles, draft.vehicleId]
+  const customerVehicleRecords = useMemo(
+    () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
+    [draft.customerProfileId, vehicleRecords]
+  );
+  const selectedVehicleRecord = useMemo(
+    () => customerVehicleRecords.find((record) => record.id === draft.vehicleRecordId) || null,
+    [customerVehicleRecords, draft.vehicleRecordId]
   );
 
   async function getAdminIdToken() {
@@ -230,31 +365,71 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     let cancelled = false;
 
     async function load() {
-      const vehiclesResult = await getVehiclesData();
-      if (cancelled) return;
-      setVehicles(vehiclesResult.items);
+      if (authLoading) return;
+      if (!actor || !hasAdminPermission(appUser, "manageVehicles")) {
+        setLoading(false);
+        return;
+      }
+      if (!firebaseUser) {
+        setLoading(false);
+        setErrorMessage("Admin authentication is still loading. Please refresh and try again.");
+        return;
+      }
 
-      if (intakeId) {
-        const existing = await getWarehouseIntakeById(intakeId);
+      const loadVehicles = async () => await getVehiclesData();
+      const loadCustomerProfiles = async () => await getCustomerProfilesData();
+      const loadVehicleRecords = async () => await getVehicleRecordsData();
+      const loadExistingIntake = async () => intakeId ? await getWarehouseIntakeById(intakeId) : null;
+
+      try {
+        await firebaseUser.getIdToken();
+
+        let vehiclesResult = await loadVehicles();
+        let customerProfilesResult = await loadCustomerProfiles();
+        let vehicleRecordsResult = await loadVehicleRecords();
+        let existing: Awaited<ReturnType<typeof getWarehouseIntakeById>> = null;
+
+        try {
+          existing = await loadExistingIntake();
+        } catch (error) {
+          if (isWarehouseIntakePermissionError(error instanceof Error ? error.message : String(error))) {
+            await firebaseUser.getIdToken(true);
+            vehiclesResult = await loadVehicles();
+            customerProfilesResult = await loadCustomerProfiles();
+            vehicleRecordsResult = await loadVehicleRecords();
+            existing = await loadExistingIntake();
+          } else {
+            throw error;
+          }
+        }
+
+        if (vehiclesResult.error && isWarehouseIntakePermissionError(vehiclesResult.error)) {
+          await firebaseUser.getIdToken(true);
+          vehiclesResult = await loadVehicles();
+          customerProfilesResult = await loadCustomerProfiles();
+          vehicleRecordsResult = await loadVehicleRecords();
+        }
+
         if (cancelled) return;
+        setVehicles(vehiclesResult.items);
+        setCustomerProfiles(customerProfilesResult.items);
+        setVehicleRecords(vehicleRecordsResult.items);
+
         if (existing) {
           setRecordId(existing.id);
           setDraft(toDraft(existing));
         }
         setLoading(false);
-        return;
-      }
+        if (intakeId) return;
 
-      if (bootstrappedRef.current || !actor || !hasAdminPermission(appUser, "manageVehicles")) {
-        setLoading(false);
-        return;
-      }
+        if (bootstrappedRef.current) {
+          return;
+        }
 
-      bootstrappedRef.current = true;
-      const seedVehicle = vehiclesResult.items.find((vehicle) => vehicle.id === selectedVehicleId) || null;
-      const seededDraft = mergeVehicleIntoDraft(createEmptyWarehouseIntakeRecord(seedVehicle), seedVehicle);
+        bootstrappedRef.current = true;
+        const seedVehicle = vehiclesResult.items.find((vehicle) => vehicle.id === selectedVehicleId) || null;
+        const seededDraft = mergeVehicleIntoDraft(createEmptyWarehouseIntakeRecord(seedVehicle), seedVehicle);
 
-      try {
         const saved = await saveWarehouseIntake(seededDraft, actor);
         if (cancelled) return;
         setRecordId(saved.intake.id);
@@ -275,7 +450,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [actor, appUser, intakeId, router, selectedVehicleId]);
+  }, [actor, appUser, authLoading, firebaseUser, intakeId, router, selectedVehicleId]);
 
   async function persistDraft(nextDraft = draft, successMessage?: string) {
     if (!actor) {
@@ -384,27 +559,61 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }));
   }
 
+  function handleCustomerProfileSelection(customerProfileId: string) {
+    const profile = customerProfiles.find((item) => item.id === customerProfileId) || null;
+    setDraft((current) => applyCustomerProfileToDraft({
+      ...current,
+      vehicleRecordId: ""
+    }, profile));
+  }
+
+  function handleVehicleRecordSelection(vehicleRecordId: string) {
+    const record = vehicleRecords.find((item) => item.id === vehicleRecordId) || null;
+    setDraft((current) => applyVehicleRecordToDraft(current, record));
+  }
+
   function handleVehicleSelection(vehicleId: string) {
     const vehicle = vehicles.find((item) => item.id === vehicleId) || null;
     setDraft((current) => mergeVehicleIntoDraft(current, vehicle));
   }
 
-  async function handleOwnerFileUpload(bucket: "licence" | "ownership", file?: File | null) {
+  async function handleOwnerFileUpload(file?: File | null) {
     if (!file || !recordId) return;
     try {
-      setUploadingLabel(bucket === "licence" ? "Uploading licence document..." : "Uploading ownership proof...");
-      const uploaded = await uploadWarehouseIntakeSupportingFile(file, recordId, bucket);
+      setUploadingLabel("Uploading customer identification...");
+      const uploaded = await uploadWarehouseIntakeSupportingFile(file, recordId, "licence");
       const nextDraft = {
         ...draft,
         ownerDetails: {
           ...draft.ownerDetails,
-          [bucket === "licence" ? "licencePhoto" : "ownershipVerification"]: uploaded
+          identificationDocument: uploaded
         }
       };
       setDraft(nextDraft);
-      await persistDraft(nextDraft, "Supporting document uploaded.");
+      await persistDraft(nextDraft, "Customer profile document uploaded.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't upload that file.");
+    } finally {
+      setUploadingLabel("");
+    }
+  }
+
+  async function handleOwnershipProofUpload(file?: File | null) {
+    if (!file || !recordId) return;
+    try {
+      setUploadingLabel("Uploading ownership proof...");
+      const uploaded = await uploadWarehouseIntakeSupportingFile(file, recordId, "ownership");
+      const nextDraft = {
+        ...draft,
+        vehicleDetails: {
+          ...draft.vehicleDetails,
+          ownershipProof: uploaded
+        }
+      };
+      setDraft(nextDraft);
+      await persistDraft(nextDraft, "Ownership proof uploaded.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't upload that ownership proof.");
     } finally {
       setUploadingLabel("");
     }
@@ -437,14 +646,23 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     if (!draft.ownerDetails.fullName.trim()) issues.push("Owner full name is required.");
     if (!draft.ownerDetails.email.trim()) issues.push("Owner email is required.");
     if (!draft.ownerDetails.phone.trim()) issues.push("Owner phone is required.");
-    if (!draft.ownerDetails.address.trim()) issues.push("Owner address is required.");
+    if (!draft.vehicleDetails.make.trim()) issues.push("Vehicle make is required.");
+    if (!draft.vehicleDetails.model.trim()) issues.push("Vehicle model is required.");
+    if (!draft.vehicleDetails.vin.trim()) issues.push("Vehicle VIN is required.");
     if (!draft.ownerDetails.isLegalOwnerConfirmed) issues.push("Legal ownership confirmation is required.");
     if (!draft.declarations.isInformationAccurate) issues.push("Declaration confirmation is required.");
-    if (!draft.agreement.informationAccurateConfirmed || !draft.agreement.storageAssistanceAuthorized || !draft.agreement.electronicSigningConsented) {
+    if (
+      !draft.agreement.informationAccurateConfirmed
+      || !draft.agreement.storageAssistanceAuthorized
+      || !draft.agreement.electronicSigningConsented
+      || !draft.agreement.insuranceMaintainedConfirmed
+      || !draft.agreement.directSaleResponsibilityConfirmed
+      || !draft.agreement.conditionDocumentationConfirmed
+    ) {
       issues.push("All agreement checkboxes must be confirmed before signing.");
     }
     if (!draft.signature.signerName.trim()) issues.push("Signer name is required before capturing the signature.");
-    if (!draft.photos.length) issues.push("Upload at least one condition photo before finalising.");
+    if (!draft.photos.length) issues.push("Upload vehicle documentation photos before finalising.");
     return issues;
   }
 
@@ -623,7 +841,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest warehouse intake</p>
           <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone intake record"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">
-            Complete the owner verification, condition report, digital agreement, signature, PDF, print, and customer email workflow from one iPad-friendly workspace.
+            Complete reusable customer onboarding, private vehicle record setup, intake-event documentation, digital agreement, signature, PDF, print, and customer email workflow from one iPad-friendly workspace.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -662,37 +880,23 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         <div className="space-y-6">
           {currentStep === 0 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">1. Select existing listing or continue standalone</h3>
+              <h3 className="text-xl font-semibold text-ink">1. Customer profile</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Link this intake to an existing CarNest listing now, or continue as a standalone record and attach it later.
+                Select an existing customer profile for a returning warehouse-managed customer, or continue with a new reusable customer profile.
               </p>
               <div className="mt-5 space-y-2">
-                <FieldLabel>Linked listing</FieldLabel>
-                <SelectInput
-                  value={draft.vehicleId || ""}
-                  onChange={(event) => handleVehicleSelection(event.target.value)}
-                >
-                  <option value="">Standalone intake (attach later)</option>
-                  {vehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model}
+                <FieldLabel>Existing customer</FieldLabel>
+                <SelectInput value={draft.customerProfileId || ""} onChange={(event) => handleCustomerProfileSelection(event.target.value)}>
+                  <option value="">Create new customer profile</option>
+                  {customerProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {getCustomerProfileLabel(profile)} · {profile.email || profile.phone || profile.id}
                     </option>
                   ))}
                 </SelectInput>
+                <FieldNote>Returning customers can be selected here so staff do not need to re-enter their name, phone, or email for future vehicles.</FieldNote>
               </div>
-              {activeVehicle ? (
-                <div className="mt-5 rounded-[24px] border border-black/5 bg-shell p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">{getVehicleDisplayReference(activeVehicle)}</p>
-                  <p className="mt-2 text-lg font-semibold text-ink">{activeVehicle.year} {activeVehicle.make} {activeVehicle.model}</p>
-                  <p className="mt-1 text-sm text-ink/58">{activeVehicle.variant || "Vehicle variant not provided"}</p>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
 
-          {currentStep === 1 ? (
-            <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">2. Owner details</h3>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <FieldLabel>Full name</FieldLabel>
@@ -707,22 +911,52 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <TextInput value={draft.ownerDetails.phone} onChange={(event) => updateOwnerField("phone", event.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <FieldLabel>Driver licence number</FieldLabel>
-                  <TextInput value={draft.ownerDetails.driverLicenceNumber} onChange={(event) => updateOwnerField("driverLicenceNumber", event.target.value)} />
+                  <FieldLabel>Preferred contact method</FieldLabel>
+                  <SelectInput
+                    value={draft.ownerDetails.preferredContactMethod}
+                    onChange={(event) => updateOwnerField("preferredContactMethod", event.target.value as WarehouseIntakeOwnerDetails["preferredContactMethod"])}
+                  >
+                    {WAREHOUSE_CONTACT_METHOD_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </SelectInput>
                 </div>
                 <div className="space-y-2 md:col-span-2">
-                  <FieldLabel>Address</FieldLabel>
+                  <FieldLabel>Address (optional)</FieldLabel>
                   <TextAreaInput value={draft.ownerDetails.address} onChange={(event) => updateOwnerField("address", event.target.value)} className="min-h-[96px]" />
                 </div>
                 <div className="space-y-2">
-                  <FieldLabel>Licence photo upload</FieldLabel>
-                  <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnerFileUpload("licence", event.target.files?.[0])} />
-                  <FieldNote>{draft.ownerDetails.licencePhoto?.name || "Optional. Useful for warehouse intake verification."}</FieldNote>
+                  <FieldLabel>Identification type (optional)</FieldLabel>
+                  <SelectInput
+                    value={draft.ownerDetails.identificationDocumentType}
+                    onChange={(event) => updateOwnerField("identificationDocumentType", event.target.value as WarehouseIntakeOwnerDetails["identificationDocumentType"])}
+                  >
+                    {WAREHOUSE_IDENTIFICATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </SelectInput>
                 </div>
                 <div className="space-y-2">
-                  <FieldLabel>Ownership verification upload</FieldLabel>
-                  <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnerFileUpload("ownership", event.target.files?.[0])} />
-                  <FieldNote>{draft.ownerDetails.ownershipVerification?.name || "Optional. Upload registration or other proof if supplied."}</FieldNote>
+                  <FieldLabel>Document number (optional)</FieldLabel>
+                  <TextInput
+                    value={draft.ownerDetails.identificationDocumentNumber}
+                    onChange={(event) => updateOwnerField("identificationDocumentNumber", event.target.value)}
+                    placeholder="Licence or passport number"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>ID document upload (optional)</FieldLabel>
+                  <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnerFileUpload(event.target.files?.[0])} />
+                  <FieldNote>{draft.ownerDetails.identificationDocument?.name || "Upload customer identification if supplied."}</FieldNote>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel>Customer verification notes</FieldLabel>
+                  <TextAreaInput
+                    value={draft.ownerDetails.customerVerificationNotes}
+                    onChange={(event) => updateOwnerField("customerVerificationNotes", event.target.value)}
+                    className="min-h-[96px]"
+                    placeholder="Verification observations, preferred contact timing, or admin-only customer notes"
+                  />
                 </div>
               </div>
               <label className="mt-5 flex items-start gap-3 rounded-[20px] border border-black/6 bg-shell px-4 py-4 text-sm text-ink/72">
@@ -737,13 +971,42 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             </div>
           ) : null}
 
-          {currentStep === 2 ? (
+          {currentStep === 1 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">3. Vehicle details</h3>
+              <h3 className="text-xl font-semibold text-ink">2. Vehicle record</h3>
+              <p className="mt-3 text-sm leading-6 text-ink/62">
+                Select an existing private vehicle record for this customer, or capture a new private vehicle record that can later be linked to an optional public listing.
+              </p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel>Existing vehicle for this customer</FieldLabel>
+                  <SelectInput value={draft.vehicleRecordId || ""} onChange={(event) => handleVehicleRecordSelection(event.target.value)}>
+                    <option value="">Create new private vehicle record</option>
+                    {customerVehicleRecords.map((record) => (
+                      <option key={record.id} value={record.id}>
+                        {getVehicleRecordLabel(record)} · {record.registrationPlate || record.vin || record.id}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <FieldNote>Select an existing customer first to narrow reusable vehicle records.</FieldNote>
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel>Linked public listing (optional)</FieldLabel>
+                  <SelectInput value={draft.vehicleId || ""} onChange={(event) => handleVehicleSelection(event.target.value)}>
+                    <option value="">No public listing linked yet</option>
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </div>
+
                 {[
                   ["make", "Make"],
                   ["model", "Model"],
+                  ["variant", "Variant"],
                   ["year", "Year"],
                   ["registrationPlate", "Registration plate"],
                   ["vin", "VIN"],
@@ -757,69 +1020,75 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <div key={key} className="space-y-2">
                     <FieldLabel>{label}</FieldLabel>
                     <TextInput
-                      value={draft.vehicleDetails[key as keyof typeof draft.vehicleDetails]}
-                      onChange={(event) => updateVehicleField(key as keyof typeof draft.vehicleDetails, event.target.value)}
+                      value={draft.vehicleDetails[key as keyof typeof draft.vehicleDetails] as string}
+                      onChange={(event) => updateVehicleField(key as keyof typeof draft.vehicleDetails, event.target.value as never)}
                     />
                   </div>
                 ))}
+
+                <div className="space-y-2">
+                  <FieldLabel>Ownership proof upload</FieldLabel>
+                  <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnershipProofUpload(event.target.files?.[0])} />
+                  <FieldNote>{draft.vehicleDetails.ownershipProof?.name || "Preferably registration paper or ownership proof."}</FieldNote>
+                </div>
+
                 <div className="space-y-2 md:col-span-2">
-                  <FieldLabel>Notes</FieldLabel>
+                  <FieldLabel>Vehicle notes</FieldLabel>
                   <TextAreaInput value={draft.vehicleDetails.notes} onChange={(event) => updateVehicleField("notes", event.target.value)} />
                 </div>
               </div>
-            </div>
-          ) : null}
 
-          {currentStep === 3 ? (
-            <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">4. Vehicle history declarations</h3>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                {[
-                  ["writtenOffHistory", "Written off history"],
-                  ["repairableWriteOffHistory", "Repairable write-off history"],
-                  ["stolenRecoveredHistory", "Stolen / recovered history"],
-                  ["hailDamageHistory", "Hail damage history"],
-                  ["floodDamageHistory", "Flood damage history"],
-                  ["engineReplacementHistory", "Engine replacement history"],
-                  ["odometerDiscrepancyKnown", "Odometer discrepancy known"],
-                  ["financeOwing", "Finance owing"]
-                ].map(([key, label]) => (
-                  <div key={key} className="space-y-2">
-                    <FieldLabel>{label}</FieldLabel>
-                    <SelectInput
-                      value={draft.declarations[key as keyof typeof draft.declarations] as string}
-                      onChange={(event) => updateDeclarationField(key as keyof typeof draft.declarations, event.target.value as never)}
-                    >
-                      {WAREHOUSE_DECLARATION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </SelectInput>
-                  </div>
-                ))}
-                {draft.declarations.financeOwing === "yes" ? (
-                  <div className="space-y-2 md:col-span-2">
-                    <FieldLabel>Finance company name</FieldLabel>
-                    <TextInput value={draft.declarations.financeCompanyName} onChange={(event) => updateDeclarationField("financeCompanyName", event.target.value)} />
-                  </div>
-                ) : null}
+              <div className="mt-6 rounded-[24px] border border-black/5 bg-shell p-4">
+                <h4 className="text-lg font-semibold text-ink">Vehicle declarations</h4>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  {[
+                    ["writtenOffHistory", "Written-off history"],
+                    ["repairableWriteOffHistory", "Repairable write-off history"],
+                    ["stolenRecoveredHistory", "Stolen / recovered history"],
+                    ["hailDamageHistory", "Hail damage history"],
+                    ["floodDamageHistory", "Flood damage history"],
+                    ["engineReplacementHistory", "Engine replacement history"],
+                    ["odometerDiscrepancyKnown", "Odometer discrepancy known"],
+                    ["financeOwing", "Finance owing"]
+                  ].map(([key, label]) => (
+                    <div key={key} className="space-y-2">
+                      <FieldLabel>{label}</FieldLabel>
+                      <SelectInput
+                        value={draft.declarations[key as keyof typeof draft.declarations] as string}
+                        onChange={(event) => updateDeclarationField(key as keyof typeof draft.declarations, event.target.value as never)}
+                      >
+                        {WAREHOUSE_DECLARATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </SelectInput>
+                    </div>
+                  ))}
+                  {draft.declarations.financeOwing === "yes" ? (
+                    <div className="space-y-2 md:col-span-2">
+                      <FieldLabel>Finance company name</FieldLabel>
+                      <TextInput value={draft.declarations.financeCompanyName} onChange={(event) => updateDeclarationField("financeCompanyName", event.target.value)} />
+                    </div>
+                  ) : null}
+                </div>
+                <label className="mt-5 flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
+                  <input
+                    type="checkbox"
+                    checked={draft.declarations.isInformationAccurate}
+                    onChange={(event) => updateDeclarationField("isInformationAccurate", event.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-black/20 text-ink"
+                  />
+                  <span>I declare that all information provided is true and correct to the best of my knowledge.</span>
+                </label>
               </div>
-              <label className="mt-5 flex items-start gap-3 rounded-[20px] border border-black/6 bg-shell px-4 py-4 text-sm text-ink/72">
-                <input
-                  type="checkbox"
-                  checked={draft.declarations.isInformationAccurate}
-                  onChange={(event) => updateDeclarationField("isInformationAccurate", event.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-black/20 text-ink"
-                />
-                <span>I declare that all information provided is true and correct to the best of my knowledge.</span>
-              </label>
             </div>
           ) : null}
 
-          {currentStep === 4 ? (
+          {currentStep === 2 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">5. Condition report</h3>
+              <h3 className="text-xl font-semibold text-ink">3. Intake documentation</h3>
+              <p className="mt-3 text-sm leading-6 text-ink/62">
+                Capture evidence only. Do not rate the vehicle subjectively. Document defects, wheel rash, interior marks, odometer, VIN, and the general stored state through notes and photos.
+              </p>
               <div className="mt-5 space-y-6">
                 {(Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).map(
                   ([sectionKey, items]) => (
@@ -827,22 +1096,25 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       <h4 className="text-lg font-semibold capitalize text-ink">{sectionKey}</h4>
                       <div className="mt-4 space-y-4">
                         {items.map((item) => (
-                          <div key={item.key} className="grid gap-3 md:grid-cols-[14rem,1fr,1.2fr] md:items-start">
+                          <div key={item.key} className="grid gap-3 md:grid-cols-[15rem,12rem,1fr] md:items-start">
                             <div>
                               <FieldLabel>{item.label}</FieldLabel>
                             </div>
                             <SelectInput
                               value={draft.conditionReport[sectionKey][item.key].condition}
-                              onChange={(event) => updateConditionItem(sectionKey, item.key, { condition: event.target.value as WarehouseConditionItem["condition"] })}
+                              onChange={(event) =>
+                                updateConditionItem(sectionKey, item.key, {
+                                  condition: event.target.value as WarehouseConditionItem["condition"],
+                                  documented: event.target.value === "documented"
+                                })
+                              }
                             >
-                              {WAREHOUSE_CONDITION_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                  {option.label}
-                                </option>
+                              {WAREHOUSE_DOCUMENTATION_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
                               ))}
                             </SelectInput>
                             <TextInput
-                              placeholder="Optional admin notes"
+                              placeholder="Evidence notes or observations"
                               value={draft.conditionReport[sectionKey][item.key].notes}
                               onChange={(event) => updateConditionItem(sectionKey, item.key, { notes: event.target.value })}
                             />
@@ -853,16 +1125,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   )
                 )}
               </div>
-            </div>
-          ) : null}
 
-          {currentStep === 5 ? (
-            <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">6. Capture condition photos</h3>
-              <p className="mt-3 text-sm leading-6 text-ink/62">
-                Use the iPad camera or upload from the photo library. Images are compressed automatically before saving to Firebase Storage.
-              </p>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
+              <div className="mt-6 grid gap-4 md:grid-cols-2">
                 {WAREHOUSE_PHOTO_SECTIONS.map((section) => {
                   const sectionPhotos = draft.photos.filter((photo) => photo.category === section.key);
                   return (
@@ -894,33 +1158,43 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             </div>
           ) : null}
 
-          {currentStep === 6 ? (
+          {currentStep === 3 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">7. Review agreement</h3>
+              <h3 className="text-xl font-semibold text-ink">4. Owner declaration and agreement</h3>
               <div className="mt-5 rounded-[24px] border border-black/5 bg-shell p-5">
                 <p className="text-sm leading-7 text-ink/72">
-                  Owner: <strong className="text-ink">{draft.ownerDetails.fullName || "Pending"}</strong>
+                  Customer: <strong className="text-ink">{draft.ownerDetails.fullName || "Pending"}</strong>
                   <br />
-                  Vehicle: <strong className="text-ink">{draft.vehicleTitle || "Standalone intake"}</strong>
+                  Vehicle: <strong className="text-ink">{draft.vehicleTitle || getVehicleRecordLabel(selectedVehicleRecord) || "Private vehicle record"}</strong>
                   <br />
                   Date: <strong className="text-ink">{new Date().toLocaleDateString("en-AU")}</strong>
                 </p>
                 <div className="mt-5 space-y-3">
                   {CARNEST_CONCIERGE_AGREEMENT_COPY.map((line) => (
-                    <p key={line} className="text-sm leading-7 text-ink/72">
-                      {line}
-                    </p>
+                    <p key={line} className="text-sm leading-7 text-ink/72">{line}</p>
                   ))}
                 </div>
               </div>
               <div className="mt-5 space-y-3">
                 <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
                   <input type="checkbox" checked={draft.agreement.informationAccurateConfirmed} onChange={(event) => updateAgreementField("informationAccurateConfirmed", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
-                  <span>I confirm the information provided is accurate.</span>
+                  <span>I confirm that all information provided is true and accurate to the best of my knowledge.</span>
                 </label>
                 <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
                   <input type="checkbox" checked={draft.agreement.storageAssistanceAuthorized} onChange={(event) => updateAgreementField("storageAssistanceAuthorized", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
-                  <span>I authorise CarNest to provide storage and operational assistance.</span>
+                  <span>I authorise CarNest to provide storage, presentation, listing support, inspection coordination, and operational assistance only.</span>
+                </label>
+                <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
+                  <input type="checkbox" checked={draft.agreement.conditionDocumentationConfirmed} onChange={(event) => updateAgreementField("conditionDocumentationConfirmed", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
+                  <span>I confirm the vehicle condition is documented as shown in the attached photos and intake notes.</span>
+                </label>
+                <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
+                  <input type="checkbox" checked={draft.agreement.insuranceMaintainedConfirmed} onChange={(event) => updateAgreementField("insuranceMaintainedConfirmed", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
+                  <span>I confirm that valid comprehensive insurance will be maintained while the vehicle is in warehouse-managed service.</span>
+                </label>
+                <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
+                  <input type="checkbox" checked={draft.agreement.directSaleResponsibilityConfirmed} onChange={(event) => updateAgreementField("directSaleResponsibilityConfirmed", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
+                  <span>I understand CarNest is not a dealer or party to the sale, does not handle funds, and all sale decisions and funds remain between buyer and seller.</span>
                 </label>
                 <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
                   <input type="checkbox" checked={draft.agreement.electronicSigningConsented} onChange={(event) => updateAgreementField("electronicSigningConsented", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
@@ -930,9 +1204,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             </div>
           ) : null}
 
-          {currentStep === 7 ? (
+          {currentStep === 4 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">8. Digital signature</h3>
+              <h3 className="text-xl font-semibold text-ink">5. Owner declaration and signature</h3>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <FieldLabel>Signer name</FieldLabel>
@@ -958,17 +1232,21 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             </div>
           ) : null}
 
-          {currentStep === 8 ? (
+          {currentStep === 5 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">9. Complete, print, and email</h3>
+              <h3 className="text-xl font-semibold text-ink">6. Complete, print, and email</h3>
               <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition report</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.photos.length} photos uploaded</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Customer profile</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.ownerDetails.fullName || "Pending"} · {draft.customerProfileId || "Will be linked on save"}</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Agreement</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.signature.signedAt ? `Signed ${formatAdminDateTime(draft.signature.signedAt)}` : "Awaiting signature"}</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Vehicle record</p>
+                  <p className="mt-2 text-sm text-ink/72">{getVehicleRecordLabel(selectedVehicleRecord) || draft.vehicleTitle || "Pending"} · {draft.vehicleRecordId || "Will be linked on save"}</p>
+                </div>
+                <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Documentation</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.photos.length} photos uploaded</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
@@ -1044,12 +1322,20 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
         <aside className="space-y-4">
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Listing integration</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Relationship tree</p>
+            <p className="mt-2 text-sm leading-6 text-ink/58">
+              This onboarding flow creates a private customer profile, a persistent internal vehicle record, a warehouse intake event, and optionally links a public listing.
+            </p>
             <div className="mt-4 space-y-3 text-sm text-ink/68">
+              <p><span className="font-semibold text-ink">Customer profile:</span> {draft.ownerDetails.fullName || draft.ownerDetails.email || "Pending onboarding"}</p>
+              <p className="text-xs text-ink/50">{draft.customerProfileId || "Profile ID will be assigned after save"}</p>
+              <p><span className="font-semibold text-ink">Vehicle record:</span> {[draft.vehicleDetails.year, draft.vehicleDetails.make, draft.vehicleDetails.model].filter(Boolean).join(" ") || "Pending vehicle details"}</p>
+              <p className="text-xs text-ink/50">{draft.vehicleRecordId || "Vehicle record ID will be assigned after save"}</p>
+              <p><span className="font-semibold text-ink">Intake event:</span> {recordId || "Pending creation"}</p>
               <p><span className="font-semibold text-ink">Reference:</span> {draft.vehicleReference || recordId || "Pending"}</p>
-              <p><span className="font-semibold text-ink">Listing:</span> {draft.vehicleTitle || "Standalone record"}</p>
-              <p><span className="font-semibold text-ink">Condition report:</span> {draft.photos.length ? "In progress" : "Pending"}</p>
-              <p><span className="font-semibold text-ink">Ownership verification:</span> {draft.ownerDetails.ownershipVerification ? "Uploaded" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Public listing:</span> {draft.vehicleTitle || "Not linked yet"}</p>
+              <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>

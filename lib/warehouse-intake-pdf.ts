@@ -205,15 +205,19 @@ export async function generateWarehouseIntakePdf(
     ["Full name", sanitizeText(record.ownerDetails.fullName)],
     ["Email", sanitizeText(record.ownerDetails.email)],
     ["Phone", sanitizeText(record.ownerDetails.phone)],
-    ["Driver licence number", sanitizeText(record.ownerDetails.driverLicenceNumber)],
-    ["Address", sanitizeText(record.ownerDetails.address)],
+    ["Preferred contact", sanitizeText(record.ownerDetails.preferredContactMethod.replace(/_/g, " "))],
+    ["Address", sanitizeText(record.ownerDetails.address, "Not provided")],
+    ["ID type", sanitizeText(record.ownerDetails.identificationDocumentType.replace(/_/g, " "), "Not provided")],
+    ["ID number", sanitizeText(record.ownerDetails.identificationDocumentNumber, "Not provided")],
     ["Legal owner confirmed", record.ownerDetails.isLegalOwnerConfirmed ? "Yes" : "No"]
   ]);
+  drawField("Customer verification notes", sanitizeText(record.ownerDetails.customerVerificationNotes, "No additional customer verification notes"));
 
   drawSectionTitle("Vehicle details");
   drawTwoColumnFields([
     ["Make", sanitizeText(record.vehicleDetails.make)],
     ["Model", sanitizeText(record.vehicleDetails.model)],
+    ["Variant", sanitizeText(record.vehicleDetails.variant, "Not provided")],
     ["Year", sanitizeText(record.vehicleDetails.year)],
     ["Registration plate", sanitizeText(record.vehicleDetails.registrationPlate)],
     ["VIN", sanitizeText(record.vehicleDetails.vin)],
@@ -225,6 +229,7 @@ export async function generateWarehouseIntakePdf(
     ["Accident history", sanitizeText(record.vehicleDetails.accidentHistory)]
   ]);
   drawField("Vehicle notes", sanitizeText(record.vehicleDetails.notes, "No additional notes"));
+  drawField("Ownership proof", record.vehicleDetails.ownershipProof?.name || "No ownership proof attached to this intake event");
 
   drawSectionTitle("Vehicle history declarations");
   drawTwoColumnFields([
@@ -245,7 +250,7 @@ export async function generateWarehouseIntakePdf(
       : "Owner declaration not confirmed."
   );
 
-  drawSectionTitle("Condition checklist");
+  drawSectionTitle("Documentation summary");
   (Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).forEach(
     ([sectionKey, items]) => {
       ensureSpace(24);
@@ -260,7 +265,10 @@ export async function generateWarehouseIntakePdf(
 
       items.forEach((item) => {
         const entry = record.conditionReport[sectionKey][item.key];
-        drawField(item.label, `${entry.condition.replace(/_/g, " ")}${entry.notes ? ` — ${entry.notes}` : ""}`);
+        drawField(
+          item.label,
+          `${entry.documented || entry.condition === "documented" ? "Documentation captured" : "Not checked"}${entry.notes ? ` — ${entry.notes}` : ""}`
+        );
       });
     }
   );
@@ -272,6 +280,9 @@ export async function generateWarehouseIntakePdf(
     [
       record.agreement.informationAccurateConfirmed ? "Information confirmed accurate" : "Information accuracy not confirmed",
       record.agreement.storageAssistanceAuthorized ? "Storage and operational assistance authorised" : "Storage authorisation pending",
+      record.agreement.conditionDocumentationConfirmed ? "Condition documentation acknowledged" : "Condition documentation acknowledgement pending",
+      record.agreement.insuranceMaintainedConfirmed ? "Insurance responsibility acknowledged" : "Insurance acknowledgement pending",
+      record.agreement.directSaleResponsibilityConfirmed ? "Direct sale responsibility acknowledged" : "Direct sale responsibility acknowledgement pending",
       record.agreement.electronicSigningConsented ? "Electronic signing consented" : "Electronic signing consent pending"
     ].join(" · ")
   );
@@ -316,7 +327,7 @@ export async function generateWarehouseIntakePdf(
   }
 
   if (record.photos.length) {
-    drawSectionTitle("Condition photos");
+    drawSectionTitle("Vehicle documentation photos");
     const photoWidth = 240;
     const photoHeight = 150;
     let column = 0;

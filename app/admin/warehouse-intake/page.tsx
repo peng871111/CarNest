@@ -7,7 +7,7 @@ export default function AdminWarehouseIntakePage() {
   return (
     <AdminShell
       title="Warehouse Intake"
-      description="Complete intake records, condition reports, digital agreements, signatures, PDFs, and customer handover emails for CarNest warehouse assistance."
+      description="Manage reusable customer profiles, private vehicle records, intake-event documentation, signed PDFs, and customer handover emails for CarNest warehouse assistance."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeDashboard />

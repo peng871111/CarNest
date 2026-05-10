@@ -1713,6 +1713,14 @@ service cloud.firestore {
       allow read, create, update, delete: if isAdmin();
     }
 
+    match /customerProfiles/{id} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
+    match /vehicleRecords/{id} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     match /viewing_requests/{id} {
       allow read, write: if isAdmin();
     }

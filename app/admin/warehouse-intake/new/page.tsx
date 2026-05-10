@@ -7,7 +7,7 @@ export default function AdminWarehouseIntakeNewPage() {
   return (
     <AdminShell
       title="New Warehouse Intake"
-      description="Use the iPad-friendly intake workflow to capture owner details, declarations, photos, signatures, and the final storage agreement."
+      description="Use the iPad-friendly workflow to select or create a reusable customer profile, capture a private vehicle record, document the intake event, and complete the final agreement."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeWorkspace />

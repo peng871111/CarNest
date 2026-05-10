@@ -1,10 +1,7 @@
 export const WAREHOUSE_INTAKE_STEPS = [
-  "Select listing",
-  "Owner details",
-  "Vehicle details",
-  "Declarations",
-  "Condition report",
-  "Photos",
+  "Customer profile",
+  "Vehicle record",
+  "Documentation",
   "Agreement",
   "Signature",
   "Complete"
@@ -16,43 +13,47 @@ export const WAREHOUSE_DECLARATION_OPTIONS = [
   { value: "unknown", label: "Unknown" }
 ] as const;
 
-export const WAREHOUSE_CONDITION_OPTIONS = [
-  { value: "excellent", label: "Excellent" },
-  { value: "good", label: "Good" },
-  { value: "fair", label: "Fair" },
-  { value: "poor", label: "Poor" },
-  { value: "damaged", label: "Damaged" },
+export const WAREHOUSE_CONTACT_METHOD_OPTIONS = [
+  { value: "either", label: "Either phone or email" },
+  { value: "phone", label: "Phone" },
+  { value: "email", label: "Email" },
+  { value: "sms", label: "SMS" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "wechat", label: "WeChat" },
+  { value: "other", label: "Other" }
+] as const;
+
+export const WAREHOUSE_IDENTIFICATION_OPTIONS = [
+  { value: "", label: "No ID recorded" },
+  { value: "driver_licence", label: "Driver licence" },
+  { value: "passport", label: "Passport" },
+  { value: "other", label: "Other ID" }
+] as const;
+
+export const WAREHOUSE_DOCUMENTATION_OPTIONS = [
+  { value: "documented", label: "Documentation captured" },
   { value: "not_checked", label: "Not checked" }
 ] as const;
 
 export const WAREHOUSE_CONDITION_SECTIONS = {
   exterior: [
-    { key: "frontBumper", label: "Front bumper" },
-    { key: "rearBumper", label: "Rear bumper" },
-    { key: "bonnet", label: "Bonnet" },
-    { key: "roof", label: "Roof" },
-    { key: "leftSide", label: "Left side" },
-    { key: "rightSide", label: "Right side" },
-    { key: "wheels", label: "Wheels" },
-    { key: "scratches", label: "Scratches" },
-    { key: "dents", label: "Dents" },
-    { key: "paintCondition", label: "Paint condition" }
+    { key: "frontExterior", label: "Front exterior documentation" },
+    { key: "rearExterior", label: "Rear exterior documentation" },
+    { key: "leftSide", label: "Left-side documentation" },
+    { key: "rightSide", label: "Right-side documentation" },
+    { key: "wheels", label: "Wheels / wheel rash documentation" },
+    { key: "visibleDefects", label: "Visible defects / scratches / dents" }
   ],
   interior: [
-    { key: "seats", label: "Seats" },
-    { key: "dashboard", label: "Dashboard" },
-    { key: "steeringWheel", label: "Steering wheel" },
-    { key: "infotainment", label: "Infotainment" },
-    { key: "warningLights", label: "Warning lights" },
-    { key: "odourSmoking", label: "Odour / smoking" },
-    { key: "cleanliness", label: "Cleanliness" }
+    { key: "interiorGeneral", label: "Interior general documentation" },
+    { key: "seatsTrimMarks", label: "Seats / trim marks" },
+    { key: "dashboardConsole", label: "Dashboard / console notes" },
+    { key: "odometerPhoto", label: "Odometer documentation" }
   ],
   mechanical: [
-    { key: "startsNormally", label: "Starts normally" },
-    { key: "batteryCondition", label: "Battery condition" },
-    { key: "tyreCondition", label: "Tyre condition" },
-    { key: "unusualNoises", label: "Unusual noises" },
-    { key: "leaksObserved", label: "Leaks observed" }
+    { key: "vinPhoto", label: "VIN plate documentation" },
+    { key: "storageTransportNotes", label: "Storage / transport notes" },
+    { key: "inspectionReadinessNotes", label: "Inspection readiness notes" }
   ]
 } as const;
 
@@ -71,8 +72,9 @@ export const WAREHOUSE_PHOTO_SECTIONS = [
 
 export const CARNEST_CONCIERGE_AGREEMENT_COPY = [
   "CarNest acts solely as a storage and operational service provider.",
-  "CarNest is not acting as a dealer, broker, or consignment agent.",
-  "Vehicle transactions remain between buyer and seller.",
-  "CarNest may assist with vehicle storage, presentation, inspection coordination, listing support, and operational assistance.",
-  "The owner remains responsible for the accuracy of all declarations and for all sale decisions."
+  "CarNest is not acting as a dealer, broker, insurer, or party to the sale.",
+  "CarNest does not handle buyer or seller funds, and all vehicle transactions remain between buyer and seller.",
+  "The owner remains responsible for legal ownership, the accuracy of all declarations, and maintaining valid comprehensive insurance while the vehicle is in warehouse-managed service.",
+  "CarNest may assist with storage, presentation, listing support, inspection coordination, and operational administration only.",
+  "Vehicle condition is documented through the attached intake notes and photos for evidentiary purposes only, not valuation."
 ] as const;

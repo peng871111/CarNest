@@ -51,7 +51,11 @@ export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
 export type VehicleActivityVisibility = "admin" | "customer";
 export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
 export type WarehouseDeclarationAnswer = "yes" | "no" | "unknown";
-export type WarehouseConditionStatus = "excellent" | "good" | "fair" | "poor" | "damaged" | "not_checked";
+export type WarehouseConditionStatus = "documented" | "not_checked";
+export type CustomerProfileStatus = "active" | "archived";
+export type VehicleRecordStatus = "draft" | "active" | "archived";
+export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
+export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"
@@ -180,6 +184,7 @@ export interface WarehouseIntakeFileRecord {
 
 export interface WarehouseConditionItem {
   condition: WarehouseConditionStatus;
+  documented: boolean;
   notes: string;
 }
 
@@ -198,15 +203,18 @@ export interface WarehouseIntakeOwnerDetails {
   email: string;
   phone: string;
   address: string;
-  driverLicenceNumber: string;
-  licencePhoto?: WarehouseIntakeFileRecord | null;
-  ownershipVerification?: WarehouseIntakeFileRecord | null;
+  preferredContactMethod: WarehousePreferredContactMethod;
+  customerVerificationNotes: string;
+  identificationDocumentType: WarehouseIdentificationDocumentType;
+  identificationDocumentNumber: string;
+  identificationDocument?: WarehouseIntakeFileRecord | null;
   isLegalOwnerConfirmed: boolean;
 }
 
 export interface WarehouseIntakeVehicleDetails {
   make: string;
   model: string;
+  variant: string;
   year: string;
   registrationPlate: string;
   vin: string;
@@ -216,6 +224,7 @@ export interface WarehouseIntakeVehicleDetails {
   numberOfKeys: string;
   serviceHistory: string;
   accidentHistory: string;
+  ownershipProof?: WarehouseIntakeFileRecord | null;
   notes: string;
 }
 
@@ -246,6 +255,9 @@ export interface WarehouseIntakeAgreement {
   informationAccurateConfirmed: boolean;
   storageAssistanceAuthorized: boolean;
   electronicSigningConsented: boolean;
+  insuranceMaintainedConfirmed: boolean;
+  directSaleResponsibilityConfirmed: boolean;
+  conditionDocumentationConfirmed: boolean;
   reviewedAt?: string;
 }
 
@@ -256,8 +268,73 @@ export interface WarehouseIntakeSignature {
   signatureStoragePath?: string;
 }
 
+export interface CustomerProfile {
+  id: string;
+  fullName: string;
+  email: string;
+  normalizedEmail: string;
+  phone: string;
+  normalizedPhone: string;
+  address: string;
+  preferredContactMethod: WarehousePreferredContactMethod;
+  customerVerificationNotes: string;
+  identificationDocumentType: WarehouseIdentificationDocumentType;
+  identificationDocumentNumber: string;
+  identificationDocument?: WarehouseIntakeFileRecord | null;
+  isLegalOwnerConfirmed: boolean;
+  declarations: WarehouseIntakeDeclarations;
+  agreement: WarehouseIntakeAgreement;
+  signature: WarehouseIntakeSignature;
+  latestIntakeId?: string;
+  latestVehicleRecordId?: string;
+  linkedVehicleRecordIds: string[];
+  linkedListingIds: string[];
+  status: CustomerProfileStatus;
+  createdByUid?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface VehicleRecord {
+  id: string;
+  customerProfileId?: string;
+  publicListingId?: string;
+  displayReference?: string;
+  title?: string;
+  make: string;
+  model: string;
+  variant: string;
+  year: string;
+  registrationPlate: string;
+  vin: string;
+  colour: string;
+  odometer: string;
+  registrationExpiry: string;
+  numberOfKeys: string;
+  serviceHistory: string;
+  accidentHistory: string;
+  ownershipProof?: WarehouseIntakeFileRecord | null;
+  declarations: WarehouseIntakeDeclarations;
+  notes: string;
+  linkedIntakeIds: string[];
+  latestIntakeId?: string;
+  status: VehicleRecordStatus;
+  createdByUid?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface WarehouseRelationshipTree {
+  customerProfile: CustomerProfile | null;
+  vehicleRecord: VehicleRecord | null;
+  listing: Vehicle | null;
+  intakeRecords: WarehouseIntakeRecord[];
+}
+
 export interface WarehouseIntakeRecord {
   id: string;
+  customerProfileId?: string;
+  vehicleRecordId?: string;
   vehicleId?: string;
   vehicleReference?: string;
   vehicleTitle?: string;
