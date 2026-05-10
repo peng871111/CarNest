@@ -1,5 +1,5 @@
 import { Timestamp, addDoc, arrayUnion, collection, deleteDoc, deleteField, doc, documentId, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
-import { db, isFirebaseConfigured } from "@/lib/firebase";
+import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
 import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { verifyDealerLicenceByState } from "@/lib/dealer-licence-verification";
 import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
@@ -319,7 +319,7 @@ async function getCollection<T>(
   }
 
   try {
-    const snapshot = await getDocs(collection(db, name));
+    const snapshot = await readFirestoreWithAuthRetry(() => getDocs(collection(db, name)));
     const items = snapshot.docs
       .map((item) => serializer(item.id, item.data()))
       .sort((a, b) => {
@@ -338,6 +338,26 @@ async function getCollection<T>(
       source: "firestore",
       error: error instanceof Error ? error.message : "Unknown Firestore read error"
     };
+  }
+}
+
+function isFirestoreAuthPermissionError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error ?? "").toLowerCase();
+  return message.includes("permission-denied")
+    || message.includes("missing or insufficient permissions")
+    || message.includes("unauthenticated");
+}
+
+async function readFirestoreWithAuthRetry<T>(operation: () => Promise<T>) {
+  try {
+    return await operation();
+  } catch (error) {
+    if (!isFirestoreAuthPermissionError(error) || !auth.currentUser) {
+      throw error;
+    }
+
+    await auth.currentUser.getIdToken(true);
+    return await operation();
   }
 }
 
@@ -3253,7 +3273,7 @@ export async function getWarehouseIntakesData() {
   }
 
   try {
-    const snapshot = await getDocs(collection(db, "warehouseIntakes"));
+    const snapshot = await readFirestoreWithAuthRetry(() => getDocs(collection(db, "warehouseIntakes")));
     const items = snapshot.docs
       .map((item) => serializeWarehouseIntakeDoc(item.id, item.data()))
       .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""));
@@ -3275,7 +3295,7 @@ export async function getWarehouseIntakeById(id: string) {
   if (!id) return null;
   if (!isFirebaseConfigured) return null;
 
-  const snapshot = await getDoc(doc(db, "warehouseIntakes", id));
+  const snapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "warehouseIntakes", id)));
   if (!snapshot.exists()) return null;
   return serializeWarehouseIntakeDoc(snapshot.id, snapshot.data());
 }
@@ -3296,7 +3316,7 @@ export async function getWarehouseIntakeByVehicleId(vehicleId: string) {
   }
 
   try {
-    const snapshot = await getDocs(query(collection(db, "warehouseIntakes"), where("vehicleId", "==", vehicleId)));
+    const snapshot = await readFirestoreWithAuthRetry(() => getDocs(query(collection(db, "warehouseIntakes"), where("vehicleId", "==", vehicleId))));
     const items = snapshot.docs
       .map((item) => serializeWarehouseIntakeDoc(item.id, item.data()))
       .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""));
@@ -3318,7 +3338,7 @@ export async function getCustomerProfileById(id: string) {
   if (!id) return null;
   if (!isFirebaseConfigured) return null;
 
-  const snapshot = await getDoc(doc(db, "customerProfiles", id));
+  const snapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "customerProfiles", id)));
   if (!snapshot.exists()) return null;
   return serializeCustomerProfileDoc(snapshot.id, snapshot.data());
 }
@@ -3327,7 +3347,7 @@ export async function getVehicleRecordById(id: string) {
   if (!id) return null;
   if (!isFirebaseConfigured) return null;
 
-  const snapshot = await getDoc(doc(db, "vehicleRecords", id));
+  const snapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "vehicleRecords", id)));
   if (!snapshot.exists()) return null;
   return serializeVehicleRecordDoc(snapshot.id, snapshot.data());
 }

@@ -23,6 +23,10 @@ function isWarehouseIntakePermissionError(message?: string) {
     || normalized.includes("unauthenticated");
 }
 
+function hasAnyWarehousePermissionError(messages: Array<string | undefined>) {
+  return messages.some((message) => isWarehouseIntakePermissionError(message));
+}
+
 function getVehicleRecordLabel(record: VehicleRecord | null | undefined) {
   if (!record) return "Pending vehicle record";
   const title = record.title?.trim();
@@ -86,7 +90,13 @@ export function WarehouseIntakeDashboard() {
         await firebaseUser.getIdToken();
         let { vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult } = await runLoad();
 
-        if (isWarehouseIntakePermissionError(intakesResult.error)) {
+        if (
+          hasAnyWarehousePermissionError([
+            intakesResult.error,
+            customerProfilesResult.error,
+            vehicleRecordsResult.error
+          ])
+        ) {
           await firebaseUser.getIdToken(true);
           ({ vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult } = await runLoad());
         }
@@ -97,7 +107,8 @@ export function WarehouseIntakeDashboard() {
         setIntakes(intakesResult.items);
         setCustomerProfiles(customerProfilesResult.items);
         setVehicleRecords(vehicleRecordsResult.items);
-        setErrorMessage(intakesResult.error && !intakesResult.items.length ? intakesResult.error : "");
+        const firstPrivateError = intakesResult.error || customerProfilesResult.error || vehicleRecordsResult.error || "";
+        setErrorMessage(firstPrivateError && !intakesResult.items.length && !customerProfilesResult.items.length && !vehicleRecordsResult.items.length ? firstPrivateError : "");
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : "We couldn't load warehouse intake records.");
