@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getCustomerProfilesData, getVehicleRecordsData, getVehiclesData, getWarehouseIntakesData } from "@/lib/data";
-import { CRAIG_SUPER_ADMIN_EMAIL, LEON_ADMIN_EMAIL, hasAdminPermission, normalizeEmailAddress } from "@/lib/permissions";
+import { hasAdminPermission } from "@/lib/permissions";
 import { getVehicleImage } from "@/lib/permissions";
 import { formatCurrency, formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -58,30 +58,7 @@ export function WarehouseIntakeDashboard() {
   const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
-  const [lastPrivateReadFailed, setLastPrivateReadFailed] = useState(false);
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
-  const normalizedAuthEmail = normalizeEmailAddress(firebaseUser?.email ?? appUser?.email ?? "");
-  const isSeededEmailAdmin = normalizedAuthEmail === CRAIG_SUPER_ADMIN_EMAIL || normalizedAuthEmail === LEON_ADMIN_EMAIL;
-  const isAdmin = appUser?.role === "admin" || appUser?.role === "super_admin" || isSeededEmailAdmin;
-  const loggedInEmail = firebaseUser?.email || appUser?.email || "Not available";
-  const debugUid = firebaseUser?.uid || appUser?.id || "Not available";
-  const resolvedRole = appUser?.role || "Unknown";
-
-  const debugPanel = (
-    <div className="rounded-[22px] border border-black/8 bg-shell px-4 py-4 text-xs leading-6 text-ink/72">
-      <p><span className="font-semibold text-ink">loggedInEmail:</span> {loggedInEmail}</p>
-      <p><span className="font-semibold text-ink">uid:</span> {debugUid}</p>
-      <p><span className="font-semibold text-ink">role:</span> {resolvedRole}</p>
-      <p><span className="font-semibold text-ink">isAdmin:</span> {isAdmin ? "Yes" : "No"}</p>
-      <p><span className="font-semibold text-ink">manageVehicles:</span> {canManageVehicles ? "Yes" : "No"}</p>
-      <p><span className="font-semibold text-ink">seededAdminEmail:</span> {isSeededEmailAdmin ? "Yes" : "No"}</p>
-      <p><span className="font-semibold text-ink">authLoading:</span> {authLoading ? "Yes" : "No"}</p>
-      <p><span className="font-semibold text-ink">firestoreReadsStillFail:</span> {lastPrivateReadFailed ? "Yes" : "No"}</p>
-      <p className="pt-2 text-ink/60">
-        Firestore warehouse access still requires either `role = admin/super_admin` on the production `users/{'{uid}'}` document or one of the seeded admin emails in the rules.
-      </p>
-    </div>
-  );
 
   useEffect(() => {
     let cancelled = false;
@@ -132,33 +109,9 @@ export function WarehouseIntakeDashboard() {
         setCustomerProfiles(customerProfilesResult.items);
         setVehicleRecords(vehicleRecordsResult.items);
         const firstPrivateError = intakesResult.error || customerProfilesResult.error || vehicleRecordsResult.error || "";
-        setLastPrivateReadFailed(Boolean(firstPrivateError));
         setErrorMessage(firstPrivateError && !intakesResult.items.length && !customerProfilesResult.items.length && !vehicleRecordsResult.items.length ? firstPrivateError : "");
-        if (firstPrivateError) {
-          console.error("[warehouse-intake-dashboard] private collection read warning", {
-            uid: firebaseUser.uid,
-            authEmail: firebaseUser.email ?? appUser?.email ?? "",
-            appRole: appUser?.role ?? "",
-            isAdmin,
-            canManageVehicles,
-            isSeededEmailAdmin,
-            intakesError: intakesResult.error ?? "",
-            customerProfilesError: customerProfilesResult.error ?? "",
-            vehicleRecordsError: vehicleRecordsResult.error ?? ""
-          });
-        }
       } catch (error) {
         if (!cancelled) {
-          setLastPrivateReadFailed(true);
-          console.error("[warehouse-intake-dashboard] load failed", {
-            uid: firebaseUser.uid,
-            authEmail: firebaseUser.email ?? appUser?.email ?? "",
-            appRole: appUser?.role ?? "",
-            isAdmin,
-            canManageVehicles,
-            isSeededEmailAdmin,
-            error
-          });
           setErrorMessage(error instanceof Error ? error.message : "We couldn't load warehouse intake records.");
         }
       } finally {
@@ -172,13 +125,12 @@ export function WarehouseIntakeDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [appUser, authLoading, canManageVehicles, firebaseUser, isAdmin, isSeededEmailAdmin]);
+  }, [authLoading, canManageVehicles, firebaseUser]);
 
   if (!canManageVehicles) {
     return (
-      <div className="space-y-3 rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
+      <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
         <p className="text-sm text-ink/60">You need vehicle-management permission to use the warehouse intake workspace.</p>
-        {debugPanel}
       </div>
     );
   }
@@ -243,10 +195,7 @@ export function WarehouseIntakeDashboard() {
       </div>
 
       {errorMessage ? (
-        <div className="space-y-3">
-          <div className="rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
-          {debugPanel}
-        </div>
+        <div className="rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
       ) : null}
 
       <section className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">

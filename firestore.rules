@@ -48,11 +48,13 @@ service cloud.firestore {
     }
 
     function isCraigEmail(email) {
-      return email == "peng871111@gmail.com";
+      return email is string
+        && email.matches("(?i)^peng871111@gmail\\.com$");
     }
 
     function isLeonEmail(email) {
-      return email == "dengue0111@gmail.com";
+      return email is string
+        && email.matches("(?i)^dengue0111@gmail\\.com$");
     }
 
     function isAllowedProfileRole(role, email) {
