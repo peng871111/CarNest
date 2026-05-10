@@ -25,5 +25,9 @@ service firebase.storage {
     match /dealer-proofs/{ownerUid}/{allPaths=**} {
       allow read, write: if signedIn() && (request.auth.uid == ownerUid || isAdmin());
     }
+
+    match /warehouse-intakes/{intakeId}/{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
   }
 }

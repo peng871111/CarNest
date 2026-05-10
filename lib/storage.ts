@@ -12,6 +12,12 @@ function sanitizeStorageName(fileName: string) {
   return fileName.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "").toLowerCase();
 }
 
+async function dataUrlToFile(dataUrl: string, fileName: string) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName, { type: blob.type || "image/png" });
+}
+
 export async function uploadVehicleImageAssets(images: PreparedVehicleImageUpload[], ownerUid: string): Promise<VehicleImageAsset[]> {
   if (!images.length) return [];
 
@@ -188,4 +194,126 @@ export async function uploadVehicleActivityImages(files: File[], vehicleId: stri
   }
 
   return uploadedUrls;
+}
+
+export async function uploadWarehouseIntakeSupportingFile(file: File, intakeId: string, bucket: "licence" | "ownership") {
+  if (!file) {
+    throw new Error("Select a file before uploading.");
+  }
+
+  if (!intakeId) {
+    throw new Error("Create the intake record before uploading files.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("File upload is temporarily unavailable. Please try again later.");
+  }
+
+  const sanitizedName = sanitizeStorageName(file.name);
+  const storageRef = ref(storage, `warehouse-intakes/${intakeId}/${bucket}/${Date.now()}-${sanitizedName}`);
+  await uploadBytes(storageRef, file, {
+    contentType: file.type || undefined
+  });
+
+  return {
+    url: await getDownloadURL(storageRef),
+    name: file.name,
+    uploadedAt: new Date().toISOString()
+  };
+}
+
+export async function uploadWarehouseIntakePhotos(
+  files: File[],
+  intakeId: string,
+  category: string,
+  label: string
+) {
+  if (!files.length) return [];
+  if (!intakeId) {
+    throw new Error("Create the intake record before uploading photos.");
+  }
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Photo upload is temporarily unavailable. Please try again later.");
+  }
+
+  const uploaded = [];
+
+  for (const [index, file] of files.slice(0, 5).entries()) {
+    const optimizedFile = await compressVehicleImage(file, {
+      maxWidth: 1200,
+      quality: 0.72,
+      minQuality: 0.65,
+      maxBytes: 300 * 1024,
+      outputMimeType: "image/jpeg"
+    });
+
+    const storageRef = ref(
+      storage,
+      `warehouse-intakes/${intakeId}/photos/${category}/${Date.now()}-${index + 1}-${sanitizeStorageName(file.name.replace(/\.[^.]+$/, ""))}.jpg`
+    );
+
+    await uploadBytes(storageRef, optimizedFile, {
+      contentType: optimizedFile.type || "image/jpeg"
+    });
+
+    uploaded.push({
+      id: `${category}-${Date.now()}-${index + 1}`,
+      category,
+      label,
+      url: await getDownloadURL(storageRef),
+      name: file.name,
+      uploadedAt: new Date().toISOString()
+    });
+  }
+
+  return uploaded;
+}
+
+export async function uploadWarehouseIntakeSignature(dataUrl: string, intakeId: string) {
+  if (!dataUrl) {
+    throw new Error("Capture a signature before uploading.");
+  }
+
+  if (!intakeId) {
+    throw new Error("Create the intake record before uploading the signature.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Signature upload is temporarily unavailable. Please try again later.");
+  }
+
+  const signatureFile = await dataUrlToFile(dataUrl, `signature-${Date.now()}.png`);
+  const storageRef = ref(storage, `warehouse-intakes/${intakeId}/signature/${signatureFile.name}`);
+  await uploadBytes(storageRef, signatureFile, {
+    contentType: signatureFile.type || "image/png"
+  });
+
+  return await getDownloadURL(storageRef);
+}
+
+export async function uploadWarehouseIntakePdf(pdfBytes: Uint8Array, intakeId: string, fileName: string) {
+  if (!pdfBytes.length) {
+    throw new Error("Generate the PDF before uploading.");
+  }
+
+  if (!intakeId) {
+    throw new Error("Create the intake record before uploading the PDF.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("PDF upload is temporarily unavailable. Please try again later.");
+  }
+
+  const sanitizedName = sanitizeStorageName(fileName || `carnest-warehouse-intake-${intakeId}.pdf`);
+  const normalizedPdfBytes = new Uint8Array(pdfBytes);
+  const pdfBlob = new Blob([normalizedPdfBytes], {
+    type: "application/pdf"
+  });
+  const pdfFile = new File([pdfBlob], sanitizedName, { type: "application/pdf" });
+  const storageRef = ref(storage, `warehouse-intakes/${intakeId}/pdf/${pdfFile.name}`);
+  await uploadBytes(storageRef, pdfFile, {
+    contentType: "application/pdf"
+  });
+
+  return await getDownloadURL(storageRef);
 }

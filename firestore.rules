@@ -1709,6 +1709,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /warehouseIntakes/{id} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     match /viewing_requests/{id} {
       allow read, write: if isAdmin();
     }

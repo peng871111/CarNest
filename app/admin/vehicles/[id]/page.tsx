@@ -7,6 +7,7 @@ import { AdminVehicleActions } from "@/components/vehicles/admin-vehicle-actions
 import { AdminPendingDescriptionActions } from "@/components/vehicles/admin-pending-description-actions";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { VehicleStatusBadge } from "@/components/vehicles/vehicle-status-badge";
+import { VehicleWarehouseIntakeSummary } from "@/components/admin/vehicle-warehouse-intake-summary";
 import { getVehicleById, getVehicleOwnerInfo } from "@/lib/data";
 import { getListingLabel, getVehicleGallery } from "@/lib/permissions";
 import {
@@ -43,6 +44,9 @@ export default async function AdminVehicleDetailPage({
           ← Back to vehicles
         </Link>
         <div className="flex flex-wrap items-center gap-3">
+          <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+            Warehouse intake
+          </Link>
           <AdminVehicleActions vehicle={vehicle} redirectBase={`/admin/vehicles/${vehicle.id}`} />
           <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze">
             Edit
@@ -127,6 +131,8 @@ export default async function AdminVehicleDetailPage({
               </div>
             </div>
           </div>
+
+          <VehicleWarehouseIntakeSummary vehicleId={vehicle.id} />
 
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">All uploaded images</p>

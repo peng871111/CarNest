@@ -49,6 +49,9 @@ export type PricingNextAction = "Recommend warehouse" | "Follow up later" | "Not
 export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
 export type VehicleActivityVisibility = "admin" | "customer";
+export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
+export type WarehouseDeclarationAnswer = "yes" | "no" | "unknown";
+export type WarehouseConditionStatus = "excellent" | "good" | "fair" | "poor" | "damaged" | "not_checked";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"
@@ -164,6 +167,114 @@ export interface Vehicle {
   uniqueViewCount?: number;
   lastViewedAt?: string;
   soldAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface WarehouseIntakeFileRecord {
+  url: string;
+  name: string;
+  uploadedAt?: string;
+}
+
+export interface WarehouseConditionItem {
+  condition: WarehouseConditionStatus;
+  notes: string;
+}
+
+export interface WarehouseIntakePhotoRecord {
+  id: string;
+  category: string;
+  label: string;
+  url: string;
+  name?: string;
+  uploadedAt?: string;
+}
+
+export interface WarehouseIntakeOwnerDetails {
+  fullName: string;
+  email: string;
+  phone: string;
+  address: string;
+  driverLicenceNumber: string;
+  licencePhoto?: WarehouseIntakeFileRecord | null;
+  ownershipVerification?: WarehouseIntakeFileRecord | null;
+  isLegalOwnerConfirmed: boolean;
+}
+
+export interface WarehouseIntakeVehicleDetails {
+  make: string;
+  model: string;
+  year: string;
+  registrationPlate: string;
+  vin: string;
+  colour: string;
+  odometer: string;
+  registrationExpiry: string;
+  numberOfKeys: string;
+  serviceHistory: string;
+  accidentHistory: string;
+  notes: string;
+}
+
+export interface WarehouseIntakeDeclarations {
+  writtenOffHistory: WarehouseDeclarationAnswer;
+  repairableWriteOffHistory: WarehouseDeclarationAnswer;
+  stolenRecoveredHistory: WarehouseDeclarationAnswer;
+  hailDamageHistory: WarehouseDeclarationAnswer;
+  floodDamageHistory: WarehouseDeclarationAnswer;
+  engineReplacementHistory: WarehouseDeclarationAnswer;
+  odometerDiscrepancyKnown: WarehouseDeclarationAnswer;
+  financeOwing: WarehouseDeclarationAnswer;
+  financeCompanyName: string;
+  isInformationAccurate: boolean;
+}
+
+export interface WarehouseIntakeConditionSection {
+  [key: string]: WarehouseConditionItem;
+}
+
+export interface WarehouseIntakeConditionReport {
+  exterior: WarehouseIntakeConditionSection;
+  interior: WarehouseIntakeConditionSection;
+  mechanical: WarehouseIntakeConditionSection;
+}
+
+export interface WarehouseIntakeAgreement {
+  informationAccurateConfirmed: boolean;
+  storageAssistanceAuthorized: boolean;
+  electronicSigningConsented: boolean;
+  reviewedAt?: string;
+}
+
+export interface WarehouseIntakeSignature {
+  signerName: string;
+  adminStaffName: string;
+  signedAt?: string;
+  signatureImageUrl?: string;
+}
+
+export interface WarehouseIntakeRecord {
+  id: string;
+  vehicleId?: string;
+  vehicleReference?: string;
+  vehicleTitle?: string;
+  status: WarehouseIntakeStatus;
+  ownerDetails: WarehouseIntakeOwnerDetails;
+  vehicleDetails: WarehouseIntakeVehicleDetails;
+  declarations: WarehouseIntakeDeclarations;
+  conditionReport: WarehouseIntakeConditionReport;
+  photos: WarehouseIntakePhotoRecord[];
+  agreement: WarehouseIntakeAgreement;
+  signature: WarehouseIntakeSignature;
+  signedPdfUrl?: string;
+  signedPdfFileName?: string;
+  pdfGeneratedAt?: string;
+  completedAt?: string;
+  emailSentAt?: string;
+  photoCount?: number;
+  adminStaffName?: string;
+  createdByUid?: string;
   createdAt?: string;
   updatedAt?: string;
 }
