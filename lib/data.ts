@@ -21,6 +21,8 @@ import { deleteVehicleImageFiles } from "@/lib/storage";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import {
   AccountType,
+  AdminAuditActionType,
+  AdminAuditRecordType,
   AdminPermissions,
   AppUser,
   ComplianceAlert,
@@ -65,6 +67,10 @@ import {
   VehicleAnalyticsBreakdown,
   VehicleFormInput,
   VehicleImageAsset,
+  VehicleListingHistoryEntry,
+  VehicleListingHistoryStatus,
+  VehicleListingPriceHistoryEntry,
+  VehicleListingStatusTimelineEntry,
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
@@ -108,7 +114,8 @@ type CollectionName =
   | "vehicleAnalytics"
   | "warehouseIntakes"
   | "customerProfiles"
-  | "vehicleRecords";
+  | "vehicleRecords"
+  | "adminOperationalEvents";
 export type VehicleDataSource = "firestore" | "mock";
 
 interface CollectionResult<T> {
@@ -405,6 +412,197 @@ function sanitizeFirestoreWriteData<T extends Record<string, unknown>>(value: T)
 function parseCurrencyNumber(value: unknown) {
   const normalized = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(normalized) ? normalized : 0;
+}
+
+function getActorDisplayName(actor?: Pick<VehicleActor, "displayName" | "name" | "email"> | null) {
+  return actor?.displayName || actor?.name || actor?.email || "CarNest Admin";
+}
+
+function normalizeVehicleListingHistoryStatusFromVehicle(vehicle: Vehicle): VehicleListingHistoryStatus {
+  if (vehicle.deleted || vehicle.status === "rejected" || vehicle.sellerStatus === "WITHDRAWN") return "withdrawn";
+  if (vehicle.sellerStatus === "SOLD" || Boolean(vehicle.soldAt)) return "sold";
+  if (vehicle.sellerStatus === "UNDER_OFFER") return "under_offer";
+  if (vehicle.listingType === "warehouse" || vehicle.storedInWarehouse) return "warehouse_managed";
+  if (vehicle.status === "approved") return "published";
+  return "draft";
+}
+
+function upsertPriceHistory(
+  entries: VehicleListingPriceHistoryEntry[],
+  amount: number,
+  capturedAt: string
+) {
+  if (!Number.isFinite(amount) || amount <= 0) return entries;
+  const last = entries[entries.length - 1];
+  if (last && last.amount === amount) return entries;
+  return entries.concat({ amount, capturedAt });
+}
+
+function upsertStatusTimeline(
+  entries: VehicleListingStatusTimelineEntry[],
+  status: VehicleListingHistoryStatus,
+  actor: VehicleActor | null,
+  changedAt: string
+) {
+  const last = entries[entries.length - 1];
+  if (last?.status === status) return entries;
+  return entries.concat({
+    status,
+    changedAt,
+    changedByUid: actor?.id || "",
+    changedByName: getActorDisplayName(actor)
+  });
+}
+
+async function writeAdminOperationalEvent(input: {
+  actor: VehicleActor | null;
+  recordType: AdminAuditRecordType;
+  actionType: AdminAuditActionType;
+  affectedRecordId: string;
+  summary: string;
+  customerProfileId?: string;
+  vehicleRecordId?: string;
+  intakeEventId?: string;
+  publicListingId?: string;
+}) {
+  if (!isFirebaseConfigured || !input.actor || !isAdminLikeRole(input.actor.role)) return;
+
+  const ref = doc(collection(db, "adminOperationalEvents"));
+  await setDoc(ref, sanitizeFirestoreWriteData({
+    recordType: input.recordType,
+    actionType: input.actionType,
+    affectedRecordId: input.affectedRecordId,
+    customerProfileId: input.customerProfileId || "",
+    vehicleRecordId: input.vehicleRecordId || "",
+    intakeEventId: input.intakeEventId || "",
+    publicListingId: input.publicListingId || "",
+    staffUid: input.actor.id,
+    staffName: getActorDisplayName(input.actor),
+    summary: input.summary,
+    createdAt: serverTimestamp()
+  }));
+}
+
+async function resolveVehicleRecordIdFromPublicVehicle(vehicle: Vehicle) {
+  if (!isFirebaseConfigured) return "";
+
+  const vin = sanitizeSingleLineText(vehicle.vin ?? "");
+  if (vin) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("vin", "==", vin), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  const registrationPlate = sanitizeSingleLineText(vehicle.rego ?? "");
+  if (registrationPlate) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("registrationPlate", "==", registrationPlate), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  if (vehicle.id.trim()) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", vehicle.id.trim()), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  return "";
+}
+
+async function syncVehicleRecordFromPublicListing(
+  vehicle: Vehicle,
+  actor: VehicleActor | null,
+  actionType: AdminAuditActionType = "linked_listing_synced"
+) {
+  if (!isFirebaseConfigured) return "";
+
+  const existingId = await resolveVehicleRecordIdFromPublicVehicle(vehicle);
+  const existingRecord = existingId ? await getVehicleRecordById(existingId) : null;
+  const ref = existingId ? doc(db, "vehicleRecords", existingId) : doc(collection(db, "vehicleRecords"));
+  const now = new Date().toISOString();
+  const listingStatus = normalizeVehicleListingHistoryStatusFromVehicle(vehicle);
+  const displayReference = getVehicleDisplayReference(vehicle);
+  const priceHistory = upsertPriceHistory(existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.askingPriceHistory ?? [], vehicle.price, vehicle.updatedAt || now);
+  const statusTransitions = upsertStatusTimeline(
+    existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.statusTransitions ?? [],
+    listingStatus,
+    actor,
+    vehicle.updatedAt || now
+  );
+  const listingHistoryEntry: VehicleListingHistoryEntry = {
+    ...(existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id) ?? createEmptyVehicleListingHistoryEntry()),
+    id: existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.id || `listing-history-${vehicle.id}`,
+    publicListingId: vehicle.id,
+    displayReference,
+    customerProfileId: existingRecord?.customerProfileId || "",
+    customerNameSnapshot: vehicle.customerName || "",
+    createdAt: existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.createdAt || vehicle.createdAt || now,
+    publishedAt:
+      listingStatus === "published" || listingStatus === "under_offer" || listingStatus === "warehouse_managed" || listingStatus === "sold"
+        ? (existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.publishedAt || vehicle.approvedAt || vehicle.createdAt || now)
+        : existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.publishedAt || "",
+    withdrawnAt: listingStatus === "withdrawn" ? (vehicle.updatedAt || now) : existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.withdrawnAt || "",
+    soldAt: listingStatus === "sold" ? (vehicle.soldAt || vehicle.updatedAt || now) : existingRecord?.listingHistory.find((entry) => entry.publicListingId === vehicle.id)?.soldAt || "",
+    currentStatus: listingStatus,
+    askingPriceHistory: priceHistory,
+    statusTransitions
+  };
+  const listingHistory = [
+    ...(existingRecord?.listingHistory.filter((entry) => entry.publicListingId !== vehicle.id) ?? []),
+    listingHistoryEntry
+  ].sort((left, right) => (right.createdAt || "").localeCompare(left.createdAt || ""));
+  const estimatedTotalIncome = (existingRecord?.gstInclusiveServiceFeeTotal ?? 0) + parseCurrencyNumber(vehicle.price);
+
+  await setDoc(ref, sanitizeFirestoreWriteData({
+    ...createEmptyVehicleRecord(),
+    ...(existingRecord ?? {}),
+    publicListingId: vehicle.id,
+    displayReference,
+    title: existingRecord?.title || `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.replace(/\s+/g, " ").trim(),
+    make: vehicle.make || existingRecord?.make || "",
+    model: vehicle.model || existingRecord?.model || "",
+    variant: vehicle.variant || existingRecord?.variant || "",
+    year: vehicle.year ? String(vehicle.year) : existingRecord?.year || "",
+    registrationPlate: vehicle.rego || existingRecord?.registrationPlate || "",
+    vin: vehicle.vin || existingRecord?.vin || "",
+    colour: vehicle.colour || existingRecord?.colour || "",
+    odometer: vehicle.mileage ? String(vehicle.mileage) : existingRecord?.odometer || "",
+    registrationExpiry: vehicle.regoExpiry || existingRecord?.registrationExpiry || "",
+    fuelType: vehicle.fuelType || existingRecord?.fuelType || "",
+    transmission: vehicle.transmission || existingRecord?.transmission || "",
+    askingPrice: String(vehicle.price || parseCurrencyNumber(existingRecord?.askingPrice)),
+    status:
+      listingStatus === "sold"
+        ? "sold"
+        : listingStatus === "withdrawn"
+          ? "withdrawn"
+          : listingStatus === "under_offer"
+            ? "under_offer"
+            : listingStatus === "warehouse_managed"
+              ? "warehouse_managed"
+              : "listed",
+    listingHistory,
+    estimatedTotalIncome,
+    soldGrossTotal: listingStatus === "sold" ? parseCurrencyNumber(vehicle.price) : Number(existingRecord?.soldGrossTotal ?? 0),
+    realisedRevenue:
+      listingStatus === "sold"
+        ? parseCurrencyNumber(vehicle.price) + Number(existingRecord?.gstInclusiveServiceFeeTotal ?? 0)
+        : Number(existingRecord?.realisedRevenue ?? 0),
+    lastEditedByUid: actor?.id || existingRecord?.lastEditedByUid || "",
+    lastEditedByName: getActorDisplayName(actor) || existingRecord?.lastEditedByName || "",
+    lastEditedAt: serverTimestamp(),
+    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp()
+  }), { merge: true });
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "public_listing",
+    actionType,
+    affectedRecordId: vehicle.id,
+    vehicleRecordId: ref.id,
+    publicListingId: vehicle.id,
+    summary: `${displayReference} synced to vehicle master record as ${listingStatus.replace(/_/g, " ")}.`
+  }).catch(() => undefined);
+
+  return ref.id;
 }
 
 function normalizeVehicleStatus(status: unknown): VehicleStatus {
@@ -794,6 +992,23 @@ function createEmptyWarehouseSignature(): WarehouseIntakeSignature {
   };
 }
 
+function createEmptyVehicleListingHistoryEntry(): VehicleListingHistoryEntry {
+  return {
+    id: "",
+    publicListingId: "",
+    displayReference: "",
+    customerProfileId: "",
+    customerNameSnapshot: "",
+    createdAt: "",
+    publishedAt: "",
+    withdrawnAt: "",
+    soldAt: "",
+    currentStatus: "draft",
+    askingPriceHistory: [],
+    statusTransitions: []
+  };
+}
+
 export function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
   return {
     fullName: "",
@@ -821,6 +1036,9 @@ export function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
     linkedVehicleRecordIds: [],
     linkedListingIds: [],
     status: "active",
+    lastEditedByUid: "",
+    lastEditedByName: "",
+    lastEditedAt: "",
     createdByUid: "",
     createdAt: "",
     updatedAt: ""
@@ -855,10 +1073,21 @@ export function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
     linkedIntakeIds: [],
     latestIntakeId: "",
     status: "draft",
+    listingHistory: [],
+    realisedRevenue: 0,
+    outstandingIntakeCosts: 0,
+    storageRevenue: 0,
+    soldGrossTotal: 0,
     serviceFeeSubtotal: 0,
     gstInclusiveServiceFeeTotal: 0,
     estimatedTotalIncome: 0,
     intakeEventCount: 0,
+    lastEditedByUid: "",
+    lastEditedByName: "",
+    lastEditedAt: "",
+    activeIntakeEditorUid: "",
+    activeIntakeEditorName: "",
+    activeIntakeEditedAt: "",
     lastCalculatedAt: "",
     createdByUid: "",
     createdAt: "",
@@ -899,6 +1128,14 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     conditionReport: createEmptyWarehouseConditionReport(),
     photos: [],
     serviceItems: [],
+    intakeDate: "",
+    assignedStaffUid: "",
+    assignedStaffName: "",
+    intakeNotes: "",
+    projectedRevenueSnapshot: 0,
+    storageStartDate: "",
+    storageEndDate: "",
+    storageDurationDays: 0,
     serviceFeeSubtotal: 0,
     gstInclusiveServiceFeeTotal: 0,
     gstAmount: 0,
@@ -911,6 +1148,12 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     emailSentAt: "",
     photoCount: 0,
     adminStaffName: "",
+    lastEditedByUid: "",
+    lastEditedByName: "",
+    lastEditedAt: "",
+    activeEditorUid: "",
+    activeEditorName: "",
+    activeEditorAt: "",
     createdByUid: "",
     createdAt: "",
     updatedAt: ""
@@ -959,6 +1202,18 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
   const computedGstInclusiveServiceFeeTotal = serviceItems.reduce(
     (sum, item) => sum + (item.gstIncluded ? item.amount : item.amount * 1.1),
     0
+  );
+  const storageStartDate = serializeDate(data.storageStartDate);
+  const storageEndDate = serializeDate(data.storageEndDate);
+  const intakeDate = serializeDate(data.intakeDate) || serializeDate(data.createdAt);
+  const storageDurationDays = Number(
+    data.storageDurationDays
+      ?? (storageStartDate && storageEndDate
+        ? Math.max(
+            Math.round((new Date(storageEndDate).getTime() - new Date(storageStartDate).getTime()) / (1000 * 60 * 60 * 24)),
+            0
+          )
+        : 0)
   );
 
   return {
@@ -1029,6 +1284,17 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
     },
     photos,
     serviceItems,
+    intakeDate,
+    assignedStaffUid: typeof data.assignedStaffUid === "string" ? data.assignedStaffUid : "",
+    assignedStaffName: typeof data.assignedStaffName === "string" ? data.assignedStaffName : "",
+    intakeNotes: typeof data.intakeNotes === "string" ? data.intakeNotes : "",
+    projectedRevenueSnapshot: Number(
+      data.projectedRevenueSnapshot
+      ?? (Math.max(parseCurrencyNumber(vehicleInput.askingPrice), parseCurrencyNumber(vehicleInput.reservePrice)) + computedGstInclusiveServiceFeeTotal)
+    ),
+    storageStartDate,
+    storageEndDate,
+    storageDurationDays,
     serviceFeeSubtotal: Number(data.serviceFeeSubtotal ?? computedServiceFeeSubtotal),
     gstInclusiveServiceFeeTotal: Number(data.gstInclusiveServiceFeeTotal ?? computedGstInclusiveServiceFeeTotal),
     gstAmount: Number(data.gstAmount ?? Math.max(computedGstInclusiveServiceFeeTotal - computedServiceFeeSubtotal, 0)),
@@ -1066,10 +1332,76 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
     emailSentAt: serializeDate(data.emailSentAt),
     photoCount: Number(data.photoCount ?? photos.length),
     adminStaffName: typeof data.adminStaffName === "string" ? data.adminStaffName : "",
+    lastEditedByUid: typeof data.lastEditedByUid === "string" ? data.lastEditedByUid : "",
+    lastEditedByName: typeof data.lastEditedByName === "string" ? data.lastEditedByName : "",
+    lastEditedAt: serializeDate(data.lastEditedAt),
+    activeEditorUid: typeof data.activeEditorUid === "string" ? data.activeEditorUid : "",
+    activeEditorName: typeof data.activeEditorName === "string" ? data.activeEditorName : "",
+    activeEditorAt: serializeDate(data.activeEditorAt),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   };
+}
+
+function normalizeVehicleListingHistoryStatus(value: unknown): VehicleListingHistoryStatus {
+  return value === "published"
+    || value === "under_offer"
+    || value === "withdrawn"
+    || value === "sold"
+    || value === "warehouse_managed"
+    ? value
+    : "draft";
+}
+
+function serializeVehicleListingPriceHistory(items: unknown): VehicleListingPriceHistoryEntry[] {
+  return Array.isArray(items)
+    ? items
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          amount: Number(item.amount ?? 0),
+          capturedAt: serializeDate(item.capturedAt)
+        }))
+        .filter((item) => Number.isFinite(item.amount))
+    : [];
+}
+
+function serializeVehicleListingStatusTimeline(items: unknown): VehicleListingStatusTimelineEntry[] {
+  return Array.isArray(items)
+    ? items
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          status: normalizeVehicleListingHistoryStatus(item.status),
+          changedAt: serializeDate(item.changedAt),
+          changedByUid: typeof item.changedByUid === "string" ? item.changedByUid : "",
+          changedByName: typeof item.changedByName === "string" ? item.changedByName : ""
+        }))
+    : [];
+}
+
+function serializeVehicleListingHistory(items: unknown): VehicleListingHistoryEntry[] {
+  return Array.isArray(items)
+    ? items
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+        .map((item, index) => {
+          const base = createEmptyVehicleListingHistoryEntry();
+          return {
+            ...base,
+            id: typeof item.id === "string" && item.id ? item.id : `listing-history-${index + 1}`,
+            publicListingId: typeof item.publicListingId === "string" ? item.publicListingId : "",
+            displayReference: typeof item.displayReference === "string" ? item.displayReference : "",
+            customerProfileId: typeof item.customerProfileId === "string" ? item.customerProfileId : "",
+            customerNameSnapshot: typeof item.customerNameSnapshot === "string" ? item.customerNameSnapshot : "",
+            createdAt: serializeDate(item.createdAt),
+            publishedAt: serializeDate(item.publishedAt),
+            withdrawnAt: serializeDate(item.withdrawnAt),
+            soldAt: serializeDate(item.soldAt),
+            currentStatus: normalizeVehicleListingHistoryStatus(item.currentStatus),
+            askingPriceHistory: serializeVehicleListingPriceHistory(item.askingPriceHistory),
+            statusTransitions: serializeVehicleListingStatusTimeline(item.statusTransitions)
+          };
+        })
+    : [];
 }
 
 function serializeCustomerProfileDoc(id: string, data: Record<string, unknown>): CustomerProfile {
@@ -1115,6 +1447,9 @@ function serializeCustomerProfileDoc(id: string, data: Record<string, unknown>):
       ? (data.linkedListingIds as unknown[]).filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
     status: data.status === "archived" ? "archived" : "active",
+    lastEditedByUid: typeof data.lastEditedByUid === "string" ? data.lastEditedByUid : "",
+    lastEditedByName: typeof data.lastEditedByName === "string" ? data.lastEditedByName : "",
+    lastEditedAt: serializeDate(data.lastEditedAt),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
@@ -1165,10 +1500,21 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
       || data.status === "withdrawn"
         ? data.status
         : "draft",
+    listingHistory: serializeVehicleListingHistory(data.listingHistory),
+    realisedRevenue: Number(data.realisedRevenue ?? 0),
+    outstandingIntakeCosts: Number(data.outstandingIntakeCosts ?? 0),
+    storageRevenue: Number(data.storageRevenue ?? 0),
+    soldGrossTotal: Number(data.soldGrossTotal ?? 0),
     serviceFeeSubtotal: Number(data.serviceFeeSubtotal ?? 0),
     gstInclusiveServiceFeeTotal: Number(data.gstInclusiveServiceFeeTotal ?? 0),
     estimatedTotalIncome: Number(data.estimatedTotalIncome ?? 0),
     intakeEventCount: Number(data.intakeEventCount ?? 0),
+    lastEditedByUid: typeof data.lastEditedByUid === "string" ? data.lastEditedByUid : "",
+    lastEditedByName: typeof data.lastEditedByName === "string" ? data.lastEditedByName : "",
+    lastEditedAt: serializeDate(data.lastEditedAt),
+    activeIntakeEditorUid: typeof data.activeIntakeEditorUid === "string" ? data.activeIntakeEditorUid : "",
+    activeIntakeEditorName: typeof data.activeIntakeEditorName === "string" ? data.activeIntakeEditorName : "",
+    activeIntakeEditedAt: serializeDate(data.activeIntakeEditedAt),
     lastCalculatedAt: serializeDate(data.lastCalculatedAt),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdAt: serializeDate(data.createdAt),
@@ -3576,11 +3922,6 @@ async function resolveVehicleRecordId(
   if (existingVehicleRecordId?.trim()) return existingVehicleRecordId.trim();
   if (!isFirebaseConfigured) return "";
 
-  if (intake.vehicleId?.trim()) {
-    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", intake.vehicleId.trim()), limit(1)));
-    if (!snapshot.empty) return snapshot.docs[0].id;
-  }
-
   const vin = sanitizeSingleLineText(intake.vehicleDetails?.vin ?? "");
   if (vin) {
     const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("vin", "==", vin), limit(1)));
@@ -3593,11 +3934,16 @@ async function resolveVehicleRecordId(
     if (!snapshot.empty) return snapshot.docs[0].id;
   }
 
+  if (intake.vehicleId?.trim()) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", intake.vehicleId.trim()), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
   const customerProfileId = intake.customerProfileId?.trim();
   const make = sanitizeSingleLineText(intake.vehicleDetails?.make ?? "");
   const model = sanitizeSingleLineText(intake.vehicleDetails?.model ?? "");
   const year = sanitizeSingleLineText(intake.vehicleDetails?.year ?? "");
-  if (customerProfileId && make && model && year) {
+  if (!vin && !registrationPlate && !intake.vehicleId?.trim() && customerProfileId && make && model && year) {
     const snapshot = await getDocs(
       query(
         collection(db, "vehicleRecords"),
@@ -3623,12 +3969,6 @@ async function resolveVehicleRecordIdForCoreRecord(
   if (existingVehicleRecordId?.trim()) return existingVehicleRecordId.trim();
   if (!isFirebaseConfigured) return "";
 
-  const publicListingId = input.publicListingId?.trim();
-  if (publicListingId) {
-    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", publicListingId), limit(1)));
-    if (!snapshot.empty) return snapshot.docs[0].id;
-  }
-
   const vin = sanitizeSingleLineText(input.vin ?? "");
   if (vin) {
     const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("vin", "==", vin), limit(1)));
@@ -3641,11 +3981,17 @@ async function resolveVehicleRecordIdForCoreRecord(
     if (!snapshot.empty) return snapshot.docs[0].id;
   }
 
+  const publicListingId = input.publicListingId?.trim();
+  if (publicListingId) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", publicListingId), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
   const customerProfileId = input.customerProfileId?.trim();
   const make = sanitizeSingleLineText(input.make ?? "");
   const model = sanitizeSingleLineText(input.model ?? "");
   const year = sanitizeSingleLineText(input.year ?? "");
-  if (customerProfileId && make && model && year) {
+  if (!vin && !registrationPlate && !publicListingId && customerProfileId && make && model && year) {
     const snapshot = await getDocs(
       query(
         collection(db, "vehicleRecords"),
@@ -3668,17 +4014,8 @@ function buildCustomerProfileWritePayload(
   linkedVehicleRecordId: string,
   intakeId: string
 ) {
-  const base = createEmptyCustomerProfile();
   const normalizedEmail = normalizeCustomerProfileEmail(input.ownerDetails?.email);
   const normalizedPhone = normalizeCustomerProfilePhone(input.ownerDetails?.phone);
-  const agreement = {
-    ...base.agreement,
-    ...input.agreement
-  };
-  const signature = {
-    ...base.signature,
-    ...input.signature
-  };
 
   return {
     fullName: sanitizeSingleLineText(input.ownerDetails?.fullName ?? ""),
@@ -3698,23 +4035,14 @@ function buildCustomerProfileWritePayload(
     acn: sanitizeSingleLineText(input.ownerDetails?.acn ?? ""),
     identificationDocument: input.ownerDetails?.identificationDocument ?? null,
     isLegalOwnerConfirmed: input.ownerDetails?.isLegalOwnerConfirmed === true,
-    declarations: {
-      ...base.declarations,
-      ...input.declarations
-    },
-    agreement: {
-      ...agreement,
-      ...(agreement.reviewedAt ? { reviewedAt: agreement.reviewedAt } : {})
-    },
-    signature: {
-      ...signature,
-      ...(signature.signedAt ? { signedAt: signature.signedAt } : {})
-    },
     latestIntakeId: intakeId,
     latestVehicleRecordId: linkedVehicleRecordId,
     linkedVehicleRecordIds: linkedVehicleRecordId ? [linkedVehicleRecordId] : [],
     linkedListingIds: input.vehicleId ? [input.vehicleId] : [],
     status: "active" as CustomerProfileStatus,
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: serverTimestamp(),
     createdByUid: actor.id
   };
 }
@@ -3748,6 +4076,13 @@ function buildVehicleRecordWritePayload(
   intakeId: string
 ) {
   const base = createEmptyVehicleRecord();
+  const listingHistory: VehicleListingHistoryEntry[] = Array.isArray((input as { listingHistory?: VehicleListingHistoryEntry[] }).listingHistory)
+    ? (input as { listingHistory?: VehicleListingHistoryEntry[] }).listingHistory ?? []
+    : [];
+  const projectedRevenueSnapshot = Math.max(
+    parseCurrencyNumber(input.vehicleDetails?.askingPrice),
+    parseCurrencyNumber(input.vehicleDetails?.reservePrice)
+  ) + calculateWarehouseServiceFeeTotals(input.serviceItems ?? []).gstInclusiveServiceFeeTotal;
   const linkedStatus =
     input.vehicleId?.trim()
       ? ("listed" as VehicleRecordStatus)
@@ -3785,6 +4120,14 @@ function buildVehicleRecordWritePayload(
     linkedIntakeIds: intakeId ? [intakeId] : [],
     latestIntakeId: intakeId,
     status: linkedStatus,
+    listingHistory,
+    estimatedTotalIncome: projectedRevenueSnapshot,
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: serverTimestamp(),
+    activeIntakeEditorUid: actor.id,
+    activeIntakeEditorName: getActorDisplayName(actor),
+    activeIntakeEditedAt: serverTimestamp(),
     createdByUid: actor.id
   };
 }
@@ -3828,13 +4171,22 @@ async function upsertVehicleRecordFromIntake(
   intakeId: string
 ) {
   const existingId = await resolveVehicleRecordId(intake, intake.vehicleRecordId);
+  const existingRecord = existingId && isFirebaseConfigured ? await getVehicleRecordById(existingId).catch(() => null) : null;
 
   if (!isFirebaseConfigured) {
     return existingId || `mock-vehicle-record-${Date.now()}`;
   }
 
   const ref = existingId ? doc(db, "vehicleRecords", existingId) : doc(collection(db, "vehicleRecords"));
-  const payload = buildVehicleRecordWritePayload(intake, actor, customerProfileId, intakeId);
+  const payload = buildVehicleRecordWritePayload(
+    {
+      ...intake,
+      listingHistory: existingRecord?.listingHistory ?? []
+    } as Omit<WarehouseIntakeRecord, "id" | "updatedAt" | "photoCount"> & { listingHistory?: VehicleListingHistoryEntry[] },
+    actor,
+    customerProfileId,
+    intakeId
+  );
   const linkedIntakeIds = payload.linkedIntakeIds.filter(Boolean);
 
   await setDoc(
@@ -3867,12 +4219,31 @@ async function syncVehicleRecordReportingSnapshot(vehicleRecordId: string) {
   const intakeEventCount = intakesResult.length;
   const serviceFeeSubtotal = intakesResult.reduce((sum, intake) => sum + (intake.serviceFeeSubtotal ?? 0), 0);
   const gstInclusiveServiceFeeTotal = intakesResult.reduce((sum, intake) => sum + (intake.gstInclusiveServiceFeeTotal ?? 0), 0);
+  const outstandingIntakeCosts = intakesResult
+    .filter((intake) => intake.status !== "signed")
+    .reduce((sum, intake) => sum + (intake.gstInclusiveServiceFeeTotal ?? 0), 0);
+  const storageRevenue = intakesResult.reduce(
+    (sum, intake) => sum + intake.serviceItems
+      .filter((item) => item.category === "storage_fee")
+      .reduce((subtotal, item) => subtotal + (item.gstIncluded ? item.amount : item.amount * 1.1), 0),
+    0
+  );
+  const soldGrossTotal = (vehicleRecord.listingHistory ?? []).reduce((sum, entry) => {
+    if (!entry.soldAt) return sum;
+    const lastAskingPrice = entry.askingPriceHistory[entry.askingPriceHistory.length - 1]?.amount ?? 0;
+    return sum + lastAskingPrice;
+  }, 0);
   const estimatedTotalIncome = Math.max(parseCurrencyNumber(vehicleRecord.askingPrice), parseCurrencyNumber(vehicleRecord.reservePrice)) + gstInclusiveServiceFeeTotal;
+  const realisedRevenue = soldGrossTotal + gstInclusiveServiceFeeTotal;
 
   await updateDoc(doc(db, "vehicleRecords", vehicleRecordId), {
     serviceFeeSubtotal,
     gstInclusiveServiceFeeTotal,
     estimatedTotalIncome,
+    realisedRevenue,
+    outstandingIntakeCosts,
+    storageRevenue,
+    soldGrossTotal,
     intakeEventCount,
     lastCalculatedAt: serverTimestamp(),
     updatedAt: serverTimestamp()
@@ -3922,11 +4293,22 @@ export async function saveCustomerProfile(
     identificationDocumentType: normalizeWarehouseIdentificationDocumentType(input.identificationDocumentType),
     linkedVehicleRecordIds: Array.from(new Set((input.linkedVehicleRecordIds ?? []).filter(Boolean))),
     linkedListingIds: Array.from(new Set((input.linkedListingIds ?? []).filter(Boolean))),
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: serverTimestamp(),
     ...(existingId ? {} : { createdAt: serverTimestamp() }),
     updatedAt: serverTimestamp()
   });
 
   await setDoc(ref, payload, { merge: true });
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "customer_profile",
+    actionType: existingId ? "updated" : "created",
+    affectedRecordId: ref.id,
+    customerProfileId: ref.id,
+    summary: `${sanitizeSingleLineText(input.fullName) || "Customer profile"} ${existingId ? "updated" : "created"}.`
+  }).catch(() => undefined);
 
   return {
     profile: {
@@ -3937,6 +4319,9 @@ export async function saveCustomerProfile(
       normalizedEmail: normalizeCustomerProfileEmail(input.email),
       phone: sanitizeSingleLineText(input.phone),
       normalizedPhone: normalizeCustomerProfilePhone(input.phone),
+      lastEditedByUid: actor.id,
+      lastEditedByName: getActorDisplayName(actor),
+      lastEditedAt: now,
       createdAt: existingId ? undefined : now,
       updatedAt: now
     } satisfies CustomerProfile,
@@ -3992,17 +4377,42 @@ export async function saveVehicleRecord(
     accidentHistory: sanitizeMultilineText(input.accidentHistory ?? ""),
     notes: sanitizeMultilineText(input.notes ?? ""),
     linkedIntakeIds: Array.from(new Set((input.linkedIntakeIds ?? []).filter(Boolean))),
+    listingHistory: serializeVehicleListingHistory(input.listingHistory),
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: serverTimestamp(),
     ...(resolvedId ? {} : { createdAt: serverTimestamp() }),
     updatedAt: serverTimestamp()
   });
 
   await setDoc(ref, payload, { merge: true });
+  await syncVehicleRecordReportingSnapshot(ref.id).catch(() => undefined);
+  if (input.publicListingId) {
+    const linkedListing = await getVehicleById(input.publicListingId).catch(() => null);
+    if (linkedListing) {
+      await syncVehicleRecordFromPublicListing(linkedListing, actor, "linked_listing_synced").catch(() => undefined);
+    }
+  }
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "vehicle_record",
+    actionType: resolvedId ? "updated" : "created",
+    affectedRecordId: ref.id,
+    customerProfileId: input.customerProfileId || "",
+    vehicleRecordId: ref.id,
+    publicListingId: input.publicListingId || "",
+    summary: `${sanitizeSingleLineText(input.title || `${input.year} ${input.make} ${input.model}`) || "Vehicle record"} ${resolvedId ? "updated" : "created"}.`
+  }).catch(() => undefined);
 
   return {
     vehicleRecord: {
       id: ref.id,
       ...createEmptyVehicleRecord(),
       ...input,
+      listingHistory: serializeVehicleListingHistory(input.listingHistory),
+      lastEditedByUid: actor.id,
+      lastEditedByName: getActorDisplayName(actor),
+      lastEditedAt: now,
       createdAt: resolvedId ? undefined : now,
       updatedAt: now
     } satisfies VehicleRecord,
@@ -4060,6 +4470,21 @@ function buildWarehouseIntakeWritePayload(
   const normalizedSignedAt = typeof input.signature?.signedAt === "string" && input.signature.signedAt.trim()
     ? input.signature.signedAt
     : "";
+  const intakeDate = typeof input.intakeDate === "string" && input.intakeDate.trim()
+    ? input.intakeDate
+    : (typeof input.createdAt === "string" && input.createdAt.trim() ? input.createdAt : new Date().toISOString());
+  const storageStartDate = typeof input.storageStartDate === "string" ? input.storageStartDate : "";
+  const storageEndDate = typeof input.storageEndDate === "string" ? input.storageEndDate : "";
+  const storageDurationDays =
+    typeof input.storageDurationDays === "number"
+      ? input.storageDurationDays
+      : storageStartDate && storageEndDate
+        ? Math.max(Math.round((new Date(storageEndDate).getTime() - new Date(storageStartDate).getTime()) / (1000 * 60 * 60 * 24)), 0)
+        : 0;
+  const projectedRevenueSnapshot = Math.max(
+    parseCurrencyNumber(input.vehicleDetails?.askingPrice),
+    parseCurrencyNumber(input.vehicleDetails?.reservePrice)
+  ) + serviceTotals.gstInclusiveServiceFeeTotal;
 
   return {
     vehicleId: input.vehicleId || "",
@@ -4097,6 +4522,14 @@ function buildWarehouseIntakeWritePayload(
     } satisfies WarehouseIntakeConditionReport,
     photos,
     serviceItems,
+    intakeDate,
+    assignedStaffUid: input.assignedStaffUid || actor.id,
+    assignedStaffName: input.assignedStaffName || getActorDisplayName(actor),
+    intakeNotes: sanitizeMultilineText(input.intakeNotes ?? ""),
+    projectedRevenueSnapshot,
+    storageStartDate,
+    storageEndDate,
+    storageDurationDays,
     ...serviceTotals,
     agreement: {
       ...agreement,
@@ -4122,6 +4555,12 @@ function buildWarehouseIntakeWritePayload(
     emailSentAt: input.emailSentAt || "",
     photoCount: photos.length,
     adminStaffName: input.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin",
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: new Date().toISOString(),
+    activeEditorUid: actor.id,
+    activeEditorName: getActorDisplayName(actor),
+    activeEditorAt: new Date().toISOString(),
     createdByUid: input.createdByUid || actor.id
   };
 }
@@ -4134,6 +4573,7 @@ export async function saveWarehouseIntake(
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage warehouse intake records.");
   const now = new Date().toISOString();
   const intakeId = existingId || `warehouse-intake-${Date.now()}`;
+  const previousIntake = existingId && isFirebaseConfigured ? await getWarehouseIntakeById(existingId).catch(() => null) : null;
 
   if (!isFirebaseConfigured) {
     const mockCustomerProfileId = input.customerProfileId || `mock-customer-profile-${Date.now()}`;
@@ -4229,6 +4669,30 @@ export async function saveWarehouseIntake(
     );
 
     await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+    await writeAdminOperationalEvent({
+      actor,
+      recordType: "warehouse_intake",
+      actionType: payload.status === "signed" ? "intake_completed" : "updated",
+      affectedRecordId: existingId,
+      customerProfileId,
+      vehicleRecordId,
+      intakeEventId: existingId,
+      publicListingId: payload.vehicleId || "",
+      summary: `${payload.vehicleTitle || "Warehouse intake"} ${payload.status === "signed" ? "completed" : "updated"}.`
+    }).catch(() => undefined);
+    if (JSON.stringify(previousIntake?.serviceItems ?? []) !== JSON.stringify(payload.serviceItems)) {
+      await writeAdminOperationalEvent({
+        actor,
+        recordType: "warehouse_intake",
+        actionType: "fees_updated",
+        affectedRecordId: existingId,
+        customerProfileId,
+        vehicleRecordId,
+        intakeEventId: existingId,
+        publicListingId: payload.vehicleId || "",
+        summary: `Service fee items updated for ${payload.vehicleTitle || "warehouse intake"}.`
+      }).catch(() => undefined);
+    }
 
     return {
       intake: {
@@ -4253,6 +4717,17 @@ export async function saveWarehouseIntake(
   );
 
   await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "warehouse_intake",
+    actionType: "created",
+    affectedRecordId: intakeRef.id,
+    customerProfileId,
+    vehicleRecordId,
+    intakeEventId: intakeRef.id,
+    publicListingId: payload.vehicleId || "",
+    summary: `${payload.vehicleTitle || "Warehouse intake"} created.`
+  }).catch(() => undefined);
 
   return {
     intake: {
@@ -4264,6 +4739,41 @@ export async function saveWarehouseIntake(
     source: "firestore" as const,
     writeSucceeded: true
   };
+}
+
+export async function markWarehouseIntakeActiveEditor(
+  intakeId: string,
+  vehicleRecordId: string | undefined,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage warehouse intake records.");
+  if (!intakeId || !isFirebaseConfigured) return;
+
+  await setDoc(
+    doc(db, "warehouseIntakes", intakeId),
+    sanitizeFirestoreWriteData({
+      activeEditorUid: actor.id,
+      activeEditorName: getActorDisplayName(actor),
+      activeEditorAt: serverTimestamp(),
+      assignedStaffUid: actor.id,
+      assignedStaffName: getActorDisplayName(actor),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+
+  if (vehicleRecordId) {
+    await setDoc(
+      doc(db, "vehicleRecords", vehicleRecordId),
+      sanitizeFirestoreWriteData({
+        activeIntakeEditorUid: actor.id,
+        activeIntakeEditorName: getActorDisplayName(actor),
+        activeIntakeEditedAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }),
+      { merge: true }
+    );
+  }
 }
 
 export async function markSavedVehicleActivityViewed(userId: string, vehicleId: string, activityCreatedAt: string) {
@@ -6110,6 +6620,8 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
     }
   }
 
+  await syncVehicleRecordFromPublicListing(vehicle, actor, "created").catch(() => undefined);
+
   return {
     vehicle,
     source: "firestore" as const,
@@ -6274,6 +6786,8 @@ export async function updateVehicle(id: string, input: VehicleFormInput, actor: 
     createdAt: baseVehicle.createdAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
+
+  await syncVehicleRecordFromPublicListing(vehicle, actor, "updated").catch(() => undefined);
 
   return {
     vehicle,
@@ -6520,6 +7034,16 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
 
+  await syncVehicleRecordFromPublicListing(vehicle, actor, "listing_status_changed").catch(() => undefined);
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "public_listing",
+    actionType: "listing_status_changed",
+    affectedRecordId: id,
+    publicListingId: id,
+    summary: `${getVehicleDisplayReference(vehicle)} moderation status changed to ${status}.`
+  }).catch(() => undefined);
+
   return {
     vehicle,
     source: "firestore" as const,
@@ -6591,6 +7115,16 @@ export async function updateSellerVehicleStatus(
     soldAt,
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
+
+  await syncVehicleRecordFromPublicListing(vehicle, actor, "listing_status_changed").catch(() => undefined);
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "public_listing",
+    actionType: "listing_status_changed",
+    affectedRecordId: id,
+    publicListingId: id,
+    summary: `${getVehicleDisplayReference(vehicle)} seller status changed to ${sellerStatus.toLowerCase().replace(/_/g, " ")}.`
+  }).catch(() => undefined);
 
   return {
     vehicle,

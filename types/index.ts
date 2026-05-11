@@ -53,6 +53,7 @@ export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
 export type WarehouseDeclarationAnswer = "yes" | "no" | "unknown";
 export type WarehouseConditionStatus = "documented" | "not_checked";
 export type CustomerProfileStatus = "active" | "archived";
+export type VehicleListingHistoryStatus = "draft" | "published" | "under_offer" | "withdrawn" | "sold" | "warehouse_managed";
 export type VehicleRecordStatus =
   | "draft"
   | "active"
@@ -65,6 +66,15 @@ export type VehicleRecordStatus =
   | "withdrawn";
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
 export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
+export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing";
+export type AdminAuditActionType =
+  | "created"
+  | "updated"
+  | "listing_status_changed"
+  | "linked_listing_synced"
+  | "intake_completed"
+  | "fees_updated"
+  | "editor_heartbeat";
 export type WarehouseServiceFeeCategory =
   | "car_wash"
   | "light_detailing"
@@ -309,6 +319,48 @@ export interface WarehouseServiceFeeItem {
   internalNote: string;
 }
 
+export interface VehicleListingPriceHistoryEntry {
+  amount: number;
+  capturedAt?: string;
+}
+
+export interface VehicleListingStatusTimelineEntry {
+  status: VehicleListingHistoryStatus;
+  changedAt?: string;
+  changedByUid?: string;
+  changedByName?: string;
+}
+
+export interface VehicleListingHistoryEntry {
+  id: string;
+  publicListingId: string;
+  displayReference: string;
+  customerProfileId?: string;
+  customerNameSnapshot?: string;
+  createdAt?: string;
+  publishedAt?: string;
+  withdrawnAt?: string;
+  soldAt?: string;
+  currentStatus: VehicleListingHistoryStatus;
+  askingPriceHistory: VehicleListingPriceHistoryEntry[];
+  statusTransitions: VehicleListingStatusTimelineEntry[];
+}
+
+export interface AdminAuditEvent {
+  id: string;
+  recordType: AdminAuditRecordType;
+  actionType: AdminAuditActionType;
+  affectedRecordId: string;
+  customerProfileId?: string;
+  vehicleRecordId?: string;
+  intakeEventId?: string;
+  publicListingId?: string;
+  staffUid?: string;
+  staffName?: string;
+  summary: string;
+  createdAt?: string;
+}
+
 export interface CustomerProfile {
   id: string;
   fullName: string;
@@ -336,6 +388,9 @@ export interface CustomerProfile {
   linkedVehicleRecordIds: string[];
   linkedListingIds: string[];
   status: CustomerProfileStatus;
+  lastEditedByUid?: string;
+  lastEditedByName?: string;
+  lastEditedAt?: string;
   createdByUid?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -369,10 +424,21 @@ export interface VehicleRecord {
   linkedIntakeIds: string[];
   latestIntakeId?: string;
   status: VehicleRecordStatus;
+  listingHistory: VehicleListingHistoryEntry[];
+  realisedRevenue?: number;
+  outstandingIntakeCosts?: number;
+  storageRevenue?: number;
+  soldGrossTotal?: number;
   serviceFeeSubtotal?: number;
   gstInclusiveServiceFeeTotal?: number;
   estimatedTotalIncome?: number;
   intakeEventCount?: number;
+  lastEditedByUid?: string;
+  lastEditedByName?: string;
+  lastEditedAt?: string;
+  activeIntakeEditorUid?: string;
+  activeIntakeEditorName?: string;
+  activeIntakeEditedAt?: string;
   lastCalculatedAt?: string;
   createdByUid?: string;
   createdAt?: string;
@@ -400,6 +466,14 @@ export interface WarehouseIntakeRecord {
   conditionReport: WarehouseIntakeConditionReport;
   photos: WarehouseIntakePhotoRecord[];
   serviceItems: WarehouseServiceFeeItem[];
+  intakeDate?: string;
+  assignedStaffUid?: string;
+  assignedStaffName?: string;
+  intakeNotes?: string;
+  projectedRevenueSnapshot?: number;
+  storageStartDate?: string;
+  storageEndDate?: string;
+  storageDurationDays?: number;
   serviceFeeSubtotal?: number;
   gstInclusiveServiceFeeTotal?: number;
   gstAmount?: number;
@@ -412,6 +486,12 @@ export interface WarehouseIntakeRecord {
   emailSentAt?: string;
   photoCount?: number;
   adminStaffName?: string;
+  lastEditedByUid?: string;
+  lastEditedByName?: string;
+  lastEditedAt?: string;
+  activeEditorUid?: string;
+  activeEditorName?: string;
+  activeEditorAt?: string;
   createdByUid?: string;
   createdAt?: string;
   updatedAt?: string;

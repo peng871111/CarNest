@@ -11,6 +11,7 @@ import {
   getVehiclesData,
   getVehicleRecordsData,
   getWarehouseIntakeById,
+  markWarehouseIntakeActiveEditor,
   saveWarehouseIntake
 } from "@/lib/data";
 import {
@@ -390,6 +391,17 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       gstComponent: Math.max(gstInclusiveTotal - subtotal, 0)
     };
   }, [draft.serviceItems]);
+  const activeEditorConflict = useMemo(() => {
+    if (!draft.activeEditorUid || !draft.activeEditorAt || !actor) return null;
+    if (draft.activeEditorUid === actor.id) return null;
+    const activeAt = new Date(draft.activeEditorAt).getTime();
+    if (!Number.isFinite(activeAt)) return null;
+    if (Date.now() - activeAt > 15 * 60 * 1000) return null;
+    return {
+      name: draft.activeEditorName || "Another staff member",
+      activeAt: draft.activeEditorAt
+    };
+  }, [actor, draft.activeEditorAt, draft.activeEditorName, draft.activeEditorUid]);
 
   async function getAdminIdToken() {
     const idToken = await firebaseUser?.getIdToken();
@@ -477,6 +489,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         if (existing) {
           setRecordId(existing.id);
           setDraft(toDraft(existing));
+          await markWarehouseIntakeActiveEditor(existing.id, existing.vehicleRecordId, actor).catch(() => undefined);
         }
         setLoading(false);
         if (intakeId) return;
@@ -1008,6 +1021,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       ) : null}
       {errorMessage ? (
         <div className="rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
+      ) : null}
+      {activeEditorConflict ? (
+        <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {activeEditorConflict.name} last updated this intake at {formatAdminDateTime(activeEditorConflict.activeAt)}. Please double-check before making overlapping changes.
+        </div>
       ) : null}
       <div className="rounded-[22px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink/68">
         Draft onboarding can be saved at any stage. Missing documents, photos, ownership proof, or signatures can stay pending and be supplied later.
