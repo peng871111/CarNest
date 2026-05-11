@@ -2,7 +2,7 @@
 
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
-import { CARNEST_CONCIERGE_AGREEMENT_COPY, WAREHOUSE_CONDITION_SECTIONS } from "@/lib/warehouse-intake-config";
+import { CARNEST_CONCIERGE_AGREEMENT_COPY } from "@/lib/warehouse-intake-config";
 import { WarehouseIntakeRecord } from "@/types";
 
 const PAGE_WIDTH = 595.28;
@@ -270,8 +270,13 @@ export async function generateWarehouseIntakePdf(
     ["Phone", sanitizeText(record.ownerDetails.phone, "Not provided", supportsUnicode)],
     ["Preferred contact", sanitizeText(record.ownerDetails.preferredContactMethod.replace(/_/g, " "), "Not provided", supportsUnicode)],
     ["Address", sanitizeText(record.ownerDetails.address, "Not provided", supportsUnicode)],
+    ["Date of birth", sanitizeText(record.ownerDetails.dateOfBirth, "Not provided", supportsUnicode)],
     ["ID type", sanitizeText(record.ownerDetails.identificationDocumentType.replace(/_/g, " "), "Not provided", supportsUnicode)],
     ["ID number", sanitizeText(record.ownerDetails.identificationDocumentNumber, "Not provided", supportsUnicode)],
+    ["Company owned", record.ownerDetails.companyOwned ? "Yes" : "No"],
+    ["Company name", sanitizeText(record.ownerDetails.companyName, "Not provided", supportsUnicode)],
+    ["ABN", sanitizeText(record.ownerDetails.abn, "Not provided", supportsUnicode)],
+    ["ACN", sanitizeText(record.ownerDetails.acn, "Not provided", supportsUnicode)],
     ["Legal owner confirmed", record.ownerDetails.isLegalOwnerConfirmed ? "Yes" : "No"]
   ]);
   drawField("Customer verification notes", sanitizeText(record.ownerDetails.customerVerificationNotes, "No additional customer verification notes", supportsUnicode));
@@ -288,6 +293,10 @@ export async function generateWarehouseIntakePdf(
     ["Odometer", sanitizeText(record.vehicleDetails.odometer, "Not provided", supportsUnicode)],
     ["Registration expiry", sanitizeText(record.vehicleDetails.registrationExpiry, "Not provided", supportsUnicode)],
     ["Number of keys", sanitizeText(record.vehicleDetails.numberOfKeys, "Not provided", supportsUnicode)],
+    ["Fuel type", sanitizeText(record.vehicleDetails.fuelType, "Not provided", supportsUnicode)],
+    ["Transmission", sanitizeText(record.vehicleDetails.transmission, "Not provided", supportsUnicode)],
+    ["Asking price", sanitizeText(record.vehicleDetails.askingPrice, "Not provided", supportsUnicode)],
+    ["Reserve price", sanitizeText(record.vehicleDetails.reservePrice, "Not provided", supportsUnicode)],
     ["Service history", sanitizeText(record.vehicleDetails.serviceHistory, "Not provided", supportsUnicode)],
     ["Accident history", sanitizeText(record.vehicleDetails.accidentHistory, "Not provided", supportsUnicode)]
   ]);
@@ -314,30 +323,29 @@ export async function generateWarehouseIntakePdf(
   );
 
   drawSectionTitle("Documentation summary");
-  (Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).forEach(
-    ([sectionKey, items]) => {
-      ensureSpace(24);
-      page.drawText(normalizePdfText(sectionKey.charAt(0).toUpperCase() + sectionKey.slice(1), supportsUnicode), {
-        x: PAGE_MARGIN,
-        y: cursorY,
-        size: 12,
-        font: bold,
-        color: rgb(0.18, 0.18, 0.18)
-      });
-      cursorY -= 16;
-
-      items.forEach((item) => {
-        const entry = record.conditionReport[sectionKey][item.key];
-        drawField(
-          item.label,
-          normalizePdfText(
-            `${entry.documented || entry.condition === "documented" ? "Documentation captured" : "Not checked"}${entry.notes ? ` — ${entry.notes}` : ""}`,
-            supportsUnicode
-          )
-        );
-      });
-    }
+  drawField("Photo evidence uploaded", `${record.photos.length} file${record.photos.length === 1 ? "" : "s"} attached to this intake event.`);
+  drawField(
+    "Visible defects / condition comments",
+    sanitizeText(record.conditionReport.exterior.visibleDefects?.notes, "No additional visible defect notes recorded", supportsUnicode)
   );
+
+  if (record.serviceItems.length) {
+    drawSectionTitle("Service fee items");
+    record.serviceItems.forEach((item, index) => {
+      drawField(
+        `Service item ${index + 1}`,
+        sanitizeText(
+          `${item.serviceName || "Service item"} · ${item.category.replace(/_/g, " ")} · $${item.amount.toFixed(2)}${item.gstIncluded ? " incl. GST" : ""}${item.customerVisible ? " · customer visible" : " · internal only"}${item.internalNote ? ` · ${item.internalNote}` : ""}`,
+          "Service item",
+          supportsUnicode
+        )
+      );
+    });
+    drawField(
+      "Service fee total",
+      `$${record.serviceItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}`
+    );
+  }
 
   drawSectionTitle("Agreement");
   CARNEST_CONCIERGE_AGREEMENT_COPY.forEach((line) => drawField("Agreement term", line));

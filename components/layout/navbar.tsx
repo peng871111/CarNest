@@ -33,8 +33,10 @@ export default function Navbar() {
     ? isAdminUser
       ? [
           { href: "/admin/analytics", label: "Dashboard" },
-          { href: "/admin/vehicles", label: "Vehicle Management" },
+          { href: "/admin/vehicles", label: "Vehicle Workspace" },
+          { href: "/admin/customers", label: "Customers" },
           { href: "/admin/warehouse-intake", label: "Warehouse Intake" },
+          { href: "/admin/public-listings", label: "Public Listings" },
           { href: "/dashboard/settings", label: "Account Settings" }
         ]
       : accountLinks

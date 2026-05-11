@@ -53,9 +53,30 @@ export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
 export type WarehouseDeclarationAnswer = "yes" | "no" | "unknown";
 export type WarehouseConditionStatus = "documented" | "not_checked";
 export type CustomerProfileStatus = "active" | "archived";
-export type VehicleRecordStatus = "draft" | "active" | "archived";
+export type VehicleRecordStatus =
+  | "draft"
+  | "active"
+  | "archived"
+  | "warehouse_managed"
+  | "private_seller_managed"
+  | "listed"
+  | "sold"
+  | "withdrawn";
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
 export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
+export type WarehouseServiceFeeCategory =
+  | "car_wash"
+  | "light_detailing"
+  | "paint_correction"
+  | "interior_restoration"
+  | "minor_repair"
+  | "tyres"
+  | "battery"
+  | "roadworthy_certificate"
+  | "coordination_service_fee"
+  | "storage_fee"
+  | "sundry"
+  | "other";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"
@@ -203,10 +224,15 @@ export interface WarehouseIntakeOwnerDetails {
   email: string;
   phone: string;
   address: string;
+  dateOfBirth: string;
   preferredContactMethod: WarehousePreferredContactMethod;
   customerVerificationNotes: string;
   identificationDocumentType: WarehouseIdentificationDocumentType;
   identificationDocumentNumber: string;
+  companyOwned: boolean;
+  companyName: string;
+  abn: string;
+  acn: string;
   identificationDocument?: WarehouseIntakeFileRecord | null;
   isLegalOwnerConfirmed: boolean;
 }
@@ -222,6 +248,10 @@ export interface WarehouseIntakeVehicleDetails {
   odometer: string;
   registrationExpiry: string;
   numberOfKeys: string;
+  fuelType: string;
+  transmission: string;
+  askingPrice: string;
+  reservePrice: string;
   serviceHistory: string;
   accidentHistory: string;
   ownershipProof?: WarehouseIntakeFileRecord | null;
@@ -268,6 +298,16 @@ export interface WarehouseIntakeSignature {
   signatureStoragePath?: string;
 }
 
+export interface WarehouseServiceFeeItem {
+  id: string;
+  serviceName: string;
+  category: WarehouseServiceFeeCategory;
+  amount: number;
+  gstIncluded: boolean;
+  customerVisible: boolean;
+  internalNote: string;
+}
+
 export interface CustomerProfile {
   id: string;
   fullName: string;
@@ -276,10 +316,15 @@ export interface CustomerProfile {
   phone: string;
   normalizedPhone: string;
   address: string;
+  dateOfBirth: string;
   preferredContactMethod: WarehousePreferredContactMethod;
   customerVerificationNotes: string;
   identificationDocumentType: WarehouseIdentificationDocumentType;
   identificationDocumentNumber: string;
+  companyOwned: boolean;
+  companyName: string;
+  abn: string;
+  acn: string;
   identificationDocument?: WarehouseIntakeFileRecord | null;
   isLegalOwnerConfirmed: boolean;
   declarations: WarehouseIntakeDeclarations;
@@ -311,6 +356,10 @@ export interface VehicleRecord {
   odometer: string;
   registrationExpiry: string;
   numberOfKeys: string;
+  fuelType: string;
+  transmission: string;
+  askingPrice: string;
+  reservePrice: string;
   serviceHistory: string;
   accidentHistory: string;
   ownershipProof?: WarehouseIntakeFileRecord | null;
@@ -344,6 +393,7 @@ export interface WarehouseIntakeRecord {
   declarations: WarehouseIntakeDeclarations;
   conditionReport: WarehouseIntakeConditionReport;
   photos: WarehouseIntakePhotoRecord[];
+  serviceItems: WarehouseServiceFeeItem[];
   agreement: WarehouseIntakeAgreement;
   signature: WarehouseIntakeSignature;
   signedPdfStoragePath?: string;

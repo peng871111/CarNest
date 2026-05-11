@@ -86,6 +86,7 @@ import {
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
   WarehouseIntakeRecord,
+  WarehouseServiceFeeItem,
   WarehouseIntakeSignature,
   WarehouseIntakeStatus,
   WarehouseIntakeVehicleDetails
@@ -697,10 +698,15 @@ function createEmptyWarehouseOwnerDetails(): WarehouseIntakeOwnerDetails {
     email: "",
     phone: "",
     address: "",
+    dateOfBirth: "",
     preferredContactMethod: "either",
     customerVerificationNotes: "",
     identificationDocumentType: "",
     identificationDocumentNumber: "",
+    companyOwned: false,
+    companyName: "",
+    abn: "",
+    acn: "",
     identificationDocument: null,
     isLegalOwnerConfirmed: false
   };
@@ -718,10 +724,26 @@ function createEmptyWarehouseVehicleDetails(): WarehouseIntakeVehicleDetails {
     odometer: "",
     registrationExpiry: "",
     numberOfKeys: "",
+    fuelType: "",
+    transmission: "",
+    askingPrice: "",
+    reservePrice: "",
     serviceHistory: "",
     accidentHistory: "",
     ownershipProof: null,
     notes: ""
+  };
+}
+
+export function createEmptyWarehouseServiceFeeItem(overrides?: Partial<WarehouseServiceFeeItem>): WarehouseServiceFeeItem {
+  return {
+    id: overrides?.id || `service-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    serviceName: overrides?.serviceName || "",
+    category: overrides?.category || "sundry",
+    amount: typeof overrides?.amount === "number" ? overrides.amount : 0,
+    gstIncluded: overrides?.gstIncluded ?? true,
+    customerVisible: overrides?.customerVisible ?? true,
+    internalNote: overrides?.internalNote || ""
   };
 }
 
@@ -767,7 +789,7 @@ function createEmptyWarehouseSignature(): WarehouseIntakeSignature {
   };
 }
 
-function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
+export function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
   return {
     fullName: "",
     email: "",
@@ -775,10 +797,15 @@ function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
     phone: "",
     normalizedPhone: "",
     address: "",
+    dateOfBirth: "",
     preferredContactMethod: "either",
     customerVerificationNotes: "",
     identificationDocumentType: "",
     identificationDocumentNumber: "",
+    companyOwned: false,
+    companyName: "",
+    abn: "",
+    acn: "",
     identificationDocument: null,
     isLegalOwnerConfirmed: false,
     declarations: createEmptyWarehouseDeclarations(),
@@ -795,7 +822,7 @@ function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
   };
 }
 
-function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
+export function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
   return {
     customerProfileId: "",
     publicListingId: "",
@@ -811,6 +838,10 @@ function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
     odometer: "",
     registrationExpiry: "",
     numberOfKeys: "",
+    fuelType: "",
+    transmission: "",
+    askingPrice: "",
+    reservePrice: "",
     serviceHistory: "",
     accidentHistory: "",
     ownershipProof: null,
@@ -857,6 +888,7 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     declarations: createEmptyWarehouseDeclarations(),
     conditionReport: createEmptyWarehouseConditionReport(),
     photos: [],
+    serviceItems: [],
     agreement: createEmptyWarehouseAgreement(),
     signature: createEmptyWarehouseSignature(),
     signedPdfStoragePath: "",
@@ -898,6 +930,18 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
         }))
         .filter((item) => item.storagePath)
     : [];
+  const serviceItems = Array.isArray(data.serviceItems)
+    ? (data.serviceItems as Array<Record<string, unknown>>)
+        .map((item, index) => createEmptyWarehouseServiceFeeItem({
+          id: typeof item.id === "string" && item.id ? item.id : `${id}-service-${index + 1}`,
+          serviceName: typeof item.serviceName === "string" ? item.serviceName : "",
+          category: typeof item.category === "string" ? item.category as WarehouseServiceFeeItem["category"] : "sundry",
+          amount: Number(item.amount ?? 0),
+          gstIncluded: item.gstIncluded !== false,
+          customerVisible: item.customerVisible !== false,
+          internalNote: typeof item.internalNote === "string" ? item.internalNote : ""
+        }))
+    : [];
 
   return {
     id,
@@ -912,10 +956,15 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       email: typeof ownerInput.email === "string" ? ownerInput.email : "",
       phone: typeof ownerInput.phone === "string" ? ownerInput.phone : "",
       address: typeof ownerInput.address === "string" ? ownerInput.address : "",
+      dateOfBirth: typeof ownerInput.dateOfBirth === "string" ? ownerInput.dateOfBirth : "",
       preferredContactMethod: normalizeWarehousePreferredContactMethod(ownerInput.preferredContactMethod),
       customerVerificationNotes: typeof ownerInput.customerVerificationNotes === "string" ? ownerInput.customerVerificationNotes : "",
       identificationDocumentType: normalizeWarehouseIdentificationDocumentType(ownerInput.identificationDocumentType),
       identificationDocumentNumber: typeof ownerInput.identificationDocumentNumber === "string" ? ownerInput.identificationDocumentNumber : "",
+      companyOwned: ownerInput.companyOwned === true,
+      companyName: typeof ownerInput.companyName === "string" ? ownerInput.companyName : "",
+      abn: typeof ownerInput.abn === "string" ? ownerInput.abn : "",
+      acn: typeof ownerInput.acn === "string" ? ownerInput.acn : "",
       identificationDocument: serializeWarehouseFileRecord(
         ownerInput.identificationDocument ?? ownerInput.licencePhoto
       ),
@@ -932,6 +981,10 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       odometer: typeof vehicleInput.odometer === "string" ? vehicleInput.odometer : "",
       registrationExpiry: typeof vehicleInput.registrationExpiry === "string" ? vehicleInput.registrationExpiry : "",
       numberOfKeys: typeof vehicleInput.numberOfKeys === "string" ? vehicleInput.numberOfKeys : "",
+      fuelType: typeof vehicleInput.fuelType === "string" ? vehicleInput.fuelType : "",
+      transmission: typeof vehicleInput.transmission === "string" ? vehicleInput.transmission : "",
+      askingPrice: typeof vehicleInput.askingPrice === "string" ? vehicleInput.askingPrice : "",
+      reservePrice: typeof vehicleInput.reservePrice === "string" ? vehicleInput.reservePrice : "",
       serviceHistory: typeof vehicleInput.serviceHistory === "string" ? vehicleInput.serviceHistory : "",
       accidentHistory: typeof vehicleInput.accidentHistory === "string" ? vehicleInput.accidentHistory : "",
       ownershipProof: serializeWarehouseFileRecord(
@@ -957,6 +1010,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       mechanical: serializeWarehouseConditionSection(conditionInput.mechanical, WAREHOUSE_MECHANICAL_KEYS)
     },
     photos,
+    serviceItems,
     agreement: {
       informationAccurateConfirmed: agreementInput.informationAccurateConfirmed === true,
       storageAssistanceAuthorized: agreementInput.storageAssistanceAuthorized === true,
@@ -1008,10 +1062,15 @@ function serializeCustomerProfileDoc(id: string, data: Record<string, unknown>):
     phone: typeof data.phone === "string" ? data.phone : "",
     normalizedPhone: typeof data.normalizedPhone === "string" ? data.normalizedPhone : "",
     address: typeof data.address === "string" ? data.address : "",
+    dateOfBirth: typeof data.dateOfBirth === "string" ? data.dateOfBirth : "",
     preferredContactMethod: normalizeWarehousePreferredContactMethod(data.preferredContactMethod),
     customerVerificationNotes: typeof data.customerVerificationNotes === "string" ? data.customerVerificationNotes : "",
     identificationDocumentType: normalizeWarehouseIdentificationDocumentType(data.identificationDocumentType),
     identificationDocumentNumber: typeof data.identificationDocumentNumber === "string" ? data.identificationDocumentNumber : "",
+    companyOwned: data.companyOwned === true,
+    companyName: typeof data.companyName === "string" ? data.companyName : "",
+    abn: typeof data.abn === "string" ? data.abn : "",
+    acn: typeof data.acn === "string" ? data.acn : "",
     identificationDocument: serializeWarehouseFileRecord(data.identificationDocument ?? data.licencePhoto),
     isLegalOwnerConfirmed: data.isLegalOwnerConfirmed === true,
     declarations: {
@@ -1058,6 +1117,10 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
     odometer: typeof data.odometer === "string" ? data.odometer : "",
     registrationExpiry: typeof data.registrationExpiry === "string" ? data.registrationExpiry : "",
     numberOfKeys: typeof data.numberOfKeys === "string" ? data.numberOfKeys : "",
+    fuelType: typeof data.fuelType === "string" ? data.fuelType : "",
+    transmission: typeof data.transmission === "string" ? data.transmission : "",
+    askingPrice: typeof data.askingPrice === "string" ? data.askingPrice : "",
+    reservePrice: typeof data.reservePrice === "string" ? data.reservePrice : "",
     serviceHistory: typeof data.serviceHistory === "string" ? data.serviceHistory : "",
     accidentHistory: typeof data.accidentHistory === "string" ? data.accidentHistory : "",
     ownershipProof: serializeWarehouseFileRecord(data.ownershipProof),
@@ -1070,7 +1133,16 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
       ? (data.linkedIntakeIds as unknown[]).filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
     latestIntakeId: typeof data.latestIntakeId === "string" ? data.latestIntakeId : "",
-    status: data.status === "active" || data.status === "archived" ? data.status : "draft",
+    status:
+      data.status === "active"
+      || data.status === "archived"
+      || data.status === "warehouse_managed"
+      || data.status === "private_seller_managed"
+      || data.status === "listed"
+      || data.status === "sold"
+      || data.status === "withdrawn"
+        ? data.status
+        : "draft",
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
@@ -3494,6 +3566,26 @@ async function resolveVehicleRecordId(
     if (!snapshot.empty) return snapshot.docs[0].id;
   }
 
+  const customerProfileId = intake.customerProfileId?.trim();
+  const make = sanitizeSingleLineText(intake.vehicleDetails?.make ?? "");
+  const model = sanitizeSingleLineText(intake.vehicleDetails?.model ?? "");
+  const year = sanitizeSingleLineText(intake.vehicleDetails?.year ?? "");
+  if (customerProfileId && make && model && year) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "vehicleRecords"),
+        where("customerProfileId", "==", customerProfileId),
+        where("make", "==", make),
+        where("model", "==", model),
+        where("year", "==", year),
+        limit(2)
+      )
+    );
+    if (snapshot.size === 1) {
+      return snapshot.docs[0].id;
+    }
+  }
+
   return "";
 }
 
@@ -3522,10 +3614,15 @@ function buildCustomerProfileWritePayload(
     phone: sanitizeSingleLineText(input.ownerDetails?.phone ?? ""),
     normalizedPhone,
     address: sanitizeMultilineText(input.ownerDetails?.address ?? ""),
+    dateOfBirth: sanitizeSingleLineText(input.ownerDetails?.dateOfBirth ?? ""),
     preferredContactMethod: normalizeWarehousePreferredContactMethod(input.ownerDetails?.preferredContactMethod),
     customerVerificationNotes: sanitizeMultilineText(input.ownerDetails?.customerVerificationNotes ?? ""),
     identificationDocumentType: normalizeWarehouseIdentificationDocumentType(input.ownerDetails?.identificationDocumentType),
     identificationDocumentNumber: sanitizeSingleLineText(input.ownerDetails?.identificationDocumentNumber ?? ""),
+    companyOwned: input.ownerDetails?.companyOwned === true,
+    companyName: sanitizeSingleLineText(input.ownerDetails?.companyName ?? ""),
+    abn: sanitizeSingleLineText(input.ownerDetails?.abn ?? ""),
+    acn: sanitizeSingleLineText(input.ownerDetails?.acn ?? ""),
     identificationDocument: input.ownerDetails?.identificationDocument ?? null,
     isLegalOwnerConfirmed: input.ownerDetails?.isLegalOwnerConfirmed === true,
     declarations: {
@@ -3564,6 +3661,12 @@ function buildVehicleRecordWritePayload(
   intakeId: string
 ) {
   const base = createEmptyVehicleRecord();
+  const linkedStatus =
+    input.vehicleId?.trim()
+      ? ("listed" as VehicleRecordStatus)
+      : input.status === "signed"
+        ? ("warehouse_managed" as VehicleRecordStatus)
+        : ("draft" as VehicleRecordStatus);
   return {
     ...base,
     customerProfileId,
@@ -3580,6 +3683,10 @@ function buildVehicleRecordWritePayload(
     odometer: sanitizeSingleLineText(input.vehicleDetails?.odometer ?? ""),
     registrationExpiry: sanitizeSingleLineText(input.vehicleDetails?.registrationExpiry ?? ""),
     numberOfKeys: sanitizeSingleLineText(input.vehicleDetails?.numberOfKeys ?? ""),
+    fuelType: sanitizeSingleLineText(input.vehicleDetails?.fuelType ?? ""),
+    transmission: sanitizeSingleLineText(input.vehicleDetails?.transmission ?? ""),
+    askingPrice: sanitizeSingleLineText(input.vehicleDetails?.askingPrice ?? ""),
+    reservePrice: sanitizeSingleLineText(input.vehicleDetails?.reservePrice ?? ""),
     serviceHistory: sanitizeMultilineText(input.vehicleDetails?.serviceHistory ?? ""),
     accidentHistory: sanitizeMultilineText(input.vehicleDetails?.accidentHistory ?? ""),
     ownershipProof: input.vehicleDetails?.ownershipProof ?? null,
@@ -3590,7 +3697,7 @@ function buildVehicleRecordWritePayload(
     notes: sanitizeMultilineText(input.vehicleDetails?.notes ?? ""),
     linkedIntakeIds: intakeId ? [intakeId] : [],
     latestIntakeId: intakeId,
-    status: input.status === "signed" ? "active" as VehicleRecordStatus : "draft" as VehicleRecordStatus,
+    status: linkedStatus,
     createdByUid: actor.id
   };
 }
@@ -3657,6 +3764,137 @@ async function upsertVehicleRecordFromIntake(
   return ref.id;
 }
 
+export async function saveCustomerProfile(
+  input: Omit<CustomerProfile, "id" | "createdAt" | "updatedAt">,
+  actor: VehicleActor,
+  existingId?: string
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage customer profiles.");
+
+  if (!isFirebaseConfigured) {
+    const id = existingId || `mock-customer-profile-${Date.now()}`;
+    return {
+      profile: {
+        id,
+        ...createEmptyCustomerProfile(),
+        ...input,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } satisfies CustomerProfile,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const ref = existingId ? doc(db, "customerProfiles", existingId) : doc(collection(db, "customerProfiles"));
+  const now = new Date().toISOString();
+  const payload = sanitizeFirestoreWriteData({
+    ...createEmptyCustomerProfile(),
+    ...input,
+    fullName: sanitizeSingleLineText(input.fullName),
+    email: normalizeCustomerProfileEmail(input.email),
+    normalizedEmail: normalizeCustomerProfileEmail(input.email),
+    phone: sanitizeSingleLineText(input.phone),
+    normalizedPhone: normalizeCustomerProfilePhone(input.phone),
+    address: sanitizeMultilineText(input.address),
+    dateOfBirth: sanitizeSingleLineText(input.dateOfBirth),
+    customerVerificationNotes: sanitizeMultilineText(input.customerVerificationNotes),
+    identificationDocumentNumber: sanitizeSingleLineText(input.identificationDocumentNumber),
+    companyName: sanitizeSingleLineText(input.companyName),
+    abn: sanitizeSingleLineText(input.abn),
+    acn: sanitizeSingleLineText(input.acn),
+    preferredContactMethod: normalizeWarehousePreferredContactMethod(input.preferredContactMethod),
+    identificationDocumentType: normalizeWarehouseIdentificationDocumentType(input.identificationDocumentType),
+    linkedVehicleRecordIds: Array.from(new Set((input.linkedVehicleRecordIds ?? []).filter(Boolean))),
+    linkedListingIds: Array.from(new Set((input.linkedListingIds ?? []).filter(Boolean))),
+    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp()
+  });
+
+  await setDoc(ref, payload, { merge: true });
+
+  return {
+    profile: {
+      id: ref.id,
+      ...createEmptyCustomerProfile(),
+      ...input,
+      email: normalizeCustomerProfileEmail(input.email),
+      normalizedEmail: normalizeCustomerProfileEmail(input.email),
+      phone: sanitizeSingleLineText(input.phone),
+      normalizedPhone: normalizeCustomerProfilePhone(input.phone),
+      createdAt: existingId ? undefined : now,
+      updatedAt: now
+    } satisfies CustomerProfile,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function saveVehicleRecord(
+  input: Omit<VehicleRecord, "id" | "createdAt" | "updatedAt">,
+  actor: VehicleActor,
+  existingId?: string
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage vehicle records.");
+
+  if (!isFirebaseConfigured) {
+    const id = existingId || `mock-vehicle-record-${Date.now()}`;
+    return {
+      vehicleRecord: {
+        id,
+        ...createEmptyVehicleRecord(),
+        ...input,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } satisfies VehicleRecord,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const ref = existingId ? doc(db, "vehicleRecords", existingId) : doc(collection(db, "vehicleRecords"));
+  const now = new Date().toISOString();
+  const payload = sanitizeFirestoreWriteData({
+    ...createEmptyVehicleRecord(),
+    ...input,
+    title: sanitizeSingleLineText(input.title ?? ""),
+    make: sanitizeSingleLineText(input.make ?? ""),
+    model: sanitizeSingleLineText(input.model ?? ""),
+    variant: sanitizeSingleLineText(input.variant ?? ""),
+    year: sanitizeSingleLineText(input.year ?? ""),
+    registrationPlate: sanitizeSingleLineText(input.registrationPlate ?? ""),
+    vin: sanitizeSingleLineText(input.vin ?? ""),
+    colour: sanitizeSingleLineText(input.colour ?? ""),
+    odometer: sanitizeSingleLineText(input.odometer ?? ""),
+    registrationExpiry: sanitizeSingleLineText(input.registrationExpiry ?? ""),
+    numberOfKeys: sanitizeSingleLineText(input.numberOfKeys ?? ""),
+    fuelType: sanitizeSingleLineText(input.fuelType ?? ""),
+    transmission: sanitizeSingleLineText(input.transmission ?? ""),
+    askingPrice: sanitizeSingleLineText(input.askingPrice ?? ""),
+    reservePrice: sanitizeSingleLineText(input.reservePrice ?? ""),
+    serviceHistory: sanitizeMultilineText(input.serviceHistory ?? ""),
+    accidentHistory: sanitizeMultilineText(input.accidentHistory ?? ""),
+    notes: sanitizeMultilineText(input.notes ?? ""),
+    linkedIntakeIds: Array.from(new Set((input.linkedIntakeIds ?? []).filter(Boolean))),
+    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp()
+  });
+
+  await setDoc(ref, payload, { merge: true });
+
+  return {
+    vehicleRecord: {
+      id: ref.id,
+      ...createEmptyVehicleRecord(),
+      ...input,
+      createdAt: existingId ? undefined : now,
+      updatedAt: now
+    } satisfies VehicleRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 function buildWarehouseIntakeWritePayload(
   input: Omit<WarehouseIntakeRecord, "id" | "updatedAt" | "photoCount">,
   actor: VehicleActor
@@ -3684,6 +3922,24 @@ function buildWarehouseIntakeWritePayload(
     ...base.agreement,
     ...input.agreement
   };
+  const serviceItems = Array.from(
+    new Map(
+      (input.serviceItems ?? [])
+        .map((item) =>
+          createEmptyWarehouseServiceFeeItem({
+            id: item.id,
+            serviceName: sanitizeSingleLineText(item.serviceName ?? ""),
+            category: item.category,
+            amount: Number.isFinite(Number(item.amount)) ? Number(item.amount) : 0,
+            gstIncluded: item.gstIncluded !== false,
+            customerVisible: item.customerVisible !== false,
+            internalNote: sanitizeMultilineText(item.internalNote ?? "")
+          })
+        )
+        .filter((item) => item.serviceName || item.amount > 0 || item.internalNote)
+        .map((item) => [item.id, item] as const)
+    ).values()
+  );
   const normalizedSignedAt = typeof input.signature?.signedAt === "string" && input.signature.signedAt.trim()
     ? input.signature.signedAt
     : "";
@@ -3723,6 +3979,7 @@ function buildWarehouseIntakeWritePayload(
       mechanical: serializeWarehouseConditionSection(input.conditionReport?.mechanical, WAREHOUSE_MECHANICAL_KEYS)
     } satisfies WarehouseIntakeConditionReport,
     photos,
+    serviceItems,
     agreement: {
       ...agreement,
       ...(agreement.reviewedAt ? { reviewedAt: agreement.reviewedAt } : {})

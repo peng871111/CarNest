@@ -5,6 +5,7 @@ import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTML
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  createEmptyWarehouseServiceFeeItem,
   createEmptyWarehouseIntakeRecord,
   getCustomerProfilesData,
   getVehiclesData,
@@ -41,8 +42,24 @@ import {
   WarehouseConditionItem,
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
-  WarehouseIntakeRecord
+  WarehouseIntakeRecord,
+  WarehouseServiceFeeItem
 } from "@/types";
+
+const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["category"]; label: string }> = [
+  { value: "car_wash", label: "Car wash" },
+  { value: "light_detailing", label: "Light detailing" },
+  { value: "paint_correction", label: "Paint correction" },
+  { value: "interior_restoration", label: "Interior restoration" },
+  { value: "minor_repair", label: "Minor repair" },
+  { value: "tyres", label: "Tyres" },
+  { value: "battery", label: "Battery" },
+  { value: "roadworthy_certificate", label: "Roadworthy certificate" },
+  { value: "coordination_service_fee", label: "Coordination service fee" },
+  { value: "storage_fee", label: "Storage fee" },
+  { value: "sundry", label: "Sundry" },
+  { value: "other", label: "Other" }
+];
 
 function toDraft(record: WarehouseIntakeRecord): Omit<WarehouseIntakeRecord, "id"> {
   const { id: _id, ...draft } = record;
@@ -81,16 +98,21 @@ function applyCustomerProfileToDraft(
       customerProfileId: "",
       ownerDetails: {
         ...draft.ownerDetails,
-        fullName: "",
-        email: "",
-        phone: "",
-        address: "",
-        preferredContactMethod: "either",
-        customerVerificationNotes: "",
-        identificationDocumentType: "",
-        identificationDocumentNumber: "",
-        identificationDocument: null,
-        isLegalOwnerConfirmed: false
+      fullName: "",
+      email: "",
+      phone: "",
+      address: "",
+      dateOfBirth: "",
+      preferredContactMethod: "either",
+      customerVerificationNotes: "",
+      identificationDocumentType: "",
+      identificationDocumentNumber: "",
+      companyOwned: false,
+      companyName: "",
+      abn: "",
+      acn: "",
+      identificationDocument: null,
+      isLegalOwnerConfirmed: false
       }
     };
   }
@@ -104,10 +126,15 @@ function applyCustomerProfileToDraft(
       email: profile.email,
       phone: profile.phone,
       address: profile.address,
+      dateOfBirth: profile.dateOfBirth,
       preferredContactMethod: profile.preferredContactMethod,
       customerVerificationNotes: profile.customerVerificationNotes,
       identificationDocumentType: profile.identificationDocumentType,
       identificationDocumentNumber: profile.identificationDocumentNumber,
+      companyOwned: profile.companyOwned,
+      companyName: profile.companyName,
+      abn: profile.abn,
+      acn: profile.acn,
       identificationDocument: profile.identificationDocument ?? null,
       isLegalOwnerConfirmed: profile.isLegalOwnerConfirmed
     }
@@ -136,6 +163,10 @@ function applyVehicleRecordToDraft(
         odometer: "",
         registrationExpiry: "",
         numberOfKeys: "",
+        fuelType: "",
+        transmission: "",
+        askingPrice: "",
+        reservePrice: "",
         serviceHistory: "",
         accidentHistory: "",
         ownershipProof: null,
@@ -165,6 +196,10 @@ function applyVehicleRecordToDraft(
       odometer: record.odometer,
       registrationExpiry: record.registrationExpiry,
       numberOfKeys: record.numberOfKeys,
+      fuelType: record.fuelType,
+      transmission: record.transmission,
+      askingPrice: record.askingPrice,
+      reservePrice: record.reservePrice,
       serviceHistory: record.serviceHistory,
       accidentHistory: record.accidentHistory,
       ownershipProof: record.ownershipProof ?? null,
@@ -200,6 +235,9 @@ function mergeVehicleIntoDraft(draft: Omit<WarehouseIntakeRecord, "id">, vehicle
       odometer: vehicle.mileage ? String(vehicle.mileage) : draft.vehicleDetails.odometer,
       registrationExpiry: vehicle.regoExpiry || draft.vehicleDetails.registrationExpiry,
       numberOfKeys: vehicle.keyCount || draft.vehicleDetails.numberOfKeys,
+      fuelType: vehicle.fuelType || draft.vehicleDetails.fuelType,
+      transmission: vehicle.transmission || draft.vehicleDetails.transmission,
+      askingPrice: vehicle.price ? String(vehicle.price) : draft.vehicleDetails.askingPrice,
       serviceHistory: vehicle.serviceHistory || draft.vehicleDetails.serviceHistory,
       notes: draft.vehicleDetails.notes || vehicle.description || ""
     }
@@ -306,6 +344,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const selectedVehicleId = searchParams.get("vehicleId") || "";
+  const selectedCustomerProfileId = searchParams.get("customerProfileId") || "";
+  const selectedVehicleRecordId = searchParams.get("vehicleRecordId") || "";
   const signatureRef = useRef<SignaturePadHandle | null>(null);
   const bootstrappedRef = useRef(false);
 
@@ -325,10 +365,21 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
     [draft.customerProfileId, vehicleRecords]
   );
+  const canViewSensitiveCustomerFields = hasAdminPermission(appUser, "manageUsers");
   const selectedVehicleRecord = useMemo(
     () => customerVehicleRecords.find((record) => record.id === draft.vehicleRecordId) || null,
     [customerVehicleRecords, draft.vehicleRecordId]
   );
+  const serviceFeeTotals = useMemo(() => {
+    const total = draft.serviceItems.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    const customerVisibleTotal = draft.serviceItems
+      .filter((item) => item.customerVisible)
+      .reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    const gstIncludedTotal = draft.serviceItems
+      .filter((item) => item.gstIncluded)
+      .reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    return { total, customerVisibleTotal, gstIncludedTotal };
+  }, [draft.serviceItems]);
 
   async function getAdminIdToken() {
     const idToken = await firebaseUser?.getIdToken();
@@ -426,7 +477,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
         bootstrappedRef.current = true;
         const seedVehicle = vehiclesResult.items.find((vehicle) => vehicle.id === selectedVehicleId) || null;
-        const seededDraft = mergeVehicleIntoDraft(createEmptyWarehouseIntakeRecord(seedVehicle), seedVehicle);
+        const seedVehicleRecord = vehicleRecordsResult.items.find((record) => record.id === selectedVehicleRecordId) || null;
+        const seedCustomerProfile =
+          customerProfilesResult.items.find((profile) => profile.id === selectedCustomerProfileId)
+          || (seedVehicleRecord?.customerProfileId ? customerProfilesResult.items.find((profile) => profile.id === seedVehicleRecord.customerProfileId) || null : null);
+        let seededDraft = createEmptyWarehouseIntakeRecord(seedVehicle);
+        seededDraft = mergeVehicleIntoDraft(seededDraft, seedVehicle);
+        seededDraft = applyCustomerProfileToDraft(seededDraft, seedCustomerProfile);
+        seededDraft = applyVehicleRecordToDraft(seededDraft, seedVehicleRecord);
 
         const saved = await saveWarehouseIntake(seededDraft, actor);
         if (cancelled) return;
@@ -448,7 +506,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     return () => {
       cancelled = true;
     };
-  }, [actor, appUser, authLoading, firebaseUser, intakeId, router, selectedVehicleId]);
+  }, [actor, appUser, authLoading, firebaseUser, intakeId, router, selectedCustomerProfileId, selectedVehicleId, selectedVehicleRecordId]);
 
   async function persistDraft(nextDraft = draft, successMessage?: string) {
     if (!actor) {
@@ -563,6 +621,27 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           }
         }
       }
+    }));
+  }
+
+  function addServiceItem() {
+    setDraft((current) => ({
+      ...current,
+      serviceItems: current.serviceItems.concat(createEmptyWarehouseServiceFeeItem())
+    }));
+  }
+
+  function updateServiceItem(id: string, updates: Partial<WarehouseServiceFeeItem>) {
+    setDraft((current) => ({
+      ...current,
+      serviceItems: current.serviceItems.map((item) => (item.id === id ? { ...item, ...updates } : item))
+    }));
+  }
+
+  function removeServiceItem(id: string) {
+    setDraft((current) => ({
+      ...current,
+      serviceItems: current.serviceItems.filter((item) => item.id !== id)
     }));
   }
 
@@ -991,6 +1070,12 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <FieldLabel>Address (optional)</FieldLabel>
                   <TextAreaInput value={draft.ownerDetails.address} onChange={(event) => updateOwnerField("address", event.target.value)} className="min-h-[96px]" />
                 </div>
+                {canViewSensitiveCustomerFields ? (
+                  <div className="space-y-2">
+                    <FieldLabel>Date of birth (admin only)</FieldLabel>
+                    <TextInput type="date" value={draft.ownerDetails.dateOfBirth} onChange={(event) => updateOwnerField("dateOfBirth", event.target.value)} />
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <FieldLabel>Identification type (optional)</FieldLabel>
                   <SelectInput
@@ -1010,6 +1095,35 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     placeholder="Licence or passport number"
                   />
                 </div>
+                {canViewSensitiveCustomerFields ? (
+                  <>
+                    <label className="flex items-center gap-3 rounded-[18px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink md:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={draft.ownerDetails.companyOwned}
+                        onChange={(event) => updateOwnerField("companyOwned", event.target.checked)}
+                        className="h-4 w-4 rounded border-black/20 text-ink"
+                      />
+                      <span>Company-owned vehicle</span>
+                    </label>
+                    {draft.ownerDetails.companyOwned ? (
+                      <>
+                        <div className="space-y-2">
+                          <FieldLabel>Company name (admin only)</FieldLabel>
+                          <TextInput value={draft.ownerDetails.companyName} onChange={(event) => updateOwnerField("companyName", event.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>ABN (admin only)</FieldLabel>
+                          <TextInput value={draft.ownerDetails.abn} onChange={(event) => updateOwnerField("abn", event.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>ACN (admin only)</FieldLabel>
+                          <TextInput value={draft.ownerDetails.acn} onChange={(event) => updateOwnerField("acn", event.target.value)} />
+                        </div>
+                      </>
+                    ) : null}
+                  </>
+                ) : null}
                 <div className="space-y-2">
                   <FieldLabel>ID document upload (optional)</FieldLabel>
                   <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnerFileUpload(event.target.files?.[0])} />
@@ -1080,6 +1194,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   ["odometer", "Odometer"],
                   ["registrationExpiry", "Registration expiry"],
                   ["numberOfKeys", "Number of keys"],
+                  ["fuelType", "Fuel type"],
+                  ["transmission", "Transmission"],
+                  ["askingPrice", "Asking price"],
+                  ["reservePrice", "Reserve price"],
                   ["serviceHistory", "Service history"],
                   ["accidentHistory", "Accident history"]
                 ].map(([key, label]) => (
@@ -1223,6 +1341,81 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   );
                 })}
               </div>
+
+              <div className="mt-6 rounded-[24px] border border-black/5 bg-shell p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-lg font-semibold text-ink">Service fee items</h4>
+                    <p className="mt-1 text-sm text-ink/58">Add optional operational fees for warehouse-managed vehicles. Customer-visible items will appear on the PDF.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addServiceItem}
+                    className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Add fee item
+                  </button>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {draft.serviceItems.map((item) => (
+                    <div key={item.id} className="rounded-[20px] border border-black/8 bg-white p-4">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+                        <div className="space-y-2 xl:col-span-2">
+                          <FieldLabel>Service name</FieldLabel>
+                          <TextInput value={item.serviceName} onChange={(event) => updateServiceItem(item.id, { serviceName: event.target.value })} placeholder="e.g. Car wash" />
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>Category</FieldLabel>
+                          <SelectInput value={item.category} onChange={(event) => updateServiceItem(item.id, { category: event.target.value as WarehouseServiceFeeItem["category"] })}>
+                            {WAREHOUSE_SERVICE_FEE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </SelectInput>
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>Amount</FieldLabel>
+                          <TextInput
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            step="0.01"
+                            value={item.amount || ""}
+                            onChange={(event) => updateServiceItem(item.id, { amount: Number(event.target.value || 0) })}
+                          />
+                        </div>
+                        <label className="flex items-center gap-3 rounded-[18px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink">
+                          <input type="checkbox" checked={item.gstIncluded} onChange={(event) => updateServiceItem(item.id, { gstIncluded: event.target.checked })} className="h-4 w-4 rounded border-black/20 text-ink" />
+                          <span>GST included</span>
+                        </label>
+                        <label className="flex items-center gap-3 rounded-[18px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink">
+                          <input type="checkbox" checked={item.customerVisible} onChange={(event) => updateServiceItem(item.id, { customerVisible: event.target.checked })} className="h-4 w-4 rounded border-black/20 text-ink" />
+                          <span>Customer visible</span>
+                        </label>
+                        <div className="space-y-2 md:col-span-2 xl:col-span-5">
+                          <FieldLabel>Internal note</FieldLabel>
+                          <TextAreaInput className="min-h-[88px]" value={item.internalNote} onChange={(event) => updateServiceItem(item.id, { internalNote: event.target.value })} placeholder="Internal workshop, storage, or coordination note" />
+                        </div>
+                        <div className="flex items-end">
+                          <button
+                            type="button"
+                            onClick={() => removeServiceItem(item.id)}
+                            className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {!draft.serviceItems.length ? (
+                    <div className="rounded-[18px] border border-dashed border-black/10 bg-white px-4 py-4 text-sm text-ink/58">
+                      No service items added yet. Leave this empty if no operational fees apply.
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -1333,6 +1526,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <p className="mt-2 text-sm text-ink/72">{draft.photos.length} photos uploaded</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Service items</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.serviceItems.length} item{draft.serviceItems.length === 1 ? "" : "s"} · ${serviceFeeTotals.total.toFixed(2)}</p>
+                </div>
+                <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
                   <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
                 </div>
@@ -1421,6 +1618,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Reference:</span> {draft.vehicleReference || recordId || "Pending"}</p>
               <p><span className="font-semibold text-ink">Public listing:</span> {draft.vehicleTitle || "Not linked yet"}</p>
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
+              <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.total.toFixed(2)}` : "None yet"}</p>
+              <p><span className="font-semibold text-ink">Customer-visible fees:</span> ${serviceFeeTotals.customerVisibleTotal.toFixed(2)}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
