@@ -32,7 +32,8 @@ export default function Navbar() {
   const mobileAccountLinks = appUser
     ? isAdminUser
       ? [
-          { href: "/admin/vehicles", label: "Dashboard" },
+          { href: "/admin/analytics", label: "Dashboard" },
+          { href: "/admin/vehicles", label: "Vehicle Management" },
           { href: "/admin/warehouse-intake", label: "Warehouse Intake" },
           { href: "/dashboard/settings", label: "Account Settings" }
         ]
