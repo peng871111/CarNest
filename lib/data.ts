@@ -3488,6 +3488,12 @@ async function resolveVehicleRecordId(
     if (!snapshot.empty) return snapshot.docs[0].id;
   }
 
+  const registrationPlate = sanitizeSingleLineText(intake.vehicleDetails?.registrationPlate ?? "");
+  if (registrationPlate) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("registrationPlate", "==", registrationPlate), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
   return "";
 }
 
