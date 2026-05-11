@@ -402,6 +402,11 @@ function sanitizeFirestoreWriteData<T extends Record<string, unknown>>(value: T)
   return sanitizeFirestoreWriteValue(value) as T;
 }
 
+function parseCurrencyNumber(value: unknown) {
+  const normalized = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
 function normalizeVehicleStatus(status: unknown): VehicleStatus {
   if (status === "approved" || status === "pending" || status === "rejected") {
     return status;
@@ -850,6 +855,11 @@ export function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
     linkedIntakeIds: [],
     latestIntakeId: "",
     status: "draft",
+    serviceFeeSubtotal: 0,
+    gstInclusiveServiceFeeTotal: 0,
+    estimatedTotalIncome: 0,
+    intakeEventCount: 0,
+    lastCalculatedAt: "",
     createdByUid: "",
     createdAt: "",
     updatedAt: ""
@@ -889,6 +899,9 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     conditionReport: createEmptyWarehouseConditionReport(),
     photos: [],
     serviceItems: [],
+    serviceFeeSubtotal: 0,
+    gstInclusiveServiceFeeTotal: 0,
+    gstAmount: 0,
     agreement: createEmptyWarehouseAgreement(),
     signature: createEmptyWarehouseSignature(),
     signedPdfStoragePath: "",
@@ -942,6 +955,11 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
           internalNote: typeof item.internalNote === "string" ? item.internalNote : ""
         }))
     : [];
+  const computedServiceFeeSubtotal = serviceItems.reduce((sum, item) => sum + item.amount, 0);
+  const computedGstInclusiveServiceFeeTotal = serviceItems.reduce(
+    (sum, item) => sum + (item.gstIncluded ? item.amount : item.amount * 1.1),
+    0
+  );
 
   return {
     id,
@@ -1011,6 +1029,9 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
     },
     photos,
     serviceItems,
+    serviceFeeSubtotal: Number(data.serviceFeeSubtotal ?? computedServiceFeeSubtotal),
+    gstInclusiveServiceFeeTotal: Number(data.gstInclusiveServiceFeeTotal ?? computedGstInclusiveServiceFeeTotal),
+    gstAmount: Number(data.gstAmount ?? Math.max(computedGstInclusiveServiceFeeTotal - computedServiceFeeSubtotal, 0)),
     agreement: {
       informationAccurateConfirmed: agreementInput.informationAccurateConfirmed === true,
       storageAssistanceAuthorized: agreementInput.storageAssistanceAuthorized === true,
@@ -1139,10 +1160,16 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
       || data.status === "warehouse_managed"
       || data.status === "private_seller_managed"
       || data.status === "listed"
+      || data.status === "under_offer"
       || data.status === "sold"
       || data.status === "withdrawn"
         ? data.status
         : "draft",
+    serviceFeeSubtotal: Number(data.serviceFeeSubtotal ?? 0),
+    gstInclusiveServiceFeeTotal: Number(data.gstInclusiveServiceFeeTotal ?? 0),
+    estimatedTotalIncome: Number(data.estimatedTotalIncome ?? 0),
+    intakeEventCount: Number(data.intakeEventCount ?? 0),
+    lastCalculatedAt: serializeDate(data.lastCalculatedAt),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
@@ -3589,6 +3616,52 @@ async function resolveVehicleRecordId(
   return "";
 }
 
+async function resolveVehicleRecordIdForCoreRecord(
+  input: Omit<VehicleRecord, "id" | "createdAt" | "updatedAt">,
+  existingVehicleRecordId?: string
+) {
+  if (existingVehicleRecordId?.trim()) return existingVehicleRecordId.trim();
+  if (!isFirebaseConfigured) return "";
+
+  const publicListingId = input.publicListingId?.trim();
+  if (publicListingId) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", publicListingId), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  const vin = sanitizeSingleLineText(input.vin ?? "");
+  if (vin) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("vin", "==", vin), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  const registrationPlate = sanitizeSingleLineText(input.registrationPlate ?? "");
+  if (registrationPlate) {
+    const snapshot = await getDocs(query(collection(db, "vehicleRecords"), where("registrationPlate", "==", registrationPlate), limit(1)));
+    if (!snapshot.empty) return snapshot.docs[0].id;
+  }
+
+  const customerProfileId = input.customerProfileId?.trim();
+  const make = sanitizeSingleLineText(input.make ?? "");
+  const model = sanitizeSingleLineText(input.model ?? "");
+  const year = sanitizeSingleLineText(input.year ?? "");
+  if (customerProfileId && make && model && year) {
+    const snapshot = await getDocs(
+      query(
+        collection(db, "vehicleRecords"),
+        where("customerProfileId", "==", customerProfileId),
+        where("make", "==", make),
+        where("model", "==", model),
+        where("year", "==", year),
+        limit(2)
+      )
+    );
+    if (snapshot.size === 1) return snapshot.docs[0].id;
+  }
+
+  return "";
+}
+
 function buildCustomerProfileWritePayload(
   input: Omit<WarehouseIntakeRecord, "id" | "updatedAt" | "photoCount">,
   actor: VehicleActor,
@@ -3652,6 +3725,20 @@ function deriveWarehouseVehicleTitle(input: Omit<WarehouseIntakeRecord, "id" | "
       .filter(Boolean)
       .join(" ")
       .trim();
+}
+
+function calculateWarehouseServiceFeeTotals(items: WarehouseServiceFeeItem[]) {
+  const serviceFeeSubtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const gstInclusiveServiceFeeTotal = items.reduce(
+    (sum, item) => sum + (item.gstIncluded ? item.amount : item.amount * 1.1),
+    0
+  );
+  const gstAmount = Math.max(gstInclusiveServiceFeeTotal - serviceFeeSubtotal, 0);
+  return {
+    serviceFeeSubtotal,
+    gstInclusiveServiceFeeTotal,
+    gstAmount
+  };
 }
 
 function buildVehicleRecordWritePayload(
@@ -3764,6 +3851,34 @@ async function upsertVehicleRecordFromIntake(
   return ref.id;
 }
 
+async function syncVehicleRecordReportingSnapshot(vehicleRecordId: string) {
+  if (!vehicleRecordId || !isFirebaseConfigured) return;
+
+  const [vehicleRecord, intakesResult] = await Promise.all([
+    getVehicleRecordById(vehicleRecordId),
+    (async () => {
+      const snapshot = await getDocs(query(collection(db, "warehouseIntakes"), where("vehicleRecordId", "==", vehicleRecordId)));
+      return snapshot.docs.map((item) => serializeWarehouseIntakeDoc(item.id, item.data()));
+    })()
+  ]);
+
+  if (!vehicleRecord) return;
+
+  const intakeEventCount = intakesResult.length;
+  const serviceFeeSubtotal = intakesResult.reduce((sum, intake) => sum + (intake.serviceFeeSubtotal ?? 0), 0);
+  const gstInclusiveServiceFeeTotal = intakesResult.reduce((sum, intake) => sum + (intake.gstInclusiveServiceFeeTotal ?? 0), 0);
+  const estimatedTotalIncome = Math.max(parseCurrencyNumber(vehicleRecord.askingPrice), parseCurrencyNumber(vehicleRecord.reservePrice)) + gstInclusiveServiceFeeTotal;
+
+  await updateDoc(doc(db, "vehicleRecords", vehicleRecordId), {
+    serviceFeeSubtotal,
+    gstInclusiveServiceFeeTotal,
+    estimatedTotalIncome,
+    intakeEventCount,
+    lastCalculatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
 export async function saveCustomerProfile(
   input: Omit<CustomerProfile, "id" | "createdAt" | "updatedAt">,
   actor: VehicleActor,
@@ -3852,7 +3967,8 @@ export async function saveVehicleRecord(
     };
   }
 
-  const ref = existingId ? doc(db, "vehicleRecords", existingId) : doc(collection(db, "vehicleRecords"));
+  const resolvedId = await resolveVehicleRecordIdForCoreRecord(input, existingId);
+  const ref = resolvedId ? doc(db, "vehicleRecords", resolvedId) : doc(collection(db, "vehicleRecords"));
   const now = new Date().toISOString();
   const payload = sanitizeFirestoreWriteData({
     ...createEmptyVehicleRecord(),
@@ -3876,7 +3992,7 @@ export async function saveVehicleRecord(
     accidentHistory: sanitizeMultilineText(input.accidentHistory ?? ""),
     notes: sanitizeMultilineText(input.notes ?? ""),
     linkedIntakeIds: Array.from(new Set((input.linkedIntakeIds ?? []).filter(Boolean))),
-    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    ...(resolvedId ? {} : { createdAt: serverTimestamp() }),
     updatedAt: serverTimestamp()
   });
 
@@ -3887,7 +4003,7 @@ export async function saveVehicleRecord(
       id: ref.id,
       ...createEmptyVehicleRecord(),
       ...input,
-      createdAt: existingId ? undefined : now,
+      createdAt: resolvedId ? undefined : now,
       updatedAt: now
     } satisfies VehicleRecord,
     source: "firestore" as const,
@@ -3940,6 +4056,7 @@ function buildWarehouseIntakeWritePayload(
         .map((item) => [item.id, item] as const)
     ).values()
   );
+  const serviceTotals = calculateWarehouseServiceFeeTotals(serviceItems);
   const normalizedSignedAt = typeof input.signature?.signedAt === "string" && input.signature.signedAt.trim()
     ? input.signature.signedAt
     : "";
@@ -3980,6 +4097,7 @@ function buildWarehouseIntakeWritePayload(
     } satisfies WarehouseIntakeConditionReport,
     photos,
     serviceItems,
+    ...serviceTotals,
     agreement: {
       ...agreement,
       ...(agreement.reviewedAt ? { reviewedAt: agreement.reviewedAt } : {})
@@ -4110,6 +4228,8 @@ export async function saveWarehouseIntake(
       { merge: true }
     );
 
+    await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+
     return {
       intake: {
         id: existingId,
@@ -4131,6 +4251,8 @@ export async function saveWarehouseIntake(
       updatedAt: serverTimestamp()
     })
   );
+
+  await syncVehicleRecordReportingSnapshot(vehicleRecordId);
 
   return {
     intake: {

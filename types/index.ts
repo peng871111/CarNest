@@ -60,6 +60,7 @@ export type VehicleRecordStatus =
   | "warehouse_managed"
   | "private_seller_managed"
   | "listed"
+  | "under_offer"
   | "sold"
   | "withdrawn";
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
@@ -368,6 +369,11 @@ export interface VehicleRecord {
   linkedIntakeIds: string[];
   latestIntakeId?: string;
   status: VehicleRecordStatus;
+  serviceFeeSubtotal?: number;
+  gstInclusiveServiceFeeTotal?: number;
+  estimatedTotalIncome?: number;
+  intakeEventCount?: number;
+  lastCalculatedAt?: string;
   createdByUid?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -394,6 +400,9 @@ export interface WarehouseIntakeRecord {
   conditionReport: WarehouseIntakeConditionReport;
   photos: WarehouseIntakePhotoRecord[];
   serviceItems: WarehouseServiceFeeItem[];
+  serviceFeeSubtotal?: number;
+  gstInclusiveServiceFeeTotal?: number;
+  gstAmount?: number;
   agreement: WarehouseIntakeAgreement;
   signature: WarehouseIntakeSignature;
   signedPdfStoragePath?: string;

@@ -22,10 +22,11 @@ type VehicleOperationalStatus =
   | "Warehouse managed"
   | "Private seller managed"
   | "Listed"
+  | "Under offer"
   | "Sold"
   | "Withdrawn"
   | "Unlinked";
-type PublicListingStatus = "Available" | "Warehouse managed" | "Sold" | "Draft" | "Withdrawn";
+type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "Sold" | "Draft" | "Withdrawn";
 
 function createActorFromUser(user: AppUser | null): VehicleActor | null {
   if (!user) return null;
@@ -52,18 +53,30 @@ function parseMoneyString(value?: string) {
   return Number.isFinite(normalized) ? normalized : 0;
 }
 
+function calculateServiceFeeTotals(items: WarehouseIntakeRecord["serviceItems"]) {
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+  const inclusive = items.reduce((sum, item) => sum + (item.gstIncluded ? item.amount : item.amount * 1.1), 0);
+  return {
+    subtotal,
+    inclusive,
+    gst: Math.max(inclusive - subtotal, 0)
+  };
+}
+
 function getListingOperationalStatus(listing?: Vehicle | null): VehicleOperationalStatus | null {
   if (!listing) return null;
   if (listing.deleted || listing.status === "rejected" || listing.sellerStatus === "WITHDRAWN") return "Withdrawn";
   if (listing.sellerStatus === "SOLD" || Boolean(listing.soldAt)) return "Sold";
+  if (listing.sellerStatus === "UNDER_OFFER") return "Under offer";
   return listing.listingType === "warehouse" || listing.storedInWarehouse ? "Warehouse managed" : "Listed";
 }
 
 function getPublicListingStatus(listing: Vehicle): PublicListingStatus {
   if (listing.deleted || listing.status === "rejected" || listing.sellerStatus === "WITHDRAWN") return "Withdrawn";
   if (listing.sellerStatus === "SOLD" || Boolean(listing.soldAt)) return "Sold";
+  if (listing.sellerStatus === "UNDER_OFFER") return "Under offer";
   if (listing.status !== "approved") return "Draft";
-  if (listing.sellerStatus === "ACTIVE" || listing.sellerStatus === "UNDER_OFFER") {
+  if (listing.sellerStatus === "ACTIVE") {
     return listing.listingType === "warehouse" || listing.storedInWarehouse ? "Warehouse managed" : "Available";
   }
   return "Draft";
@@ -94,6 +107,7 @@ function getVehicleOperationalStatus(record: VehicleRecord, listing: Vehicle | n
 
 function getStatusTone(status: VehicleOperationalStatus | PublicListingStatus) {
   if (status === "Listed" || status === "Available") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "Under offer") return "border-sky-200 bg-sky-50 text-sky-700";
   if (status === "Sold") return "border-blue-200 bg-blue-50 text-blue-700";
   if (status === "Withdrawn") return "border-zinc-200 bg-zinc-100 text-zinc-700";
   if (status === "Warehouse managed") return "border-amber-200 bg-amber-50 text-amber-700";
@@ -191,6 +205,7 @@ export function VehicleManagementHub({
 
   const listingMap = useMemo(() => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])), [vehicles]);
   const customerMap = useMemo(() => new Map(localCustomerProfiles.map((profile) => [profile.id, profile])), [localCustomerProfiles]);
+  const ownerMap = useMemo(() => new Map(owners.map((owner) => [owner.id, owner])), [owners]);
   const intakesByVehicleRecordId = useMemo(() => {
     const map = new Map<string, WarehouseIntakeRecord[]>();
     localIntakes.forEach((intake) => {
@@ -225,10 +240,8 @@ export function VehicleManagementHub({
             const listing = record.publicListingId ? listingMap.get(record.publicListingId) ?? null : null;
             const intakeHistory = intakesByVehicleRecordId.get(record.id) ?? [];
             const latestIntake = intakeHistory[0] ?? null;
-            const estimatedRevenue = intakeHistory.reduce(
-              (sum, intake) => sum + intake.serviceItems.reduce((feeTotal, fee) => feeTotal + fee.amount, 0),
-              0
-            );
+            const estimatedRevenue = record.gstInclusiveServiceFeeTotal
+              || intakeHistory.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
             return {
               record,
               listing,
@@ -269,11 +282,12 @@ export function VehicleManagementHub({
         const listing = record.publicListingId ? listingMap.get(record.publicListingId) ?? null : null;
         const intakeHistory = intakesByVehicleRecordId.get(record.id) ?? [];
         const latestIntake = intakeHistory[0] ?? null;
-        const totalServiceFees = intakeHistory.reduce(
-          (sum, intake) => sum + intake.serviceItems.reduce((feeTotal, fee) => feeTotal + fee.amount, 0),
-          0
-        );
-        const estimatedTotalIncome = totalServiceFees + Math.max(parseMoneyString(record.reservePrice), parseMoneyString(record.askingPrice));
+        const totalServiceFees = record.serviceFeeSubtotal
+          || intakeHistory.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).subtotal, 0);
+        const gstInclusiveServiceFees = record.gstInclusiveServiceFeeTotal
+          || intakeHistory.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
+        const estimatedTotalIncome = record.estimatedTotalIncome
+          || gstInclusiveServiceFees + Math.max(parseMoneyString(record.reservePrice), parseMoneyString(record.askingPrice));
         const status = getVehicleOperationalStatus(record, listing, intakeHistory.length);
         const searchableText = [
           getVehicleRecordTitle(record),
@@ -299,6 +313,7 @@ export function VehicleManagementHub({
           intakeCount: intakeHistory.length,
           latestIntake,
           totalServiceFees,
+          gstInclusiveServiceFees,
           estimatedTotalIncome,
           status,
           searchableText
@@ -315,6 +330,10 @@ export function VehicleManagementHub({
       .map((vehicle) => {
         const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id) ?? null;
         const linkedCustomer = linkedRecord?.customerProfileId ? customerMap.get(linkedRecord.customerProfileId) ?? null : null;
+        const linkedSeller = ownerMap.get(vehicle.ownerUid) ?? null;
+        const linkedIntakes = linkedRecord ? intakesByVehicleRecordId.get(linkedRecord.id) ?? [] : [];
+        const projectedProfit = linkedRecord?.estimatedTotalIncome
+          || linkedIntakes.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
         const status = getPublicListingStatus(vehicle);
         const searchText = [
           getVehicleDisplayReference(vehicle),
@@ -325,15 +344,18 @@ export function VehicleManagementHub({
           vehicle.vin,
           linkedCustomer?.fullName,
           linkedCustomer?.phone,
-          linkedCustomer?.email
+          linkedCustomer?.email,
+          linkedSeller?.displayName,
+          linkedSeller?.name,
+          linkedSeller?.email
         ]
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        return { vehicle, linkedRecord, linkedCustomer, status, searchText };
+        return { vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedProfit, status, searchText };
       })
       .filter((row) => (term ? row.searchText.includes(term) : true));
-  }, [customerMap, globalSearch, localVehicleRecords, vehicles]);
+  }, [customerMap, globalSearch, intakesByVehicleRecordId, localVehicleRecords, ownerMap, vehicles]);
 
   const listingCounts = useMemo(() => ({
     available: vehicles.filter((vehicle) => isPublicInventoryListing(vehicle)).length,
@@ -344,23 +366,26 @@ export function VehicleManagementHub({
 
   const workspaceMetrics = useMemo(() => {
     const activeRows = vehicleRows.filter((row) => row.listing && isPublicInventoryListing(row.listing));
-    const activeListingRevenue = activeRows.reduce((sum, row) => sum + row.totalServiceFees, 0);
+    const activeListingRevenue = activeRows.reduce((sum, row) => sum + row.gstInclusiveServiceFees, 0);
     const warehouseManagedRevenue = vehicleRows
       .filter((row) => row.status === "Warehouse managed")
-      .reduce((sum, row) => sum + row.totalServiceFees, 0);
+      .reduce((sum, row) => sum + row.gstInclusiveServiceFees, 0);
     const pendingFees = localIntakes
       .filter((intake) => intake.status !== "signed")
-      .reduce((sum, intake) => sum + intake.serviceItems.reduce((feeTotal, fee) => feeTotal + fee.amount, 0), 0);
+      .reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
     const totalActiveListingPotentialRevenue = vehicles
       .filter((vehicle) => isPublicInventoryListing(vehicle))
-      .reduce((sum, vehicle) => sum + (vehicle.price || 0), 0);
+      .reduce((sum, vehicle) => {
+        const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id);
+        return sum + (linkedRecord?.estimatedTotalIncome || vehicle.price || 0);
+      }, 0);
     return {
       activeListingRevenue,
       warehouseManagedRevenue,
       pendingFees,
       totalActiveListingPotentialRevenue
     };
-  }, [localIntakes, vehicleRows, vehicles]);
+  }, [localIntakes, localVehicleRecords, vehicleRows, vehicles]);
 
   const recentIntakes = useMemo(() => {
     return [...localIntakes]
@@ -674,11 +699,11 @@ export function VehicleManagementHub({
       {activeView === "vehicles" ? (
         <section className="space-y-4">
           <div className="grid gap-3 md:grid-cols-4">
-            <InfoStat label="Active listing revenue" value={formatCurrency(workspaceMetrics.activeListingRevenue)} helper="Service-fee revenue tied to active public listings" />
-            <InfoStat label="Warehouse managed revenue" value={formatCurrency(workspaceMetrics.warehouseManagedRevenue)} helper="Service-fee revenue on warehouse-managed vehicles" />
-            <InfoStat label="Pending fees" value={formatCurrency(workspaceMetrics.pendingFees)} helper="Draft or unsigned intake-event fees" />
-            <InfoStat label="Active listing potential" value={formatCurrency(workspaceMetrics.totalActiveListingPotentialRevenue)} helper="Public asking prices currently live on Inventory" />
-          </div>
+              <InfoStat label="Active listing profit" value={formatCurrency(workspaceMetrics.activeListingRevenue)} helper="GST-inclusive service-fee totals tied to active public listings" />
+              <InfoStat label="Warehouse revenue" value={formatCurrency(workspaceMetrics.warehouseManagedRevenue)} helper="GST-inclusive service-fee totals on warehouse-managed vehicles" />
+              <InfoStat label="Pending fees" value={formatCurrency(workspaceMetrics.pendingFees)} helper="Draft or unsigned intake-event fees" />
+              <InfoStat label="Projected active profit" value={formatCurrency(workspaceMetrics.totalActiveListingPotentialRevenue)} helper="Linked listing price plus GST-inclusive intake fees" />
+            </div>
 
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
             <div className="flex flex-wrap gap-3">
@@ -694,6 +719,7 @@ export function VehicleManagementHub({
                 <option value="Warehouse managed">Warehouse managed</option>
                 <option value="Private seller managed">Private seller managed</option>
                 <option value="Listed">Listed</option>
+                <option value="Under offer">Under offer</option>
                 <option value="Sold">Sold</option>
                 <option value="Withdrawn">Withdrawn</option>
                 <option value="Unlinked">Unlinked</option>
@@ -704,7 +730,7 @@ export function VehicleManagementHub({
             </div>
 
             <div className="mt-5 space-y-3">
-              {vehicleRows.map(({ record, customer, listing, intakeCount, latestIntake, totalServiceFees, estimatedTotalIncome, status }) => (
+              {vehicleRows.map(({ record, customer, listing, intakeCount, latestIntake, totalServiceFees, gstInclusiveServiceFees, estimatedTotalIncome, status }) => (
                 <div key={record.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -716,7 +742,7 @@ export function VehicleManagementHub({
                         {record.vin || "VIN pending"} · {record.registrationPlate || "Rego pending"} · {intakeCount} intake event{intakeCount === 1 ? "" : "s"}
                       </p>
                       <p className="mt-1 text-sm text-ink/62">
-                        {formatCurrency(parseMoneyString(record.askingPrice) || listing?.price || 0)} · Estimated income {formatCurrency(estimatedTotalIncome)} · Service fees {formatCurrency(totalServiceFees)}
+                        {formatCurrency(parseMoneyString(record.askingPrice) || listing?.price || 0)} · Projected profit {formatCurrency(estimatedTotalIncome)} · Fees {formatCurrency(totalServiceFees)} excl GST / {formatCurrency(gstInclusiveServiceFees)} incl GST
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -727,6 +753,11 @@ export function VehicleManagementHub({
                       {listing ? (
                         <Link href={`/admin/vehicles/${listing.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Open listing
+                        </Link>
+                      ) : null}
+                      {listing ? (
+                        <Link href={`/admin/vehicles/${listing.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Edit listing
                         </Link>
                       ) : null}
                       <Link href={latestIntake ? `/admin/warehouse-intake/${latestIntake.id}` : `/admin/warehouse-intake/new?customerProfileId=${record.customerProfileId || ""}&vehicleRecordId=${record.id}${listing ? `&vehicleId=${listing.id}` : ""}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
@@ -811,7 +842,7 @@ export function VehicleManagementHub({
                               Rego: {record.registrationPlate || "Pending"} · VIN: {record.vin || "Pending"} · {intakeCount} intake event{intakeCount === 1 ? "" : "s"}
                             </p>
                             <p className="mt-1 text-xs text-ink/58">
-                              Asking price {formatCurrency(parseMoneyString(record.askingPrice) || listing?.price || 0)} · Estimated revenue {formatCurrency(estimatedRevenue)}
+                              Asking price {formatCurrency(parseMoneyString(record.askingPrice) || listing?.price || 0)} · Projected profit {formatCurrency((record.estimatedTotalIncome || 0) || estimatedRevenue)}
                             </p>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
@@ -822,6 +853,11 @@ export function VehicleManagementHub({
                             {listing ? (
                               <Link href={`/admin/vehicles/${listing.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                                 Open listing
+                              </Link>
+                            ) : null}
+                            {listing ? (
+                              <Link href={`/admin/vehicles/${listing.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                                Edit listing
                               </Link>
                             ) : null}
                             <Link href={latestIntake ? `/admin/warehouse-intake/${latestIntake.id}` : `/admin/warehouse-intake/new?customerProfileId=${profile.id}&vehicleRecordId=${record.id}${listing ? `&vehicleId=${listing.id}` : ""}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
@@ -940,23 +976,37 @@ export function VehicleManagementHub({
             </div>
 
             <div className="mt-5 space-y-3">
-              {listingRows.map(({ vehicle, linkedRecord, linkedCustomer, status }) => (
+              {listingRows.map(({ vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedProfit, status }) => (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-base font-semibold text-ink">{vehicle.year} {vehicle.make} {vehicle.model} {vehicle.variant}</p>
                       <p className="mt-1 text-sm text-ink/60">{getVehicleDisplayReference(vehicle)} · {status} · {getListingLabel(vehicle.listingType)}</p>
-                      <p className="mt-1 text-sm text-ink/58">Vehicle record: {linkedRecord ? getVehicleRecordTitle(linkedRecord) : "Not linked"} · Customer: {linkedCustomer ? getCustomerLabel(linkedCustomer) : "Not linked"}</p>
+                      <p className="mt-1 text-sm text-ink/58">Seller: {linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Unknown seller"} · Customer: {linkedCustomer ? getCustomerLabel(linkedCustomer) : "Not linked"}</p>
+                      <p className="mt-1 text-sm text-ink/58">Vehicle record: {linkedRecord ? getVehicleRecordTitle(linkedRecord) : "Not linked"} · Linked intake: {linkedIntakes.length ? `${linkedIntakes.length} event${linkedIntakes.length === 1 ? "" : "s"}` : "None yet"}</p>
+                      <p className="mt-1 text-sm text-ink/62">Admin profit summary: {formatCurrency(projectedProfit)}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusPill label={status === "Available" ? "Listed" : status === "Warehouse managed" ? "Warehouse managed" : status} />
                       <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Open listing
                       </Link>
+                      <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        Edit listing
+                      </Link>
                       {linkedRecord ? (
                         <button type="button" onClick={() => openVehicleEditor(linkedRecord)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Edit vehicle
                         </button>
+                      ) : null}
+                      {linkedIntakes[0] ? (
+                        <Link href={`/admin/warehouse-intake/${linkedIntakes[0].id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Open intake
+                        </Link>
+                      ) : linkedRecord ? (
+                        <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Start intake
+                        </Link>
                       ) : null}
                     </div>
                   </div>

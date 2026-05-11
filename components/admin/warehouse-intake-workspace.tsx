@@ -371,14 +371,24 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     [customerVehicleRecords, draft.vehicleRecordId]
   );
   const serviceFeeTotals = useMemo(() => {
-    const total = draft.serviceItems.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    const subtotal = draft.serviceItems.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+    const gstInclusiveTotal = draft.serviceItems.reduce(
+      (sum, item) => sum + (Number.isFinite(item.amount) ? (item.gstIncluded ? item.amount : item.amount * 1.1) : 0),
+      0
+    );
     const customerVisibleTotal = draft.serviceItems
       .filter((item) => item.customerVisible)
-      .reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
+      .reduce((sum, item) => sum + (Number.isFinite(item.amount) ? (item.gstIncluded ? item.amount : item.amount * 1.1) : 0), 0);
     const gstIncludedTotal = draft.serviceItems
       .filter((item) => item.gstIncluded)
       .reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
-    return { total, customerVisibleTotal, gstIncludedTotal };
+    return {
+      subtotal,
+      gstInclusiveTotal,
+      customerVisibleTotal,
+      gstIncludedTotal,
+      gstComponent: Math.max(gstInclusiveTotal - subtotal, 0)
+    };
   }, [draft.serviceItems]);
 
   async function getAdminIdToken() {
@@ -1527,7 +1537,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">Service items</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.serviceItems.length} item{draft.serviceItems.length === 1 ? "" : "s"} · ${serviceFeeTotals.total.toFixed(2)}</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.serviceItems.length} item{draft.serviceItems.length === 1 ? "" : "s"} · ${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
@@ -1618,8 +1628,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Reference:</span> {draft.vehicleReference || recordId || "Pending"}</p>
               <p><span className="font-semibold text-ink">Public listing:</span> {draft.vehicleTitle || "Not linked yet"}</p>
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
-              <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.total.toFixed(2)}` : "None yet"}</p>
+              <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST` : "None yet"}</p>
               <p><span className="font-semibold text-ink">Customer-visible fees:</span> ${serviceFeeTotals.customerVisibleTotal.toFixed(2)}</p>
+              <p><span className="font-semibold text-ink">GST component:</span> ${serviceFeeTotals.gstComponent.toFixed(2)}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
