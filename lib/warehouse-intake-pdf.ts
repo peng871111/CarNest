@@ -1,6 +1,7 @@
 "use client";
 
-import { PDFDocument, StandardFonts, degrees, rgb, type PDFPage } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { CARNEST_CONCIERGE_AGREEMENT_COPY, WAREHOUSE_CONDITION_SECTIONS } from "@/lib/warehouse-intake-config";
 import { WarehouseIntakeRecord } from "@/types";
 
@@ -8,18 +9,68 @@ const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const PAGE_MARGIN = 40;
 const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
+const UNICODE_FONT_URL = "/fonts/arial-unicode.ttf";
 
-function sanitizeText(value?: string | null, fallback = "Not provided") {
+let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
+
+const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/，/g, ","],
+  [/。/g, "."],
+  [/：/g, ":"],
+  [/；/g, ";"],
+  [/（/g, "("],
+  [/）/g, ")"],
+  [/“|”/g, "\""],
+  [/‘|’/g, "'"]
+];
+
+async function loadUnicodeFontBytes() {
+  if (!unicodeFontBytesPromise) {
+    unicodeFontBytesPromise = fetch(UNICODE_FONT_URL).then(async (response) => {
+      if (!response.ok) {
+        throw new Error("Unable to load Unicode PDF font.");
+      }
+      return new Uint8Array(await response.arrayBuffer());
+    });
+  }
+
+  return await unicodeFontBytesPromise;
+}
+
+function normalizePdfText(value: string, supportsUnicode: boolean) {
+  const normalized = value.normalize("NFKC");
+  if (supportsUnicode) {
+    return normalized;
+  }
+
+  return PDF_FALLBACK_REPLACEMENTS
+    .reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), normalized)
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "?");
+}
+
+function sanitizeText(value?: string | null, fallback = "Not provided", supportsUnicode = true) {
   const normalized = (value ?? "").trim();
-  return normalized || fallback;
+  return normalizePdfText(normalized || fallback, supportsUnicode);
 }
 
 function wrapText(text: string, maxChars = 92) {
   const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
   const lines: string[] = [];
   let current = "";
 
   for (const word of words) {
+    if (word.length > maxChars) {
+      if (current) {
+        lines.push(current);
+        current = "";
+      }
+      for (let index = 0; index < word.length; index += maxChars) {
+        lines.push(word.slice(index, index + maxChars));
+      }
+      continue;
+    }
+
     const candidate = current ? `${current} ${word}` : word;
     if (candidate.length > maxChars) {
       if (current) lines.push(current);
@@ -63,8 +114,20 @@ export async function generateWarehouseIntakePdf(
   }
 ) {
   const pdfDoc = await PDFDocument.create();
-  const regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  let regular: PDFFont;
+  let bold: PDFFont;
+  let supportsUnicode = true;
+
+  try {
+    pdfDoc.registerFontkit(fontkit);
+    const unicodeFontBytes = await loadUnicodeFontBytes();
+    regular = await pdfDoc.embedFont(unicodeFontBytes, { subset: true });
+    bold = regular;
+  } catch {
+    supportsUnicode = false;
+    regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  }
 
   let { page, cursorY } = createPage(pdfDoc);
 
@@ -77,7 +140,7 @@ export async function generateWarehouseIntakePdf(
   };
 
   const drawHeading = (eyebrow: string, title: string, subtitle?: string) => {
-    page.drawText(eyebrow, {
+    page.drawText(normalizePdfText(eyebrow, supportsUnicode), {
       x: PAGE_MARGIN,
       y: cursorY,
       size: 10,
@@ -85,7 +148,7 @@ export async function generateWarehouseIntakePdf(
       color: rgb(0.63, 0.47, 0.24)
     });
     cursorY -= 18;
-    page.drawText(title, {
+    page.drawText(normalizePdfText(title, supportsUnicode), {
       x: PAGE_MARGIN,
       y: cursorY,
       size: 22,
@@ -95,7 +158,7 @@ export async function generateWarehouseIntakePdf(
     cursorY -= 26;
     if (subtitle) {
       for (const line of wrapText(subtitle, 88)) {
-        page.drawText(line, {
+        page.drawText(normalizePdfText(line, supportsUnicode), {
           x: PAGE_MARGIN,
           y: cursorY,
           size: 10.5,
@@ -110,7 +173,7 @@ export async function generateWarehouseIntakePdf(
 
   const drawField = (label: string, value: string) => {
     ensureSpace(26);
-    page.drawText(label, {
+    page.drawText(normalizePdfText(label, supportsUnicode), {
       x: PAGE_MARGIN,
       y: cursorY,
       size: 9,
@@ -119,7 +182,7 @@ export async function generateWarehouseIntakePdf(
     });
     cursorY -= 13;
     for (const line of wrapText(value, 94)) {
-      page.drawText(line, {
+      page.drawText(normalizePdfText(line, supportsUnicode), {
         x: PAGE_MARGIN,
         y: cursorY,
         size: 11,
@@ -144,7 +207,7 @@ export async function generateWarehouseIntakePdf(
 
       entries.forEach(([label, value], itemIndex) => {
         const x = itemIndex === 0 ? leftX : rightX;
-        page.drawText(label, {
+        page.drawText(normalizePdfText(label, supportsUnicode), {
           x,
           y: localY,
           size: 9,
@@ -154,7 +217,7 @@ export async function generateWarehouseIntakePdf(
         const lines = wrapText(value, 38);
         let lineY = localY - 13;
         lines.forEach((line) => {
-          page.drawText(line, {
+          page.drawText(normalizePdfText(line, supportsUnicode), {
             x,
             y: lineY,
             size: 11,
@@ -175,7 +238,7 @@ export async function generateWarehouseIntakePdf(
 
   const drawSectionTitle = (title: string) => {
     ensureSpace(26);
-    page.drawText(title, {
+    page.drawText(normalizePdfText(title, supportsUnicode), {
       x: PAGE_MARGIN,
       y: cursorY,
       size: 14,
@@ -192,44 +255,44 @@ export async function generateWarehouseIntakePdf(
   );
 
   drawTwoColumnFields([
-    ["Reference", sanitizeText(record.vehicleReference, record.id)],
-    ["Status", record.status.replace(/_/g, " ")],
-    ["Owner", sanitizeText(record.ownerDetails.fullName)],
-    ["Admin staff", sanitizeText(record.signature.adminStaffName || record.adminStaffName)],
-    ["Vehicle", sanitizeText(record.vehicleTitle)],
-    ["Signed at", sanitizeText(record.signature.signedAt, "Pending")]
+    ["Reference", sanitizeText(record.vehicleReference, record.id, supportsUnicode)],
+    ["Status", normalizePdfText(record.status.replace(/_/g, " "), supportsUnicode)],
+    ["Owner", sanitizeText(record.ownerDetails.fullName, "Not provided", supportsUnicode)],
+    ["Admin staff", sanitizeText(record.signature.adminStaffName || record.adminStaffName, "Not provided", supportsUnicode)],
+    ["Vehicle", sanitizeText(record.vehicleTitle, "Not provided", supportsUnicode)],
+    ["Signed at", sanitizeText(record.signature.signedAt, "Pending", supportsUnicode)]
   ]);
 
   drawSectionTitle("Owner details");
   drawTwoColumnFields([
-    ["Full name", sanitizeText(record.ownerDetails.fullName)],
-    ["Email", sanitizeText(record.ownerDetails.email)],
-    ["Phone", sanitizeText(record.ownerDetails.phone)],
-    ["Preferred contact", sanitizeText(record.ownerDetails.preferredContactMethod.replace(/_/g, " "))],
-    ["Address", sanitizeText(record.ownerDetails.address, "Not provided")],
-    ["ID type", sanitizeText(record.ownerDetails.identificationDocumentType.replace(/_/g, " "), "Not provided")],
-    ["ID number", sanitizeText(record.ownerDetails.identificationDocumentNumber, "Not provided")],
+    ["Full name", sanitizeText(record.ownerDetails.fullName, "Not provided", supportsUnicode)],
+    ["Email", sanitizeText(record.ownerDetails.email, "Not provided", supportsUnicode)],
+    ["Phone", sanitizeText(record.ownerDetails.phone, "Not provided", supportsUnicode)],
+    ["Preferred contact", sanitizeText(record.ownerDetails.preferredContactMethod.replace(/_/g, " "), "Not provided", supportsUnicode)],
+    ["Address", sanitizeText(record.ownerDetails.address, "Not provided", supportsUnicode)],
+    ["ID type", sanitizeText(record.ownerDetails.identificationDocumentType.replace(/_/g, " "), "Not provided", supportsUnicode)],
+    ["ID number", sanitizeText(record.ownerDetails.identificationDocumentNumber, "Not provided", supportsUnicode)],
     ["Legal owner confirmed", record.ownerDetails.isLegalOwnerConfirmed ? "Yes" : "No"]
   ]);
-  drawField("Customer verification notes", sanitizeText(record.ownerDetails.customerVerificationNotes, "No additional customer verification notes"));
+  drawField("Customer verification notes", sanitizeText(record.ownerDetails.customerVerificationNotes, "No additional customer verification notes", supportsUnicode));
 
   drawSectionTitle("Vehicle details");
   drawTwoColumnFields([
-    ["Make", sanitizeText(record.vehicleDetails.make)],
-    ["Model", sanitizeText(record.vehicleDetails.model)],
-    ["Variant", sanitizeText(record.vehicleDetails.variant, "Not provided")],
-    ["Year", sanitizeText(record.vehicleDetails.year)],
-    ["Registration plate", sanitizeText(record.vehicleDetails.registrationPlate)],
-    ["VIN", sanitizeText(record.vehicleDetails.vin)],
-    ["Colour", sanitizeText(record.vehicleDetails.colour)],
-    ["Odometer", sanitizeText(record.vehicleDetails.odometer)],
-    ["Registration expiry", sanitizeText(record.vehicleDetails.registrationExpiry)],
-    ["Number of keys", sanitizeText(record.vehicleDetails.numberOfKeys)],
-    ["Service history", sanitizeText(record.vehicleDetails.serviceHistory)],
-    ["Accident history", sanitizeText(record.vehicleDetails.accidentHistory)]
+    ["Make", sanitizeText(record.vehicleDetails.make, "Not provided", supportsUnicode)],
+    ["Model", sanitizeText(record.vehicleDetails.model, "Not provided", supportsUnicode)],
+    ["Variant", sanitizeText(record.vehicleDetails.variant, "Not provided", supportsUnicode)],
+    ["Year", sanitizeText(record.vehicleDetails.year, "Not provided", supportsUnicode)],
+    ["Registration plate", sanitizeText(record.vehicleDetails.registrationPlate, "Not provided", supportsUnicode)],
+    ["VIN", sanitizeText(record.vehicleDetails.vin, "Not provided", supportsUnicode)],
+    ["Colour", sanitizeText(record.vehicleDetails.colour, "Not provided", supportsUnicode)],
+    ["Odometer", sanitizeText(record.vehicleDetails.odometer, "Not provided", supportsUnicode)],
+    ["Registration expiry", sanitizeText(record.vehicleDetails.registrationExpiry, "Not provided", supportsUnicode)],
+    ["Number of keys", sanitizeText(record.vehicleDetails.numberOfKeys, "Not provided", supportsUnicode)],
+    ["Service history", sanitizeText(record.vehicleDetails.serviceHistory, "Not provided", supportsUnicode)],
+    ["Accident history", sanitizeText(record.vehicleDetails.accidentHistory, "Not provided", supportsUnicode)]
   ]);
-  drawField("Vehicle notes", sanitizeText(record.vehicleDetails.notes, "No additional notes"));
-  drawField("Ownership proof", record.vehicleDetails.ownershipProof?.name || "No ownership proof attached to this intake event");
+  drawField("Vehicle notes", sanitizeText(record.vehicleDetails.notes, "No additional notes", supportsUnicode));
+  drawField("Ownership proof", sanitizeText(record.vehicleDetails.ownershipProof?.name, "No ownership proof attached to this intake event", supportsUnicode));
 
   drawSectionTitle("Vehicle history declarations");
   drawTwoColumnFields([
@@ -241,7 +304,7 @@ export async function generateWarehouseIntakePdf(
     ["Engine replacement history", record.declarations.engineReplacementHistory],
     ["Odometer discrepancy known", record.declarations.odometerDiscrepancyKnown],
     ["Finance owing", record.declarations.financeOwing],
-    ["Finance company", sanitizeText(record.declarations.financeCompanyName, "Not provided")]
+    ["Finance company", sanitizeText(record.declarations.financeCompanyName, "Not provided", supportsUnicode)]
   ]);
   drawField(
     "Owner declaration",
@@ -254,7 +317,7 @@ export async function generateWarehouseIntakePdf(
   (Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).forEach(
     ([sectionKey, items]) => {
       ensureSpace(24);
-      page.drawText(sectionKey.charAt(0).toUpperCase() + sectionKey.slice(1), {
+      page.drawText(normalizePdfText(sectionKey.charAt(0).toUpperCase() + sectionKey.slice(1), supportsUnicode), {
         x: PAGE_MARGIN,
         y: cursorY,
         size: 12,
@@ -267,7 +330,10 @@ export async function generateWarehouseIntakePdf(
         const entry = record.conditionReport[sectionKey][item.key];
         drawField(
           item.label,
-          `${entry.documented || entry.condition === "documented" ? "Documentation captured" : "Not checked"}${entry.notes ? ` — ${entry.notes}` : ""}`
+          normalizePdfText(
+            `${entry.documented || entry.condition === "documented" ? "Documentation captured" : "Not checked"}${entry.notes ? ` — ${entry.notes}` : ""}`,
+            supportsUnicode
+          )
         );
       });
     }
@@ -289,10 +355,10 @@ export async function generateWarehouseIntakePdf(
 
   drawSectionTitle("Signature");
   drawTwoColumnFields([
-    ["Signer name", sanitizeText(record.signature.signerName)],
-    ["Admin staff", sanitizeText(record.signature.adminStaffName || record.adminStaffName)],
-    ["Signed at", sanitizeText(record.signature.signedAt, "Pending")],
-    ["PDF generated", sanitizeText(record.pdfGeneratedAt, "Pending")]
+    ["Signer name", sanitizeText(record.signature.signerName, "Not provided", supportsUnicode)],
+    ["Admin staff", sanitizeText(record.signature.adminStaffName || record.adminStaffName, "Not provided", supportsUnicode)],
+    ["Signed at", sanitizeText(record.signature.signedAt, "Pending", supportsUnicode)],
+    ["PDF generated", sanitizeText(record.pdfGeneratedAt, "Pending", supportsUnicode)]
   ]);
 
   if (record.signature.signatureStoragePath) {
@@ -306,7 +372,7 @@ export async function generateWarehouseIntakePdf(
         ? await pdfDoc.embedPng(bytes)
         : await pdfDoc.embedJpg(bytes);
       ensureSpace(90);
-      page.drawText("Customer signature", {
+      page.drawText(normalizePdfText("Customer signature", supportsUnicode), {
         x: PAGE_MARGIN,
         y: cursorY,
         size: 9,
@@ -360,7 +426,7 @@ export async function generateWarehouseIntakePdf(
           borderColor: rgb(0.82, 0.82, 0.82),
           borderWidth: 1
         });
-        page.drawText("Photo unavailable in PDF render", {
+        page.drawText(normalizePdfText("Photo unavailable in PDF render", supportsUnicode), {
           x: x + 16,
           y: y + photoHeight / 2,
           size: 10,
@@ -369,7 +435,7 @@ export async function generateWarehouseIntakePdf(
         });
       }
 
-      page.drawText(photo.label, {
+      page.drawText(normalizePdfText(photo.label, supportsUnicode), {
         x,
         y: y - 14,
         size: 10,
