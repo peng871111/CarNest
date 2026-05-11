@@ -3460,6 +3460,14 @@ function buildCustomerProfileWritePayload(
   const base = createEmptyCustomerProfile();
   const normalizedEmail = normalizeCustomerProfileEmail(input.ownerDetails?.email);
   const normalizedPhone = normalizeCustomerProfilePhone(input.ownerDetails?.phone);
+  const agreement = {
+    ...base.agreement,
+    ...input.agreement
+  };
+  const signature = {
+    ...base.signature,
+    ...input.signature
+  };
 
   return {
     fullName: sanitizeSingleLineText(input.ownerDetails?.fullName ?? ""),
@@ -3479,12 +3487,12 @@ function buildCustomerProfileWritePayload(
       ...input.declarations
     },
     agreement: {
-      ...base.agreement,
-      ...input.agreement
+      ...agreement,
+      ...(agreement.reviewedAt ? { reviewedAt: agreement.reviewedAt } : {})
     },
     signature: {
-      ...base.signature,
-      ...input.signature
+      ...signature,
+      ...(signature.signedAt ? { signedAt: signature.signedAt } : {})
     },
     latestIntakeId: intakeId,
     latestVehicleRecordId: linkedVehicleRecordId,
@@ -3626,6 +3634,13 @@ function buildWarehouseIntakeWritePayload(
         ])
     ).values()
   );
+  const agreement = {
+    ...base.agreement,
+    ...input.agreement
+  };
+  const normalizedSignedAt = typeof input.signature?.signedAt === "string" && input.signature.signedAt.trim()
+    ? input.signature.signedAt
+    : "";
 
   return {
     vehicleId: input.vehicleId || "",
@@ -3663,12 +3678,13 @@ function buildWarehouseIntakeWritePayload(
     } satisfies WarehouseIntakeConditionReport,
     photos,
     agreement: {
-      ...base.agreement,
-      ...input.agreement
+      ...agreement,
+      ...(agreement.reviewedAt ? { reviewedAt: agreement.reviewedAt } : {})
     } satisfies WarehouseIntakeAgreement,
     signature: {
       ...base.signature,
       ...input.signature,
+      ...(normalizedSignedAt ? { signedAt: normalizedSignedAt } : {}),
       signatureStoragePath: input.signature?.signatureStoragePath || "",
       adminStaffName:
         input.signature?.adminStaffName

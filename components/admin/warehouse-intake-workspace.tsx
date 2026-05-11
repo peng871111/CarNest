@@ -15,9 +15,7 @@ import {
 import {
   CARNEST_CONCIERGE_AGREEMENT_COPY,
   WAREHOUSE_CONTACT_METHOD_OPTIONS,
-  WAREHOUSE_CONDITION_SECTIONS,
   WAREHOUSE_DECLARATION_OPTIONS,
-  WAREHOUSE_DOCUMENTATION_OPTIONS,
   WAREHOUSE_IDENTIFICATION_OPTIONS,
   WAREHOUSE_INTAKE_STEPS,
   WAREHOUSE_PHOTO_SECTIONS
@@ -461,10 +459,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     setErrorMessage("");
 
     try {
+      const draftWithSignature = await persistSignatureSnapshot(nextDraft);
       const result = await saveWarehouseIntake(
         {
-          ...nextDraft,
-          adminStaffName: nextDraft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
+          ...draftWithSignature,
+          adminStaffName: draftWithSignature.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
         },
         actor,
         recordId || undefined
@@ -565,6 +564,54 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         }
       }
     }));
+  }
+
+  function setAllVehicleDeclarations(value: WarehouseIntakeRecord["declarations"]["financeOwing"]) {
+    setDraft((current) => ({
+      ...current,
+      declarations: {
+        ...current.declarations,
+        writtenOffHistory: value,
+        repairableWriteOffHistory: value,
+        stolenRecoveredHistory: value,
+        hailDamageHistory: value,
+        floodDamageHistory: value,
+        engineReplacementHistory: value,
+        odometerDiscrepancyKnown: value,
+        financeOwing: value,
+        financeCompanyName: value === "yes" ? current.declarations.financeCompanyName : ""
+      }
+    }));
+  }
+
+  async function persistSignatureSnapshot(nextDraft: Omit<WarehouseIntakeRecord, "id">) {
+    const signaturePad = signatureRef.current;
+    const adminStaffName = nextDraft.signature.adminStaffName || actor?.displayName || actor?.name || actor?.email || "CarNest Admin";
+
+    if (!signaturePad || signaturePad.isEmpty()) {
+      return {
+        ...nextDraft,
+        signature: {
+          ...nextDraft.signature,
+          adminStaffName
+        }
+      };
+    }
+
+    if (!recordId) {
+      throw new Error("Save the intake draft once before capturing the signature.");
+    }
+
+    const signatureStoragePath = await uploadWarehouseIntakeSignature(signaturePad.toDataUrl(), recordId);
+    return {
+      ...nextDraft,
+      signature: {
+        ...nextDraft.signature,
+        adminStaffName,
+        signatureStoragePath,
+        signedAt: nextDraft.signature.signedAt || new Date().toISOString()
+      }
+    };
   }
 
   function handleCustomerProfileSelection(customerProfileId: string) {
@@ -699,8 +746,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
   async function handleFinalize() {
     const issues = validateFinalDraft();
-    if (signatureRef.current?.isEmpty()) {
-      issues.push("Customer signature is required before finalising.");
+    const signatureDrawnButNotSaved = Boolean(signatureRef.current && !signatureRef.current.isEmpty());
+    const signatureSaved = Boolean(draft.signature.signatureStoragePath && draft.signature.signedAt);
+
+    if (!signatureSaved && signatureDrawnButNotSaved) {
+      issues.push("Please save the signature before finalising the intake.");
+    } else if (!signatureSaved) {
+      issues.push("Please capture and save the signature before finalising the intake.");
     }
     if (issues.length) {
       setErrorMessage(issues.join(" "));
@@ -713,8 +765,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       setErrorMessage("");
       setNotice("");
 
-      const signedAt = new Date().toISOString();
-      const signatureStoragePath = await uploadWarehouseIntakeSignature(signatureRef.current?.toDataUrl() || "", recordId);
+      const signedAt = draft.signature.signedAt || new Date().toISOString();
+      const signatureStoragePath = draft.signature.signatureStoragePath || "";
       const signedDraft = {
         ...draft,
         status: "signed" as const,
@@ -817,6 +869,18 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     });
   }
 
+  async function handleNextStep() {
+    if (currentStep === 4) {
+      try {
+        await persistDraft(draft, draft.signature.signatureStoragePath ? "Signature details saved." : "Signature saved.");
+      } catch {
+        return;
+      }
+    }
+
+    setCurrentStep((current) => Math.min(WAREHOUSE_INTAKE_STEPS.length - 1, current + 1));
+  }
+
   if (!hasAdminPermission(appUser, "manageVehicles")) {
     return (
       <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
@@ -846,7 +910,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
           {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
-          {draft.signature.signedAt ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
+          {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
         </div>
       </div>
 
@@ -1042,6 +1106,29 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
               <div className="mt-6 rounded-[24px] border border-black/5 bg-shell p-4">
                 <h4 className="text-lg font-semibold text-ink">Vehicle declarations</h4>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAllVehicleDeclarations("no")}
+                    className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Set all to No
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllVehicleDeclarations("yes")}
+                    className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Set all to Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllVehicleDeclarations("unknown")}
+                    className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Set all to Unknown
+                  </button>
+                </div>
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   {[
                     ["writtenOffHistory", "Written-off history"],
@@ -1094,41 +1181,17 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p className="mt-2 text-sm leading-6 text-ink/56">
                 If some documentation is not available yet, save the draft and continue. Missing photos can remain pending until the vehicle or owner is ready.
               </p>
-              <div className="mt-5 space-y-6">
-                {(Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).map(
-                  ([sectionKey, items]) => (
-                    <div key={sectionKey} className="rounded-[24px] border border-black/5 bg-shell p-4">
-                      <h4 className="text-lg font-semibold capitalize text-ink">{sectionKey}</h4>
-                      <div className="mt-4 space-y-4">
-                        {items.map((item) => (
-                          <div key={item.key} className="grid gap-3 md:grid-cols-[15rem,12rem,1fr] md:items-start">
-                            <div>
-                              <FieldLabel>{item.label}</FieldLabel>
-                            </div>
-                            <SelectInput
-                              value={draft.conditionReport[sectionKey][item.key].condition}
-                              onChange={(event) =>
-                                updateConditionItem(sectionKey, item.key, {
-                                  condition: event.target.value as WarehouseConditionItem["condition"],
-                                  documented: event.target.value === "documented"
-                                })
-                              }
-                            >
-                              {WAREHOUSE_DOCUMENTATION_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </SelectInput>
-                            <TextInput
-                              placeholder="Evidence notes or observations"
-                              value={draft.conditionReport[sectionKey][item.key].notes}
-                              onChange={(event) => updateConditionItem(sectionKey, item.key, { notes: event.target.value })}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                )}
+              <div className="mt-5 rounded-[24px] border border-black/5 bg-shell p-4">
+                <div className="space-y-2">
+                  <FieldLabel>Visible defects / condition comments</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[112px]"
+                    placeholder="Record scratches, dents, wheel rash, interior marks, transport notes, or any condition comments that staff should reference with the photo evidence."
+                    value={draft.conditionReport.exterior.visibleDefects.notes}
+                    onChange={(event) => updateConditionItem("exterior", "visibleDefects", { notes: event.target.value, documented: Boolean(event.target.value.trim()) })}
+                  />
+                  <FieldNote>Use uploaded photos as the primary condition record. Add notes only where extra context helps staff or the owner later.</FieldNote>
+                </div>
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -1231,12 +1294,25 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <div className="mt-4 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => signatureRef.current?.clear()}
+                  onClick={() => {
+                    signatureRef.current?.clear();
+                    setDraft((current) => ({
+                      ...current,
+                      signature: {
+                        ...current.signature,
+                        signedAt: "",
+                        signatureStoragePath: ""
+                      }
+                    }));
+                  }}
                   className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                 >
                   Clear signature
                 </button>
               </div>
+              <p className="mt-4 text-sm leading-6 text-ink/58">
+                Tap <span className="font-semibold text-ink">Save draft</span> or <span className="font-semibold text-ink">Next</span> after signing so the signature is stored before finalising the intake.
+              </p>
             </div>
           ) : null}
 
@@ -1320,7 +1396,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               </button>
               <button
                 type="button"
-                onClick={() => setCurrentStep((current) => Math.min(WAREHOUSE_INTAKE_STEPS.length - 1, current + 1))}
+                onClick={() => void handleNextStep()}
                 disabled={currentStep === WAREHOUSE_INTAKE_STEPS.length - 1}
                 className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-ink shadow-sm ring-1 ring-black/10 transition hover:bg-shell disabled:cursor-not-allowed disabled:opacity-50"
               >
