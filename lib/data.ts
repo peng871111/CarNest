@@ -1,4 +1,4 @@
-import { Timestamp, addDoc, arrayUnion, collection, deleteDoc, deleteField, doc, documentId, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { Timestamp, addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, documentId, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
 import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
 import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { verifyDealerLicenceByState } from "@/lib/dealer-licence-verification";
@@ -3391,6 +3391,46 @@ export async function getCustomerProfilesData() {
 
 export async function getVehicleRecordsData() {
   return await getCollection<VehicleRecord>("vehicleRecords", [], serializeVehicleRecordDoc);
+}
+
+export async function archiveVehicleRecord(
+  vehicleRecordId: string,
+  actor: VehicleActor
+): Promise<{ success: boolean; source: VehicleDataSource }> {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can archive vehicle records.");
+
+  if (!vehicleRecordId.trim()) {
+    throw new Error("Vehicle record ID is required.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      success: true,
+      source: "mock" as const
+    };
+  }
+
+  const vehicleRecord = await getVehicleRecordById(vehicleRecordId);
+  if (!vehicleRecord) {
+    throw new Error("Vehicle record not found.");
+  }
+
+  await updateDoc(doc(db, "vehicleRecords", vehicleRecordId), {
+    status: "archived",
+    updatedAt: serverTimestamp()
+  });
+
+  if (vehicleRecord.customerProfileId?.trim()) {
+    await updateDoc(doc(db, "customerProfiles", vehicleRecord.customerProfileId.trim()), {
+      linkedVehicleRecordIds: arrayRemove(vehicleRecordId),
+      updatedAt: serverTimestamp()
+    }).catch(() => undefined);
+  }
+
+  return {
+    success: true,
+    source: "firestore" as const
+  };
 }
 
 export async function getWarehouseRelationshipTreeByVehicleId(vehicleId: string): Promise<WarehouseRelationshipTree> {

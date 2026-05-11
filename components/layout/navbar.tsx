@@ -13,8 +13,9 @@ export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const userLabel = appUser ? (appUser.role === "admin" || appUser.role === "super_admin" ? "Admin" : appUser.displayName) : "";
+  const isAdminUser = appUser?.role === "admin" || appUser?.role === "super_admin";
   const accountLinks = appUser
-    ? appUser.role === "admin" || appUser.role === "super_admin"
+    ? isAdminUser
       ? [
           { href: "/admin/vehicles", label: "Dashboard" },
           { href: "/admin/inspections", label: "Inspections" },
@@ -27,6 +28,15 @@ export default function Navbar() {
           { href: "/dashboard/offers", label: "My Offers to Sellers" },
           { href: "/dashboard/settings", label: "Account Settings" }
         ]
+    : [];
+  const mobileAccountLinks = appUser
+    ? isAdminUser
+      ? [
+          { href: "/admin/vehicles", label: "Dashboard" },
+          { href: "/admin/warehouse-intake", label: "Warehouse Intake" },
+          { href: "/dashboard/settings", label: "Account Settings" }
+        ]
+      : accountLinks
     : [];
 
   async function handleLogout() {
@@ -158,7 +168,7 @@ export default function Navbar() {
                 <>
                   <p className="text-xs uppercase tracking-[0.22em] text-[#C6A87D]">{userLabel}</p>
                   <div className="mt-3 grid gap-2">
-                    {accountLinks.map((link) => (
+                    {mobileAccountLinks.map((link) => (
                       <Link
                         key={link.href}
                         href={link.href}

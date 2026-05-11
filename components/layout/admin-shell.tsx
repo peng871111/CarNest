@@ -96,8 +96,8 @@ export function AdminShell({
   return (
     <div>
       <WorkspaceHeader workspaceLabel="ADMIN" />
-      <main className="mx-auto grid max-w-7xl gap-8 px-6 py-16 lg:grid-cols-[240px,1fr]">
-        <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
+      <main className="mx-auto grid max-w-7xl gap-6 px-4 py-10 md:px-6 md:py-16 lg:grid-cols-[240px,1fr] lg:gap-8">
+        <aside className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-5">
           <p className="text-xs uppercase tracking-[0.32em] text-bronze">Admin</p>
           <div className="mt-6 space-y-2">
             {visibleLinks.map((link) => (
@@ -122,7 +122,7 @@ export function AdminShell({
         <section className="space-y-6">
           <div>
             <p className="text-xs uppercase tracking-[0.32em] text-bronze">Vehicle management</p>
-            <h1 className="mt-2 font-display text-5xl text-ink">{title}</h1>
+            <h1 className="mt-2 font-display text-3xl text-ink md:text-5xl">{title}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">{description}</p>
             <p className="mt-2 text-xs uppercase tracking-[0.22em] text-ink/45">Admin access</p>
           </div>
