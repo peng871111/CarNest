@@ -368,6 +368,39 @@ function serializeDate(value: unknown) {
   return typeof value === "string" ? value : undefined;
 }
 
+function isPlainFirestoreWriteObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function sanitizeFirestoreWriteValue(value: unknown): unknown {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeFirestoreWriteValue(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (!isPlainFirestoreWriteObject(value)) {
+    return value;
+  }
+
+  const entries = Object.entries(value).flatMap(([key, entry]) => {
+    const sanitized = sanitizeFirestoreWriteValue(entry);
+    return sanitized === undefined ? [] : [[key, sanitized] as const];
+  });
+
+  return Object.fromEntries(entries);
+}
+
+function sanitizeFirestoreWriteData<T extends Record<string, unknown>>(value: T): T {
+  return sanitizeFirestoreWriteValue(value) as T;
+}
+
 function normalizeVehicleStatus(status: unknown): VehicleStatus {
   if (status === "approved" || status === "pending" || status === "rejected") {
     return status;
@@ -3525,13 +3558,17 @@ async function upsertCustomerProfileFromIntake(
   const linkedVehicleRecordIds = payload.linkedVehicleRecordIds.filter(Boolean);
   const linkedListingIds = payload.linkedListingIds.filter(Boolean);
 
-  await setDoc(ref, {
-    ...payload,
-    ...(linkedVehicleRecordIds.length ? { linkedVehicleRecordIds: arrayUnion(...linkedVehicleRecordIds) } : {}),
-    ...(linkedListingIds.length ? { linkedListingIds: arrayUnion(...linkedListingIds) } : {}),
-    ...(existingId ? {} : { createdAt: serverTimestamp() }),
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  await setDoc(
+    ref,
+    sanitizeFirestoreWriteData({
+      ...payload,
+      ...(linkedVehicleRecordIds.length ? { linkedVehicleRecordIds: arrayUnion(...linkedVehicleRecordIds) } : {}),
+      ...(linkedListingIds.length ? { linkedListingIds: arrayUnion(...linkedListingIds) } : {}),
+      ...(existingId ? {} : { createdAt: serverTimestamp() }),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
 
   return ref.id;
 }
@@ -3552,12 +3589,16 @@ async function upsertVehicleRecordFromIntake(
   const payload = buildVehicleRecordWritePayload(intake, actor, customerProfileId, intakeId);
   const linkedIntakeIds = payload.linkedIntakeIds.filter(Boolean);
 
-  await setDoc(ref, {
-    ...payload,
-    ...(linkedIntakeIds.length ? { linkedIntakeIds: arrayUnion(...linkedIntakeIds) } : {}),
-    ...(existingId ? {} : { createdAt: serverTimestamp() }),
-    updatedAt: serverTimestamp()
-  }, { merge: true });
+  await setDoc(
+    ref,
+    sanitizeFirestoreWriteData({
+      ...payload,
+      ...(linkedIntakeIds.length ? { linkedIntakeIds: arrayUnion(...linkedIntakeIds) } : {}),
+      ...(existingId ? {} : { createdAt: serverTimestamp() }),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
 
   return ref.id;
 }
@@ -3736,7 +3777,7 @@ export async function saveWarehouseIntake(
 
     await setDoc(
       doc(db, "warehouseIntakes", existingId),
-      {
+      sanitizeFirestoreWriteData({
         ...payload,
         ownerDetails,
         vehicleDetails,
@@ -3746,7 +3787,7 @@ export async function saveWarehouseIntake(
         },
         signedPdfUrl: deleteField(),
         updatedAt: serverTimestamp()
-      },
+      }),
       { merge: true }
     );
 
@@ -3763,11 +3804,14 @@ export async function saveWarehouseIntake(
   }
 
   const intakeRef = doc(db, "warehouseIntakes", intakeId);
-  await setDoc(intakeRef, {
-    ...payload,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
-  });
+  await setDoc(
+    intakeRef,
+    sanitizeFirestoreWriteData({
+      ...payload,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+  );
 
   return {
     intake: {

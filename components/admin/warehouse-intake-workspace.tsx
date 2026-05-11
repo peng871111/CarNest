@@ -459,22 +459,30 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
     setSaving(true);
     setErrorMessage("");
-    const result = await saveWarehouseIntake(
-      {
-        ...nextDraft,
-        adminStaffName: nextDraft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
-      },
-      actor,
-      recordId || undefined
-    );
 
-    setRecordId(result.intake.id);
-    setDraft(toDraft(result.intake));
-    if (successMessage) {
-      setNotice(successMessage);
+    try {
+      const result = await saveWarehouseIntake(
+        {
+          ...nextDraft,
+          adminStaffName: nextDraft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
+        },
+        actor,
+        recordId || undefined
+      );
+
+      setRecordId(result.intake.id);
+      setDraft(toDraft(result.intake));
+      if (successMessage) {
+        setNotice(successMessage);
+      }
+      return result.intake;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "We couldn't save this intake draft right now.";
+      setErrorMessage(message);
+      throw error;
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    return result.intake;
   }
 
   function updateOwnerField<K extends keyof WarehouseIntakeOwnerDetails>(key: K, value: WarehouseIntakeOwnerDetails[K]) {
@@ -643,14 +651,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
   function validateFinalDraft() {
     const issues: string[] = [];
-    if (!draft.ownerDetails.fullName.trim()) issues.push("Owner full name is required.");
-    if (!draft.ownerDetails.email.trim()) issues.push("Owner email is required.");
-    if (!draft.ownerDetails.phone.trim()) issues.push("Owner phone is required.");
-    if (!draft.vehicleDetails.make.trim()) issues.push("Vehicle make is required.");
-    if (!draft.vehicleDetails.model.trim()) issues.push("Vehicle model is required.");
-    if (!draft.vehicleDetails.vin.trim()) issues.push("Vehicle VIN is required.");
-    if (!draft.ownerDetails.isLegalOwnerConfirmed) issues.push("Legal ownership confirmation is required.");
-    if (!draft.declarations.isInformationAccurate) issues.push("Declaration confirmation is required.");
     if (
       !draft.agreement.informationAccurateConfirmed
       || !draft.agreement.storageAssistanceAuthorized
@@ -662,7 +662,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       issues.push("All agreement checkboxes must be confirmed before signing.");
     }
     if (!draft.signature.signerName.trim()) issues.push("Signer name is required before capturing the signature.");
-    if (!draft.photos.length) issues.push("Upload vehicle documentation photos before finalising.");
     return issues;
   }
 
@@ -857,6 +856,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       {errorMessage ? (
         <div className="rounded-[22px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
       ) : null}
+      <div className="rounded-[22px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink/68">
+        Draft onboarding can be saved at any stage. Missing documents, photos, ownership proof, or signatures can stay pending and be supplied later.
+      </div>
       {uploadingLabel ? (
         <div className="rounded-[22px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink/65">{uploadingLabel}</div>
       ) : null}
@@ -947,7 +949,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="space-y-2">
                   <FieldLabel>ID document upload (optional)</FieldLabel>
                   <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnerFileUpload(event.target.files?.[0])} />
-                  <FieldNote>{draft.ownerDetails.identificationDocument?.name || "Upload customer identification if supplied."}</FieldNote>
+                  <FieldNote>{draft.ownerDetails.identificationDocument?.name || "Pending / to be supplied later if the customer has not brought ID yet."}</FieldNote>
                 </div>
                 <div className="space-y-2 md:col-span-2">
                   <FieldLabel>Customer verification notes</FieldLabel>
@@ -1029,7 +1031,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="space-y-2">
                   <FieldLabel>Ownership proof upload</FieldLabel>
                   <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnershipProofUpload(event.target.files?.[0])} />
-                  <FieldNote>{draft.vehicleDetails.ownershipProof?.name || "Preferably registration paper or ownership proof."}</FieldNote>
+                  <FieldNote>{draft.vehicleDetails.ownershipProof?.name || "Pending / to be supplied later. Preferably registration paper or ownership proof."}</FieldNote>
                 </div>
 
                 <div className="space-y-2 md:col-span-2">
@@ -1088,6 +1090,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <h3 className="text-xl font-semibold text-ink">3. Intake documentation</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
                 Capture evidence only. Do not rate the vehicle subjectively. Document defects, wheel rash, interior marks, odometer, VIN, and the general stored state through notes and photos.
+              </p>
+              <p className="mt-2 text-sm leading-6 text-ink/56">
+                If some documentation is not available yet, save the draft and continue. Missing photos can remain pending until the vehicle or owner is ready.
               </p>
               <div className="mt-5 space-y-6">
                 {(Object.entries(WAREHOUSE_CONDITION_SECTIONS) as unknown as Array<[keyof typeof WAREHOUSE_CONDITION_SECTIONS, ReadonlyArray<{ key: string; label: string }>]>).map(
@@ -1176,6 +1181,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
               </div>
               <div className="mt-5 space-y-3">
+                <p className="text-sm leading-6 text-ink/58">
+                  Agreement confirmation is only required when you are ready to finalise the intake and capture the signature.
+                </p>
                 <label className="flex items-start gap-3 rounded-[20px] border border-black/6 bg-white px-4 py-4 text-sm text-ink/72">
                   <input type="checkbox" checked={draft.agreement.informationAccurateConfirmed} onChange={(event) => updateAgreementField("informationAccurateConfirmed", event.target.checked)} className="mt-1 h-4 w-4 rounded border-black/20 text-ink" />
                   <span>I confirm that all information provided is true and accurate to the best of my knowledge.</span>
@@ -1302,7 +1310,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             <div className="flex flex-wrap gap-3">
               <button
                 type="button"
-                onClick={() => void persistDraft(draft, "Draft saved.")}
+                onClick={() => {
+                  void persistDraft(draft, "Draft saved.").catch(() => undefined);
+                }}
                 disabled={saving}
                 className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -1334,8 +1344,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Intake event:</span> {recordId || "Pending creation"}</p>
               <p><span className="font-semibold text-ink">Reference:</span> {draft.vehicleReference || recordId || "Pending"}</p>
               <p><span className="font-semibold text-ink">Public listing:</span> {draft.vehicleTitle || "Not linked yet"}</p>
-              <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending"}</p>
-              <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
+              <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
