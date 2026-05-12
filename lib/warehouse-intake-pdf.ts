@@ -24,6 +24,34 @@ const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
   [/‘|’/g, "'"]
 ];
 
+type EmbeddedPdfImage = Awaited<ReturnType<PDFDocument["embedJpg"]>>;
+
+function isWheelPhoto(label: string, category: string) {
+  const haystack = `${label} ${category}`.toLowerCase();
+  return haystack.includes("wheel") || haystack.includes("tyre") || haystack.includes("tire");
+}
+
+function getContainedImageRect(
+  image: EmbeddedPdfImage,
+  frame: { x: number; y: number; width: number; height: number },
+  padding = 0
+) {
+  const safeWidth = Math.max(1, frame.width - padding * 2);
+  const safeHeight = Math.max(1, frame.height - padding * 2);
+  const widthRatio = safeWidth / image.width;
+  const heightRatio = safeHeight / image.height;
+  const scale = Math.min(widthRatio, heightRatio);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+
+  return {
+    x: frame.x + (frame.width - drawWidth) / 2,
+    y: frame.y + (frame.height - drawHeight) / 2,
+    width: drawWidth,
+    height: drawHeight
+  };
+}
+
 async function loadUnicodeFontBytes() {
   if (!unicodeFontBytesPromise) {
     unicodeFontBytesPromise = fetch(UNICODE_FONT_URL).then(async (response) => {
@@ -402,14 +430,28 @@ export async function generateWarehouseIntakePdf(
 
   if (record.photos.length) {
     drawSectionTitle("Vehicle documentation photos");
-    const photoWidth = 240;
-    const photoHeight = 150;
+    const photoGap = 16;
+    const photoWidth = (CONTENT_WIDTH - photoGap) / 2;
+    const photoHeight = photoWidth * 0.75;
+    const photoCardHeight = photoHeight + 40;
     let column = 0;
 
     for (const photo of record.photos.slice(0, 12)) {
-      ensureSpace(photoHeight + 42);
-      const x = column === 0 ? PAGE_MARGIN : PAGE_MARGIN + photoWidth + 16;
-      const y = cursorY - photoHeight;
+      ensureSpace(photoCardHeight + 12);
+      const x = column === 0 ? PAGE_MARGIN : PAGE_MARGIN + photoWidth + photoGap;
+      const frameY = cursorY - photoHeight - 12;
+      const lowerPath = photo.storagePath.toLowerCase();
+      const wheelPhoto = isWheelPhoto(photo.label, photo.category);
+
+      page.drawRectangle({
+        x,
+        y: frameY,
+        width: photoWidth,
+        height: photoHeight,
+        color: rgb(0.985, 0.985, 0.985),
+        borderColor: rgb(0.86, 0.86, 0.86),
+        borderWidth: 1
+      });
 
       try {
         const bytes = options?.resolveStorageBytes
@@ -417,18 +459,39 @@ export async function generateWarehouseIntakePdf(
           : (() => {
               throw new Error("Storage byte resolver unavailable.");
             })();
-        const lowerPath = photo.storagePath.toLowerCase();
         const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-        page.drawImage(embedded, {
-          x,
-          y,
-          width: photoWidth,
-          height: photoHeight
-        });
+
+        if (wheelPhoto) {
+          const insetSize = Math.min(photoHeight - 18, 112);
+          const wheelFrame = {
+            x: x + (photoWidth - insetSize) / 2,
+            y: frameY + (photoHeight - insetSize) / 2,
+            width: insetSize,
+            height: insetSize
+          };
+          const wheelImageRect = getContainedImageRect(embedded, wheelFrame, 6);
+
+          page.drawCircle({
+            x: wheelFrame.x + wheelFrame.width / 2,
+            y: wheelFrame.y + wheelFrame.height / 2,
+            size: wheelFrame.width / 2,
+            borderColor: rgb(0.78, 0.78, 0.78),
+            borderWidth: 1
+          });
+          page.drawImage(embedded, wheelImageRect);
+        } else {
+          const imageRect = getContainedImageRect(embedded, {
+            x: x + 6,
+            y: frameY + 6,
+            width: photoWidth - 12,
+            height: photoHeight - 12
+          });
+          page.drawImage(embedded, imageRect);
+        }
       } catch {
         page.drawRectangle({
           x,
-          y,
+          y: frameY,
           width: photoWidth,
           height: photoHeight,
           borderColor: rgb(0.82, 0.82, 0.82),
@@ -436,7 +499,7 @@ export async function generateWarehouseIntakePdf(
         });
         page.drawText(normalizePdfText("Photo unavailable in PDF render", supportsUnicode), {
           x: x + 16,
-          y: y + photoHeight / 2,
+          y: frameY + photoHeight / 2,
           size: 10,
           font: regular,
           color: rgb(0.45, 0.45, 0.45)
@@ -445,14 +508,14 @@ export async function generateWarehouseIntakePdf(
 
       page.drawText(normalizePdfText(photo.label, supportsUnicode), {
         x,
-        y: y - 14,
+        y: frameY - 16,
         size: 10,
         font: bold,
         color: rgb(0.12, 0.12, 0.12)
       });
 
       if (column === 1) {
-        cursorY = y - 28;
+        cursorY = frameY - 34;
         column = 0;
       } else {
         column = 1;
@@ -460,7 +523,7 @@ export async function generateWarehouseIntakePdf(
     }
 
     if (column === 1) {
-      cursorY -= photoHeight + 28;
+      cursorY -= photoCardHeight + 6;
     }
   }
 
