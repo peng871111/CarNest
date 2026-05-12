@@ -464,6 +464,10 @@ async function writeAdminOperationalEvent(input: {
   vehicleRecordId?: string;
   intakeEventId?: string;
   publicListingId?: string;
+  targetUid?: string;
+  targetEmail?: string;
+  previousRole?: UserRole;
+  newRole?: UserRole;
 }) {
   if (!isFirebaseConfigured || !input.actor || !isAdminLikeRole(input.actor.role)) return;
 
@@ -478,6 +482,11 @@ async function writeAdminOperationalEvent(input: {
     publicListingId: input.publicListingId || "",
     staffUid: input.actor.id,
     staffName: getActorDisplayName(input.actor),
+    staffEmail: input.actor.email || "",
+    targetUid: input.targetUid || "",
+    targetEmail: input.targetEmail || "",
+    previousRole: input.previousRole,
+    newRole: input.newRole,
     summary: input.summary,
     createdAt: serverTimestamp()
   }));
@@ -717,6 +726,7 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
     brandingEnabled: typeof data.brandingEnabled === "boolean" ? data.brandingEnabled : undefined,
     contactDisplayEnabled: typeof data.contactDisplayEnabled === "boolean" ? data.contactDisplayEnabled : undefined,
     listingRestricted: Boolean(data.listingRestricted),
+    lastLoginAt: serializeDate(data.lastLoginAt),
     createdAt: serializeDate(data.createdAt)
   };
 }
@@ -4967,6 +4977,14 @@ function buildManagedPermissions(role: UserRole, adminPermissions?: Partial<Admi
   });
 }
 
+function formatManagedUserRoleLabel(role: UserRole) {
+  if (role === "super_admin") return "Super Admin";
+  if (role === "admin") return "Admin";
+  if (role === "dealer") return "Dealer";
+  if (role === "buyer") return "Buyer";
+  return "Seller";
+}
+
 export async function updateUserAccess(userId: string, input: UserAccessUpdateInput, actor: VehicleActor, existingUser?: AppUser) {
   if (!isSuperAdminUser(actor as AppUser)) {
     throw new Error("Only the super admin can manage admin access.");
@@ -4983,8 +5001,8 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
     storedPermissions: input.adminPermissions
   });
 
-  if (managedTarget.role === "super_admin" && !isSuperAdminUser(targetUser)) {
-    throw new Error("Craig is the only supported super admin account.");
+  if (userId === actor.id && targetUser.role === "super_admin" && managedTarget.role !== "super_admin") {
+    throw new Error("You cannot remove your own super admin access.");
   }
 
   const finalRole = managedTarget.role;
@@ -4992,20 +5010,22 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
     finalRole === "buyer" || finalRole === "seller" || finalRole === "dealer"
       ? buildManagedPermissions(finalRole, input.adminPermissions)
       : managedTarget.adminPermissions;
+  const nextUser: AppUser = {
+    ...targetUser,
+    role: finalRole,
+    adminPermissions: finalPermissions
+  };
 
   if (!isFirebaseConfigured) {
     return {
-      user: {
-        ...targetUser,
-        role: finalRole,
-        adminPermissions: finalPermissions
-      },
+      user: nextUser,
       source: "mock" as const,
       writeSucceeded: false
     };
   }
 
-  await setDoc(
+  const batch = writeBatch(db);
+  batch.set(
     doc(db, "users", userId),
     {
       role: finalRole,
@@ -5014,13 +5034,27 @@ export async function updateUserAccess(userId: string, input: UserAccessUpdateIn
     },
     { merge: true }
   );
+  batch.set(
+    doc(collection(db, "adminOperationalEvents")),
+    sanitizeFirestoreWriteData({
+      recordType: "user_access",
+      actionType: "role_changed",
+      affectedRecordId: userId,
+      staffUid: actor.id,
+      staffName: getActorDisplayName(actor),
+      staffEmail: actor.email || "",
+      targetUid: userId,
+      targetEmail: targetUser.email,
+      previousRole: targetUser.role,
+      newRole: finalRole,
+      summary: `${getActorDisplayName(actor)} changed ${targetUser.email || userId} from ${formatManagedUserRoleLabel(targetUser.role)} to ${formatManagedUserRoleLabel(finalRole)}.`,
+      createdAt: serverTimestamp()
+    })
+  );
+  await batch.commit();
 
   return {
-    user: {
-      ...targetUser,
-      role: finalRole,
-      adminPermissions: finalPermissions
-    },
+    user: nextUser,
     source: "firestore" as const,
     writeSucceeded: true
   };

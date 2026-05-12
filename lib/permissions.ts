@@ -111,7 +111,7 @@ export function resolveManagedUserAccess(input: {
   email?: string | null;
   storedRole?: string | null;
   storedPermissions?: Partial<AdminPermissions> | null;
-}) {
+}): { role: UserRole; adminPermissions?: AdminPermissions } {
   const email = normalizeEmailAddress(input.email);
   const storedRole = resolveStoredUserRole(input.storedRole);
   const hasStoredPermissions = Boolean(input.storedPermissions);
@@ -124,7 +124,7 @@ export function resolveManagedUserAccess(input: {
   }
 
   if (storedRole === "admin" || storedRole === "super_admin" || hasStoredPermissions) {
-    const normalizedRole = storedRole === "super_admin" ? "admin" : storedRole;
+    const normalizedRole = storedRole === "super_admin" ? "super_admin" : storedRole;
     return {
       role: normalizedRole,
       adminPermissions: getDefaultAdminPermissions(normalizedRole, email, input.storedPermissions)

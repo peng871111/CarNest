@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { getUserSupportActionTarget, getUserSupportRecord, getUserSupportSuggestions, softDeleteVehicle, updateUserSupportStatus } from "@/lib/data";
-import { hasAdminPermission } from "@/lib/permissions";
+import { getUserSupportActionTarget, getUserSupportRecord, getUserSupportSuggestions, listUsers, softDeleteVehicle, updateUserAccess, updateUserSupportStatus } from "@/lib/data";
+import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, UserSupportDealerRiskAccount, UserSupportHighActivityAccount, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
 
@@ -47,6 +47,45 @@ function createEmptyUserSupportRecord(): UserSupportRecord {
   };
 }
 
+function getRoleAccessLabel(user: AppUser) {
+  if (user.role === "super_admin") return "Super Admin";
+  if (user.role === "admin") return "Admin";
+  return "View only";
+}
+
+function getRoleActionLabel(nextRole: AppUser["role"]) {
+  if (nextRole === "super_admin") return "Grant super admin";
+  if (nextRole === "admin") return "Grant admin";
+  return "Revoke admin";
+}
+
+function getEffectiveLastLoginLabel(user: AppUser) {
+  return user.lastLoginAt ? formatAdminDateTime(user.lastLoginAt) : "Not recorded";
+}
+
+function resolveRevokedRole(user: AppUser): AppUser["role"] {
+  if (user.role === "buyer") return "buyer";
+  if (user.role === "dealer" || user.accountType === "dealer" || user.dealerStatus === "approved") return "dealer";
+  return "seller";
+}
+
+function matchesUserSearch(user: AppUser, normalizedSearch: string) {
+  if (!normalizedSearch) return true;
+
+  const haystacks = [
+    user.email,
+    user.displayName,
+    user.name,
+    user.phone,
+    user.id,
+    user.accountReference
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  return haystacks.some((value) => value.includes(normalizedSearch));
+}
+
 export function UserSupportPanel({
   initialQuery,
   initialRecord,
@@ -73,15 +112,26 @@ export function UserSupportPanel({
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [loadingRecord, setLoadingRecord] = useState(false);
+  const [userDirectory, setUserDirectory] = useState<AppUser[]>([]);
+  const [loadingUserDirectory, setLoadingUserDirectory] = useState(false);
+  const [userDirectoryError, setUserDirectoryError] = useState("");
+  const [roleSearch, setRoleSearch] = useState("");
+  const [pendingRoleChange, setPendingRoleChange] = useState<{ user: AppUser; nextRole: AppUser["role"] } | null>(null);
   const normalizedQuery = normalizeQuery(query);
   const matchedUser = record.matchedUser;
   const matchedVehicle = record.matchedVehicle;
   const ownedVehicles = record.ownedVehicles;
   const accountMetrics = record.metrics;
   const canDeleteListings = hasAdminPermission(appUser, "deleteListings");
+  const canViewUsers = hasAdminPermission(appUser, "manageUsers");
+  const canManageRoles = isSuperAdminUser(appUser);
   const matchedUserDisplayName = matchedUser?.displayName || matchedUser?.name || matchedUser?.email || "Unknown user";
   const matchedUserEmail = matchedUser?.email || "No email on file";
   const matchedUserSearchValue = matchedUser?.email || "";
+  const filteredUserDirectory = useMemo(
+    () => userDirectory.filter((user) => matchesUserSearch(user, normalizeQuery(roleSearch))),
+    [roleSearch, userDirectory]
+  );
 
   useEffect(() => {
     setRecord(initialRecord);
@@ -148,6 +198,35 @@ export function UserSupportPanel({
       window.clearTimeout(timeoutId);
     };
   }, [initialQuery, query]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadUserDirectory() {
+      if (!canViewUsers) return;
+      setLoadingUserDirectory(true);
+      setUserDirectoryError("");
+
+      try {
+        const nextUsers = await listUsers();
+        if (cancelled) return;
+        setUserDirectory(nextUsers);
+      } catch (directoryError) {
+        if (cancelled) return;
+        setUserDirectory([]);
+        setUserDirectoryError(directoryError instanceof Error ? directoryError.message : "Unable to load registered users right now.");
+      } finally {
+        if (cancelled) return;
+        setLoadingUserDirectory(false);
+      }
+    }
+
+    void loadUserDirectory();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewUsers]);
 
   async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -254,6 +333,48 @@ export function UserSupportPanel({
     }
   }
 
+  async function handleConfirmRoleChange() {
+    if (!pendingRoleChange) return;
+
+    const actor = buildActor(appUser);
+    if (!actor || !canManageRoles) {
+      setError("Only the super admin can change backend access.");
+      setPendingRoleChange(null);
+      return;
+    }
+
+    const { user, nextRole } = pendingRoleChange;
+    setBusyAction(`role-${user.id}`);
+    setSuccess("");
+    setError("");
+
+    try {
+      const result = await updateUserAccess(
+        user.id,
+        {
+          role: nextRole
+        },
+        actor,
+        user
+      );
+
+      setUserDirectory((current) => current.map((entry) => (entry.id === user.id ? result.user : entry)));
+      if (matchedUser?.id === user.id) {
+        setRecord((current) => ({
+          ...current,
+          matchedUser: result.user
+        }));
+      }
+      setSuccess(`${user.displayName || user.email} is now ${getRoleAccessLabel(result.user)}.`);
+      setPendingRoleChange(null);
+      router.refresh();
+    } catch (roleError) {
+      setError(roleError instanceof Error ? roleError.message : "Unable to update that role right now.");
+    } finally {
+      setBusyAction("");
+    }
+  }
+
   function getRiskBadgeClasses(riskLevel: UserSupportDealerRiskAccount["riskLevel"]) {
     if (riskLevel === "high") {
       return "border-[#B42318]/15 bg-[#FEF3F2] text-[#B42318]";
@@ -330,6 +451,111 @@ export function UserSupportPanel({
         ) : null}
         {success ? <p className="mt-4 text-sm text-emerald-700">{success}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+      </div>
+
+      <div className="rounded-[28px] border border-black/5 bg-white shadow-panel">
+        <div className="border-b border-black/5 px-6 py-5">
+          <p className="text-xs uppercase tracking-[0.22em] text-bronze">Access support</p>
+          <h3 className="mt-2 text-xl font-semibold text-ink">Registered users</h3>
+          <p className="mt-2 max-w-3xl text-sm text-ink/65">
+            Search by email, name, phone, or UID. Only trusted super admins should change backend access.
+          </p>
+          <p className="mt-3 rounded-[18px] border border-[#9D6B2F]/15 bg-[#FFF7ED] px-4 py-3 text-sm text-[#9D6B2F]">
+            Role changes affect backend access. Only grant admin access to trusted staff.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <Input
+              value={roleSearch}
+              onChange={(event) => setRoleSearch(event.target.value)}
+              placeholder="Search users by email, name, phone, or UID"
+              className="h-12"
+            />
+            <div className="inline-flex items-center rounded-full border border-black/10 bg-shell px-4 py-3 text-sm text-ink/65">
+              {canManageRoles ? "Super Admin" : "View only"}
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-5">
+          {loadingUserDirectory ? (
+            <p className="text-sm text-ink/60">Loading registered users...</p>
+          ) : userDirectoryError ? (
+            <p className="text-sm text-red-600">{userDirectoryError}</p>
+          ) : filteredUserDirectory.length ? (
+            <div className="space-y-3">
+              {filteredUserDirectory.slice(0, 25).map((user) => {
+                const revokeRole = resolveRevokedRole(user);
+                const canGrantAdmin = canManageRoles && user.role !== "admin" && user.role !== "super_admin";
+                const canGrantSuperAdmin = canManageRoles && user.role !== "super_admin";
+                const canRevokeAdmin = canManageRoles && (user.role === "admin" || user.role === "super_admin");
+                const isSelfSuperAdmin = appUser?.id === user.id && user.role === "super_admin";
+
+                return (
+                  <div key={user.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold text-ink">{user.displayName || user.name || user.email}</p>
+                          <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink/60">
+                            {getRoleAccessLabel(user)}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid gap-3 text-sm text-ink/65 md:grid-cols-2 xl:grid-cols-3">
+                          <p>Email: {user.email || "No email"}</p>
+                          <p>Phone: {user.phone || "Not provided"}</p>
+                          <p>UID: {user.id}</p>
+                          <p>Created: {formatAdminDateTime(user.createdAt)}</p>
+                          <p>Last login: {getEffectiveLastLoginLabel(user)}</p>
+                          <p>Reference: {getAccountDisplayReference(user)}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {canGrantAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => setPendingRoleChange({ user, nextRole: "admin" })}
+                            disabled={busyAction === `role-${user.id}`}
+                            className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Grant admin
+                          </button>
+                        ) : null}
+                        {canGrantSuperAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => setPendingRoleChange({ user, nextRole: "super_admin" })}
+                            disabled={busyAction === `role-${user.id}`}
+                            className="rounded-full border border-[#9D6B2F]/20 bg-[#FFF7ED] px-4 py-2 text-xs font-semibold text-[#9D6B2F] transition hover:border-[#9D6B2F]/30 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Grant super admin
+                          </button>
+                        ) : null}
+                        {canRevokeAdmin ? (
+                          <button
+                            type="button"
+                            onClick={() => setPendingRoleChange({ user, nextRole: revokeRole })}
+                            disabled={busyAction === `role-${user.id}` || isSelfSuperAdmin}
+                            className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-red-800 transition hover:border-black/15 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Revoke admin
+                          </button>
+                        ) : null}
+                        {!canManageRoles ? (
+                          <span className="inline-flex items-center rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink/60">
+                            View only
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-sm text-ink/60">No registered users matched that search.</p>
+          )}
+        </div>
       </div>
 
       <div className="rounded-[28px] border border-black/5 bg-white shadow-panel">
@@ -741,6 +967,37 @@ export function UserSupportPanel({
           ) : null}
         </>
       )}
+
+      {pendingRoleChange ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+            <p className="text-xs uppercase tracking-[0.22em] text-bronze">Confirm role change</p>
+            <h3 className="mt-2 text-2xl font-semibold text-ink">{getRoleActionLabel(pendingRoleChange.nextRole)}</h3>
+            <p className="mt-3 text-sm leading-6 text-ink/65">
+              {pendingRoleChange.user.displayName || pendingRoleChange.user.email} will move from{" "}
+              <span className="font-semibold text-ink">{getRoleAccessLabel(pendingRoleChange.user)}</span> to{" "}
+              <span className="font-semibold text-ink">
+                {pendingRoleChange.nextRole === "super_admin" ? "Super Admin" : pendingRoleChange.nextRole === "admin" ? "Admin" : "View only"}
+              </span>.
+            </p>
+            <p className="mt-3 text-sm leading-6 text-ink/65">
+              This updates backend access immediately. Continue only if this staff member should have that level of access.
+            </p>
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingRoleChange(null)}
+                className="inline-flex items-center justify-center rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-black/15 hover:bg-shell"
+              >
+                Cancel
+              </button>
+              <Button onClick={() => void handleConfirmRoleChange()} disabled={busyAction === `role-${pendingRoleChange.user.id}`}>
+                {busyAction === `role-${pendingRoleChange.user.id}` ? "Saving..." : "Confirm change"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -66,7 +66,7 @@ export type VehicleRecordStatus =
   | "withdrawn";
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
 export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
-export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing";
+export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing" | "user_access";
 export type AdminAuditActionType =
   | "created"
   | "updated"
@@ -74,7 +74,8 @@ export type AdminAuditActionType =
   | "linked_listing_synced"
   | "intake_completed"
   | "fees_updated"
-  | "editor_heartbeat";
+  | "editor_heartbeat"
+  | "role_changed";
 export type WarehouseServiceFeeCategory =
   | "car_wash"
   | "light_detailing"
@@ -143,6 +144,7 @@ export interface AppUser {
   brandingEnabled?: boolean;
   contactDisplayEnabled?: boolean;
   listingRestricted?: boolean;
+  lastLoginAt?: string;
   createdAt?: string;
 }
 
@@ -357,6 +359,11 @@ export interface AdminAuditEvent {
   publicListingId?: string;
   staffUid?: string;
   staffName?: string;
+  staffEmail?: string;
+  targetUid?: string;
+  targetEmail?: string;
+  previousRole?: UserRole;
+  newRole?: UserRole;
   summary: string;
   createdAt?: string;
 }

@@ -66,6 +66,23 @@ service cloud.firestore {
         || (role == "super_admin" && isCraigEmail(email));
     }
 
+    function adminPermissionsUnchanged() {
+      return (
+        !("adminPermissions" in resource.data)
+        && !("adminPermissions" in request.resource.data)
+      ) || request.resource.data.adminPermissions == resource.data.adminPermissions;
+    }
+
+    function nonSuperAdminUserRoleChangeAllowed() {
+      return request.resource.data.role == resource.data.role
+        || (
+          resource.data.role != "admin"
+          && resource.data.role != "super_admin"
+          && request.resource.data.role != "admin"
+          && request.resource.data.role != "super_admin"
+        );
+    }
+
     function isValidOfferStatus(status) {
       return status == "pending"
         || status == "countered"
@@ -318,7 +335,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if isAdmin() || isSuperAdmin();
+      allow read: if isAdmin() || isSuperAdmin();
+      allow update: if isSuperAdmin();
+      allow update: if isAdmin()
+        && adminPermissionsUnchanged()
+        && nonSuperAdminUserRoleChangeAllowed();
       allow read: if signedIn() && request.auth.uid == userId;
       allow create: if signedIn()
         && request.auth.uid == userId

@@ -18,7 +18,7 @@ export default async function AdminUserSupportPage({
   return (
     <AdminShell
       title="User Support"
-      description="Search a specific customer or listing, review account-linked activity, and perform support actions without scanning the full user base."
+      description="Search registered users, review account activity, and handle support or access tasks from one internal workspace."
       requiredPermission="manageUsers"
     >
       <UserSupportPanel
