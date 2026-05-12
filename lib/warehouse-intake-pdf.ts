@@ -359,11 +359,13 @@ export async function generateWarehouseIntakePdf(
 
   if (record.serviceItems.length) {
     drawSectionTitle("Service fee items");
-    record.serviceItems.forEach((item, index) => {
+    record.serviceItems
+      .filter((item) => item.customerVisible !== false)
+      .forEach((item, index) => {
       drawField(
         `Service item ${index + 1}`,
         sanitizeText(
-          `${item.serviceName || "Service item"} · ${item.category.replace(/_/g, " ")} · $${item.amount.toFixed(2)}${item.gstIncluded ? " incl. GST" : ""}${item.customerVisible ? " · customer visible" : " · internal only"}${item.internalNote ? ` · ${item.internalNote}` : ""}`,
+          `${item.serviceName || "Service item"} · ${item.category.replace(/_/g, " ")} · $${item.amount.toFixed(2)} incl. GST`,
           "Service item",
           supportsUnicode
         )
@@ -371,7 +373,10 @@ export async function generateWarehouseIntakePdf(
     });
     drawField(
       "Service fee total",
-      `$${record.serviceItems.reduce((sum, item) => sum + item.amount, 0).toFixed(2)}`
+      `$${record.serviceItems
+        .filter((item) => item.customerVisible !== false)
+        .reduce((sum, item) => sum + item.amount, 0)
+        .toFixed(2)}`
     );
   }
 

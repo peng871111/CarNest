@@ -361,6 +361,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [uploadingLabel, setUploadingLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
 
   const customerVehicleRecords = useMemo(
     () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
@@ -657,14 +658,35 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   function updateServiceItem(id: string, updates: Partial<WarehouseServiceFeeItem>) {
     setDraft((current) => ({
       ...current,
-      serviceItems: current.serviceItems.map((item) => (item.id === id ? { ...item, ...updates } : item))
+      serviceItems: current.serviceItems.map((item) => (
+        item.id === id
+          ? {
+              ...item,
+              ...updates,
+              gstIncluded: true,
+              customerVisible: true
+            }
+          : item
+      ))
     }));
   }
 
   function removeServiceItem(id: string) {
+    setExpandedInternalNotes((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
     setDraft((current) => ({
       ...current,
       serviceItems: current.serviceItems.filter((item) => item.id !== id)
+    }));
+  }
+
+  function toggleInternalNote(id: string) {
+    setExpandedInternalNotes((current) => ({
+      ...current,
+      [id]: !current[id]
     }));
   }
 
@@ -1374,7 +1396,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 className="text-lg font-semibold text-ink">Service fee items</h4>
-                    <p className="mt-1 text-sm text-ink/58">Add optional operational fees for warehouse-managed vehicles. Customer-visible items will appear on the PDF.</p>
+                    <p className="mt-1 text-sm text-ink/58">Add optional operational fees for warehouse-managed vehicles. Amounts are stored GST-inclusive and shown on the customer PDF by default.</p>
                   </div>
                   <button
                     type="button"
@@ -1388,8 +1410,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="mt-4 space-y-3">
                   {draft.serviceItems.map((item) => (
                     <div key={item.id} className="rounded-[20px] border border-black/8 bg-white p-4">
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                        <div className="space-y-2 xl:col-span-2">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_minmax(140px,0.9fr)_auto] xl:items-end">
+                        <div className="space-y-2">
                           <FieldLabel>Service name</FieldLabel>
                           <TextInput value={item.serviceName} onChange={(event) => updateServiceItem(item.id, { serviceName: event.target.value })} placeholder="e.g. Car wash" />
                         </div>
@@ -1412,19 +1434,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                             onChange={(event) => updateServiceItem(item.id, { amount: Number(event.target.value || 0) })}
                           />
                         </div>
-                        <label className="flex items-center gap-3 rounded-[18px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink">
-                          <input type="checkbox" checked={item.gstIncluded} onChange={(event) => updateServiceItem(item.id, { gstIncluded: event.target.checked })} className="h-4 w-4 rounded border-black/20 text-ink" />
-                          <span>GST included</span>
-                        </label>
-                        <label className="flex items-center gap-3 rounded-[18px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink">
-                          <input type="checkbox" checked={item.customerVisible} onChange={(event) => updateServiceItem(item.id, { customerVisible: event.target.checked })} className="h-4 w-4 rounded border-black/20 text-ink" />
-                          <span>Customer visible</span>
-                        </label>
-                        <div className="space-y-2 md:col-span-2 xl:col-span-5">
-                          <FieldLabel>Internal note</FieldLabel>
-                          <TextAreaInput className="min-h-[88px]" value={item.internalNote} onChange={(event) => updateServiceItem(item.id, { internalNote: event.target.value })} placeholder="Internal workshop, storage, or coordination note" />
-                        </div>
-                        <div className="flex items-end">
+                        <div className="flex items-end justify-between gap-3 xl:justify-end">
+                          <button
+                            type="button"
+                            onClick={() => toggleInternalNote(item.id)}
+                            className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                          >
+                            {expandedInternalNotes[item.id] ? "Hide internal note" : "Add internal note"}
+                          </button>
                           <button
                             type="button"
                             onClick={() => removeServiceItem(item.id)}
@@ -1434,6 +1451,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           </button>
                         </div>
                       </div>
+                      {expandedInternalNotes[item.id] ? (
+                        <div className="mt-3 space-y-2">
+                          <FieldLabel>Internal note</FieldLabel>
+                          <TextAreaInput className="min-h-[88px]" value={item.internalNote} onChange={(event) => updateServiceItem(item.id, { internalNote: event.target.value })} placeholder="Internal workshop, storage, or coordination note" />
+                          <FieldNote>Internal notes stay admin-only and are not shown on the customer PDF.</FieldNote>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
 
@@ -1647,8 +1671,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Public listing:</span> {draft.vehicleTitle || "Not linked yet"}</p>
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST` : "None yet"}</p>
-              <p><span className="font-semibold text-ink">Customer-visible fees:</span> ${serviceFeeTotals.customerVisibleTotal.toFixed(2)}</p>
-              <p><span className="font-semibold text-ink">GST component:</span> ${serviceFeeTotals.gstComponent.toFixed(2)}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>

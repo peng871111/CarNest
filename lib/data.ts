@@ -4467,8 +4467,8 @@ function buildWarehouseIntakeWritePayload(
             serviceName: sanitizeSingleLineText(item.serviceName ?? ""),
             category: item.category,
             amount: Number.isFinite(Number(item.amount)) ? Number(item.amount) : 0,
-            gstIncluded: item.gstIncluded !== false,
-            customerVisible: item.customerVisible !== false,
+            gstIncluded: true,
+            customerVisible: true,
             internalNote: sanitizeMultilineText(item.internalNote ?? "")
           })
         )
