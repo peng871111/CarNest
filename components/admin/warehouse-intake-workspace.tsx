@@ -1410,31 +1410,44 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="mt-4 space-y-3">
                   {draft.serviceItems.map((item) => (
                     <div key={item.id} className="rounded-[20px] border border-black/8 bg-white p-4">
-                      <div className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,2.2fr)_minmax(0,1.2fr)_minmax(140px,0.9fr)_auto] xl:items-end">
+                      <div className="space-y-4">
                         <div className="space-y-2">
                           <FieldLabel>Service name</FieldLabel>
-                          <TextInput value={item.serviceName} onChange={(event) => updateServiceItem(item.id, { serviceName: event.target.value })} placeholder="e.g. Car wash" />
-                        </div>
-                        <div className="space-y-2">
-                          <FieldLabel>Category</FieldLabel>
-                          <SelectInput value={item.category} onChange={(event) => updateServiceItem(item.id, { category: event.target.value as WarehouseServiceFeeItem["category"] })}>
-                            {WAREHOUSE_SERVICE_FEE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </SelectInput>
-                        </div>
-                        <div className="space-y-2">
-                          <FieldLabel>Amount</FieldLabel>
                           <TextInput
-                            type="number"
-                            inputMode="decimal"
-                            min="0"
-                            step="0.01"
-                            value={item.amount || ""}
-                            onChange={(event) => updateServiceItem(item.id, { amount: Number(event.target.value || 0) })}
+                            className="min-h-[44px]"
+                            value={item.serviceName}
+                            onChange={(event) => updateServiceItem(item.id, { serviceName: event.target.value })}
+                            placeholder="e.g. Car wash"
                           />
                         </div>
-                        <div className="flex items-end justify-between gap-3 xl:justify-end">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <FieldLabel>Category</FieldLabel>
+                            <SelectInput
+                              className="min-h-[44px]"
+                              value={item.category}
+                              onChange={(event) => updateServiceItem(item.id, { category: event.target.value as WarehouseServiceFeeItem["category"] })}
+                            >
+                              {WAREHOUSE_SERVICE_FEE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </SelectInput>
+                          </div>
+                          <div className="space-y-2">
+                            <FieldLabel>Amount</FieldLabel>
+                            <TextInput
+                              className="min-h-[44px]"
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="0.01"
+                              value={item.amount || ""}
+                              onChange={(event) => updateServiceItem(item.id, { amount: Number(event.target.value || 0) })}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-xs font-medium text-ink/58">GST inclusive · Customer visible on PDF</p>
+                        <div className="flex flex-wrap items-center gap-3">
                           <button
                             type="button"
                             onClick={() => toggleInternalNote(item.id)}
