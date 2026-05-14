@@ -11,7 +11,8 @@ import {
   deleteEmptyCustomerProfiles,
   getVehicleActivityLog,
   saveCustomerProfile,
-  saveVehicleRecord
+  saveVehicleRecord,
+  updateSellerVehicleStatus
 } from "@/lib/data";
 import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
@@ -28,7 +29,8 @@ type VehicleOperationalStatus =
   | "Withdrawn"
   | "Unlinked";
 type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "Sold" | "Draft" | "Withdrawn";
-type VehicleListingsFilter = "Active" | "Sold" | "Draft" | "Withdrawn" | "All";
+type VehicleListingsFilter = "Active" | "Sold" | "Withdrawn" | "All";
+type VehicleRowStatusControl = "ACTIVE" | "SOLD" | "WITHDRAWN";
 type VehicleLogComposerMode = "internal" | "photo" | "owner";
 type VehicleLogComposerDraft = {
   mode: VehicleLogComposerMode;
@@ -218,6 +220,7 @@ export function VehicleManagementHub({
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState<VehicleListingsFilter>(defaultView === "vehicles" ? "Active" : "All");
+  const [localVehicles, setLocalVehicles] = useState(vehicles);
   const [localCustomerProfiles, setLocalCustomerProfiles] = useState(customerProfiles);
   const [localVehicleRecords, setLocalVehicleRecords] = useState(vehicleRecords);
   const [localIntakes, setLocalIntakes] = useState(intakes);
@@ -239,6 +242,10 @@ export function VehicleManagementHub({
   }, [defaultView]);
 
   useEffect(() => {
+    setLocalVehicles(vehicles);
+  }, [vehicles]);
+
+  useEffect(() => {
     setLocalCustomerProfiles(customerProfiles);
   }, [customerProfiles]);
 
@@ -250,7 +257,7 @@ export function VehicleManagementHub({
     setLocalIntakes(intakes);
   }, [intakes]);
 
-  const listingMap = useMemo(() => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])), [vehicles]);
+  const listingMap = useMemo(() => new Map(localVehicles.map((vehicle) => [vehicle.id, vehicle])), [localVehicles]);
   const customerMap = useMemo(() => new Map(localCustomerProfiles.map((profile) => [profile.id, profile])), [localCustomerProfiles]);
   const ownerMap = useMemo(() => new Map(owners.map((owner) => [owner.id, owner])), [owners]);
   const intakesByVehicleRecordId = useMemo(() => {
@@ -332,7 +339,7 @@ export function VehicleManagementHub({
 
   const listingRows = useMemo(() => {
     const term = globalSearch.trim().toLowerCase();
-    return vehicles
+    return localVehicles
       .map((vehicle) => {
         const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id) ?? null;
         const linkedCustomer = linkedRecord?.customerProfileId ? customerMap.get(linkedRecord.customerProfileId) ?? null : null;
@@ -344,11 +351,9 @@ export function VehicleManagementHub({
         const filterGroup: VehicleListingsFilter =
           status === "Sold"
             ? "Sold"
-            : status === "Draft"
-              ? "Draft"
-              : status === "Withdrawn"
-                ? "Withdrawn"
-                : "Active";
+            : status === "Withdrawn"
+              ? "Withdrawn"
+              : "Active";
         const searchText = [
           getVehicleDisplayReference(vehicle),
           vehicle.make,
@@ -368,14 +373,18 @@ export function VehicleManagementHub({
           .toLowerCase();
         return { vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedRevenue, status, filterGroup, searchText };
       })
-      .filter((row) => (vehicleStatusFilter === "All" ? true : row.filterGroup === vehicleStatusFilter))
+      .filter((row) => {
+        if (vehicleStatusFilter === "All") return true;
+        if (row.status === "Draft") return false;
+        return row.filterGroup === vehicleStatusFilter;
+      })
       .filter((row) => (term ? row.searchText.includes(term) : true))
       .sort((left, right) => {
         const leftRef = getVehicleDisplayReference(left.vehicle);
         const rightRef = getVehicleDisplayReference(right.vehicle);
         return leftRef.localeCompare(rightRef);
       });
-  }, [customerMap, globalSearch, intakesByVehicleRecordId, localVehicleRecords, ownerMap, vehicleStatusFilter, vehicles]);
+  }, [customerMap, globalSearch, intakesByVehicleRecordId, localVehicleRecords, localVehicles, ownerMap, vehicleStatusFilter]);
 
   const workspaceMetrics = useMemo(() => {
     const listingLinkedRecords = localVehicleRecords
@@ -393,7 +402,7 @@ export function VehicleManagementHub({
     const pendingFees = localIntakes
       .filter((intake) => intake.status !== "signed")
       .reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
-    const totalActiveListingPotentialRevenue = vehicles
+    const totalActiveListingPotentialRevenue = localVehicles
       .filter((vehicle) => isPublicInventoryListing(vehicle))
       .reduce((sum, vehicle) => {
         const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id);
@@ -405,7 +414,27 @@ export function VehicleManagementHub({
       pendingFees,
       totalActiveListingPotentialRevenue
     };
-  }, [intakesByVehicleRecordId, listingMap, localIntakes, localVehicleRecords, vehicles]);
+  }, [intakesByVehicleRecordId, listingMap, localIntakes, localVehicleRecords, localVehicles]);
+
+  async function handleVehicleListingStatusChange(vehicle: Vehicle, nextStatus: VehicleRowStatusControl) {
+    if (!actor) return;
+
+    try {
+      setSaving(true);
+      const result = await updateSellerVehicleStatus(vehicle.id, nextStatus, actor, vehicle);
+      setLocalVehicles((current) =>
+        current
+          .map((item) => (item.id === vehicle.id ? result.vehicle : item))
+          .sort((left, right) => getVehicleDisplayReference(left).localeCompare(getVehicleDisplayReference(right)))
+      );
+      setNotice(`${getVehicleDisplayReference(result.vehicle)} status updated to ${nextStatus.toLowerCase().replace(/_/g, " ")}.`);
+      setActionError("");
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "We couldn't update the listing status.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   function openCustomerEditor(profile?: CustomerProfile) {
     setActionError("");
@@ -788,7 +817,7 @@ export function VehicleManagementHub({
               <FieldLabel>Linked public listing</FieldLabel>
               <CompactSelect value={vehicleDraft.publicListingId || ""} onChange={(event) => setVehicleDraft((current) => current ? { ...current, publicListingId: event.target.value } : current)}>
                 <option value="">No public listing linked</option>
-                {vehicles.map((vehicle) => (
+                {localVehicles.map((vehicle) => (
                   <option key={vehicle.id} value={vehicle.id}>{getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model}</option>
                 ))}
               </CompactSelect>
@@ -829,7 +858,6 @@ export function VehicleManagementHub({
               <CompactSelect value={vehicleStatusFilter} onChange={(event) => setVehicleStatusFilter(event.target.value as VehicleListingsFilter)} className="w-full md:w-56">
                 <option value="Active">Active</option>
                 <option value="Sold">Sold</option>
-                <option value="Draft">Draft</option>
                 <option value="Withdrawn">Withdrawn</option>
                 <option value="All">All</option>
               </CompactSelect>
@@ -854,53 +882,75 @@ export function VehicleManagementHub({
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] xl:items-start">
+                    <div className="min-w-0">
                       <p className="truncate text-base font-semibold text-ink">
                         {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.variant}
                       </p>
-                      <p className="mt-1 text-sm text-ink/60">
-                        {formatCurrency(vehicle.price)} · {vehicle.mileage.toLocaleString()} km · {status}
-                      </p>
-                      <p className="mt-1 text-sm text-ink/58">
-                        Owner: {linkedCustomer ? getCustomerLabel(linkedCustomer) : vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Not linked"} · Intake: {warehouseStatus}
-                      </p>
-                      <p className="mt-1 text-sm text-ink/62">
-                        VIN {vehicle.vin || "Pending"} · Rego {vehicle.rego || "Pending"} · Projected revenue {formatCurrency(projectedRevenue)}
-                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/60">
+                        <span>{formatCurrency(vehicle.price)}</span>
+                        <span>{vehicle.mileage.toLocaleString()} km</span>
+                        <span>{vehicle.listingType === "warehouse" || vehicle.storedInWarehouse ? "Warehouse" : "Private"}</span>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatusPill label={status === "Available" ? "Listed" : status === "Warehouse managed" ? "Warehouse managed" : status} />
-                      <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                        Edit listing
-                      </Link>
-                      <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                        View listing
-                      </Link>
-                      <button type="button" onClick={() => openVehicleEditorForListing(vehicle, linkedRecord)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                        {linkedCustomer ? "Change owner" : "Assign owner"}
-                      </button>
-                      {linkedCustomer ? (
-                        <Link href={`/admin/customers?customerId=${linkedCustomer.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                          Open customer
+
+                    <div className="min-w-0 space-y-1 text-sm text-ink/60">
+                      <p className="truncate">
+                        Owner: {linkedCustomer ? getCustomerLabel(linkedCustomer) : vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Not linked"}
+                      </p>
+                      <p className="truncate">Intake: {warehouseStatus}</p>
+                      <p className="truncate">VIN: {vehicle.vin || "Pending"}</p>
+                      <p className="truncate">Rego: {vehicle.rego || "Pending"}</p>
+                      <p className="truncate">Projected revenue: {formatCurrency(projectedRevenue)}</p>
+                    </div>
+
+                    <div className="flex flex-col items-start gap-3 xl:items-end">
+                      <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+                        <StatusPill label={status === "Available" ? "Listed" : status === "Warehouse managed" ? "Warehouse managed" : status} />
+                        <CompactSelect
+                          value={vehicle.sellerStatus === "SOLD" ? "SOLD" : vehicle.sellerStatus === "WITHDRAWN" ? "WITHDRAWN" : "ACTIVE"}
+                          onChange={(event) => void handleVehicleListingStatusChange(vehicle, event.target.value as VehicleRowStatusControl)}
+                          disabled={saving}
+                          className="min-h-[40px] w-[150px] rounded-full px-4 py-2 text-xs font-semibold"
+                        >
+                          <option value="ACTIVE">Active</option>
+                          <option value="SOLD">Sold</option>
+                          <option value="WITHDRAWN">Withdrawn</option>
+                        </CompactSelect>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 xl:justify-end">
+                        <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Edit listing
                         </Link>
-                      ) : null}
-                      {latestIntake ? (
-                        <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                          Open intake contract
+                        <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          View listing
                         </Link>
-                      ) : linkedRecord ? (
-                        <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                          Start warehouse intake
-                        </Link>
-                      ) : (
-                        <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                          Start warehouse intake
-                        </Link>
-                      )}
-                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                        Vehicle log
-                      </button>
+                        <button type="button" onClick={() => openVehicleEditorForListing(vehicle, linkedRecord)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          {linkedCustomer ? "Change owner" : "Assign owner"}
+                        </button>
+                        {linkedCustomer ? (
+                          <Link href={`/admin/customers?customerId=${linkedCustomer.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Open customer
+                          </Link>
+                        ) : null}
+                        {latestIntake ? (
+                          <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Open intake contract
+                          </Link>
+                        ) : linkedRecord ? (
+                          <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Start warehouse intake
+                          </Link>
+                        ) : (
+                          <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Start warehouse intake
+                          </Link>
+                        )}
+                        <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Vehicle log
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {logOpen ? (
