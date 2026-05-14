@@ -5,14 +5,17 @@ import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import {
+  addVehicleActivityNote,
   createEmptyCustomerProfile,
   createEmptyVehicleRecord,
+  deleteEmptyCustomerProfiles,
+  getVehicleActivityLog,
   saveCustomerProfile,
   saveVehicleRecord
 } from "@/lib/data";
-import { hasAdminPermission } from "@/lib/permissions";
-import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, CustomerProfile, Vehicle, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
+import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
+import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
 type VehicleManagementView = "customers" | "vehicles" | "warehouse" | "listings";
 type VehicleOperationalStatus =
@@ -26,6 +29,33 @@ type VehicleOperationalStatus =
   | "Unlinked";
 type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "Sold" | "Draft" | "Withdrawn";
 type VehicleListingsFilter = "Active" | "Sold" | "Draft" | "Withdrawn" | "All";
+type VehicleLogComposerMode = "internal" | "photo" | "owner";
+type VehicleLogComposerDraft = {
+  mode: VehicleLogComposerMode;
+  message: string;
+  imageUrlsText: string;
+  sendEmail: boolean;
+};
+
+function createVehicleLogComposerDraft(mode: VehicleLogComposerMode, sendEmail = false): VehicleLogComposerDraft {
+  return {
+    mode,
+    message: "",
+    imageUrlsText: "",
+    sendEmail
+  };
+}
+
+function parseImageUrlList(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/\n|,/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 function createActorFromUser(user: AppUser | null): VehicleActor | null {
   if (!user) return null;
@@ -177,8 +207,14 @@ export function VehicleManagementHub({
   const { appUser } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const canManageSensitiveCustomerFields = hasAdminPermission(appUser, "manageUsers");
+  const isSuperAdmin = isSuperAdminUser(appUser);
 
   const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
+  const [openVehicleLogId, setOpenVehicleLogId] = useState<string | null>(null);
+  const [vehicleLogItemsByVehicleId, setVehicleLogItemsByVehicleId] = useState<Record<string, VehicleActivityEvent[]>>({});
+  const [vehicleLogLoadingByVehicleId, setVehicleLogLoadingByVehicleId] = useState<Record<string, boolean>>({});
+  const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
+  const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState<VehicleListingsFilter>(defaultView === "vehicles" ? "Active" : "All");
@@ -190,6 +226,7 @@ export function VehicleManagementHub({
   const [customerDraft, setCustomerDraft] = useState<Omit<CustomerProfile, "id" | "createdAt" | "updatedAt"> | null>(null);
   const [vehicleDraft, setVehicleDraft] = useState<Omit<VehicleRecord, "id" | "createdAt" | "updatedAt"> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [cleanupDeleting, setCleanupDeleting] = useState(false);
   const [notice, setNotice] = useState(writeStatus || "");
   const [actionError, setActionError] = useState("");
 
@@ -246,6 +283,7 @@ export function VehicleManagementHub({
 
     return [...latestProfiles.values()]
       .map((profile) => {
+        const hasUsableIdentity = Boolean(profile.fullName.trim() || profile.phone.trim() || profile.email.trim());
         const dedupedRecords = new Map<string, VehicleRecord>();
         localVehicleRecords
           .filter((record) => record.customerProfileId === profile.id && record.status !== "archived")
@@ -285,8 +323,9 @@ export function VehicleManagementHub({
           .join(" ")
           .toLowerCase();
 
-        return { profile, linkedVehicles, searchText };
+        return { profile, linkedVehicles, searchText, hasUsableIdentity };
       })
+      .filter((row) => row.hasUsableIdentity)
       .filter((row) => (term ? row.searchText.includes(term) : true))
       .sort((left, right) => getCustomerLabel(left.profile).localeCompare(getCustomerLabel(right.profile)));
   }, [customerSearch, intakesByVehicleRecordId, listingMap, localCustomerProfiles, localVehicleRecords]);
@@ -455,6 +494,118 @@ export function VehicleManagementHub({
       setVehicleDraft(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "We couldn't save the vehicle record.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteEmptyCustomers() {
+    if (!actor || !isSuperAdmin) return;
+    if (!window.confirm("Delete all empty customer records with no name, phone, email, listing link, or signed intake history? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      setCleanupDeleting(true);
+      const result = await deleteEmptyCustomerProfiles(actor);
+      if (!result.deletedIds.length) {
+        setNotice("No empty customer records needed cleanup.");
+        return;
+      }
+      setLocalCustomerProfiles((current) => current.filter((profile) => !result.deletedIds.includes(profile.id)));
+      setNotice(`Deleted ${result.deletedIds.length} empty customer record${result.deletedIds.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "We couldn't delete empty customer records.");
+    } finally {
+      setCleanupDeleting(false);
+    }
+  }
+
+  async function openVehicleLog(vehicleId: string) {
+    setOpenVehicleLogId((current) => (current === vehicleId ? null : vehicleId));
+    if (vehicleLogItemsByVehicleId[vehicleId] || vehicleLogLoadingByVehicleId[vehicleId]) {
+      return;
+    }
+
+    try {
+      setVehicleLogLoadingByVehicleId((current) => ({ ...current, [vehicleId]: true }));
+      setVehicleLogErrorByVehicleId((current) => ({ ...current, [vehicleId]: "" }));
+      const result = await getVehicleActivityLog(vehicleId);
+      setVehicleLogItemsByVehicleId((current) => ({ ...current, [vehicleId]: result.items }));
+      if (result.error) {
+        setVehicleLogErrorByVehicleId((current) => ({ ...current, [vehicleId]: result.error || "" }));
+      }
+    } catch (error) {
+      setVehicleLogErrorByVehicleId((current) => ({
+        ...current,
+        [vehicleId]: error instanceof Error ? error.message : "We couldn't load the vehicle log."
+      }));
+    } finally {
+      setVehicleLogLoadingByVehicleId((current) => ({ ...current, [vehicleId]: false }));
+    }
+  }
+
+  function openVehicleLogComposer(vehicleId: string, mode: VehicleLogComposerMode, ownerEmail = "") {
+    setOpenVehicleLogId(vehicleId);
+    setVehicleLogComposerByVehicleId((current) => ({
+      ...current,
+      [vehicleId]: createVehicleLogComposerDraft(mode, mode === "owner" && Boolean(ownerEmail.trim()))
+    }));
+    if (!vehicleLogItemsByVehicleId[vehicleId] && !vehicleLogLoadingByVehicleId[vehicleId]) {
+      void openVehicleLog(vehicleId);
+    }
+  }
+
+  async function handleSaveVehicleLog(
+    vehicle: Vehicle,
+    customer: CustomerProfile | null,
+    mode: VehicleLogComposerMode
+  ) {
+    if (!actor) return;
+    const draft = vehicleLogComposerByVehicleId[vehicle.id];
+    if (!draft) return;
+
+    try {
+      setSaving(true);
+      const recipientEmail = customer?.email || vehicle.customerEmail || "";
+      const imageUrls = mode === "photo" ? parseImageUrlList(draft.imageUrlsText) : [];
+      const result = await addVehicleActivityNote(vehicle.id, draft.message, actor, {
+        visibility: mode === "owner" ? "customer" : "admin",
+        type: mode === "photo" ? "warehouse_activity_added" : "admin_note_added",
+        sendEmail: mode === "owner" ? draft.sendEmail : false,
+        recipientEmail,
+        vehicleTitle: `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.trim(),
+        referenceId: getVehicleDisplayReference(vehicle),
+        imageUrls
+      });
+
+      if (result.event) {
+        setVehicleLogItemsByVehicleId((current) => ({
+          ...current,
+          [vehicle.id]: [result.event as VehicleActivityEvent, ...(current[vehicle.id] ?? [])]
+        }));
+      }
+      setVehicleLogComposerByVehicleId((current) => ({ ...current, [vehicle.id]: null }));
+
+      if (mode === "owner") {
+        if (result.emailStatus.sent) {
+          setNotice("Owner-facing update saved and email sent.");
+        } else if (result.emailStatus.reason === "no_email") {
+          setNotice("Owner-facing update saved. No owner email was available to send.");
+        } else if (result.emailStatus.reason === "missing_env") {
+          setNotice("Owner-facing update saved. Email delivery is not configured in this environment.");
+        } else if (result.emailStatus.reason === "send_failed") {
+          setNotice("Owner-facing update saved, but the email could not be sent.");
+        } else {
+          setNotice("Owner-facing update saved.");
+        }
+      } else if (mode === "photo") {
+        setNotice("Photo/update saved to the vehicle log.");
+      } else {
+        setNotice("Internal note saved to the vehicle log.");
+      }
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "We couldn't save that vehicle log entry.");
     } finally {
       setSaving(false);
     }
@@ -691,9 +842,15 @@ export function VehicleManagementHub({
                   ? latestIntake.status === "signed"
                     ? "Contract signed"
                     : latestIntake.status === "review_ready"
-                      ? "Ready for signature"
+                  ? "Ready for signature"
                       : "Draft intake"
                   : "No intake";
+                const ownerEmail = linkedCustomer?.email || vehicle.customerEmail || "";
+                const logItems = vehicleLogItemsByVehicleId[vehicle.id] ?? [];
+                const logComposer = vehicleLogComposerByVehicleId[vehicle.id] ?? null;
+                const logLoading = vehicleLogLoadingByVehicleId[vehicle.id] ?? false;
+                const logError = vehicleLogErrorByVehicleId[vehicle.id] ?? "";
+                const logOpen = openVehicleLogId === vehicle.id;
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -741,8 +898,160 @@ export function VehicleManagementHub({
                           Start warehouse intake
                         </Link>
                       )}
+                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        Vehicle log
+                      </button>
                     </div>
                   </div>
+                  {logOpen ? (
+                    <div className="mt-4 rounded-[18px] border border-black/6 bg-white/80 p-4">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openVehicleLogComposer(vehicle.id, "internal", ownerEmail)}
+                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        >
+                          Add internal note
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openVehicleLogComposer(vehicle.id, "photo", ownerEmail)}
+                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        >
+                          Add photo/update
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => openVehicleLogComposer(vehicle.id, "owner", ownerEmail)}
+                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        >
+                          Add owner-facing update
+                        </button>
+                      </div>
+
+                      {logComposer ? (
+                        <div className="mt-4 space-y-3 rounded-[16px] border border-black/6 bg-shell p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-bronze">
+                            {logComposer.mode === "internal" ? "Internal note" : logComposer.mode === "photo" ? "Photo / update" : "Owner-facing update"}
+                          </p>
+                          <CompactTextarea
+                            value={logComposer.message}
+                            onChange={(event) => setVehicleLogComposerByVehicleId((current) => ({
+                              ...current,
+                              [vehicle.id]: current[vehicle.id] ? { ...current[vehicle.id]!, message: event.target.value } : current[vehicle.id]
+                            }))}
+                            placeholder={
+                              logComposer.mode === "internal"
+                                ? "Add an internal note for staff"
+                                : logComposer.mode === "photo"
+                                  ? "Describe the update or uploaded photos"
+                                  : "Write the owner-facing update"
+                            }
+                          />
+                          {logComposer.mode === "photo" ? (
+                            <CompactTextarea
+                              className="min-h-[76px]"
+                              value={logComposer.imageUrlsText}
+                              onChange={(event) => setVehicleLogComposerByVehicleId((current) => ({
+                                ...current,
+                                [vehicle.id]: current[vehicle.id] ? { ...current[vehicle.id]!, imageUrlsText: event.target.value } : current[vehicle.id]
+                              }))}
+                              placeholder="Paste one or more image URLs, separated by commas or new lines"
+                            />
+                          ) : null}
+                          {logComposer.mode === "owner" ? (
+                            <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink">
+                              <input
+                                type="checkbox"
+                                checked={logComposer.sendEmail}
+                                onChange={(event) => setVehicleLogComposerByVehicleId((current) => ({
+                                  ...current,
+                                  [vehicle.id]: current[vehicle.id] ? { ...current[vehicle.id]!, sendEmail: event.target.checked } : current[vehicle.id]
+                                }))}
+                                className="h-4 w-4 rounded border-black/20 text-ink"
+                              />
+                              <span>{ownerEmail ? `Send update email to ${ownerEmail}` : "No owner email available for sending"}</span>
+                            </label>
+                          ) : null}
+                          <div className="flex flex-wrap justify-end gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setVehicleLogComposerByVehicleId((current) => ({ ...current, [vehicle.id]: null }))}
+                              className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              disabled={saving}
+                              onClick={() => void handleSaveVehicleLog(vehicle, linkedCustomer, logComposer.mode)}
+                              className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50"
+                            >
+                              {saving ? "Saving..." : "Save log entry"}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 space-y-3">
+                        {logLoading ? (
+                          <div className="rounded-[16px] border border-black/6 bg-shell px-4 py-4 text-sm text-ink/58">Loading vehicle log...</div>
+                        ) : null}
+                        {logError ? (
+                          <div className="rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">{logError}</div>
+                        ) : null}
+                        {!logLoading && !logItems.length ? (
+                          <div className="rounded-[16px] border border-dashed border-black/10 bg-shell px-4 py-4 text-sm text-ink/58">
+                            No vehicle log entries yet.
+                          </div>
+                        ) : null}
+                        {logItems.map((entry) => (
+                          <div key={entry.id} className="rounded-[16px] border border-black/6 bg-shell px-4 py-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-ink">
+                                  {entry.visibility === "customer" ? "Owner-facing update" : entry.type === "warehouse_activity_added" ? "Photo / update" : "Internal note"}
+                                </p>
+                                <p className="mt-1 whitespace-pre-wrap text-sm text-ink/70">{entry.message}</p>
+                                {entry.imageUrls?.length ? (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {entry.imageUrls.map((imageUrl) => (
+                                      <a
+                                        key={imageUrl}
+                                        href={imageUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-full border border-black/10 px-3 py-1 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                                      >
+                                        Open image
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="text-right text-xs text-ink/55">
+                                <p className="font-semibold text-ink">{entry.createdBy || "CarNest Admin"}</p>
+                                <p className="mt-1">{entry.createdAt ? formatAdminDateTime(entry.createdAt) : "Pending timestamp"}</p>
+                                <p className="mt-1">
+                                  {entry.emailSentStatus === "sent"
+                                    ? "Email sent"
+                                    : entry.emailSentStatus === "no_email"
+                                      ? "No owner email"
+                                      : entry.emailSentStatus === "missing_env"
+                                        ? "Email not configured"
+                                        : entry.emailSentStatus === "send_failed"
+                                          ? "Email failed"
+                                          : entry.visibility === "customer"
+                                            ? "Owner visible"
+                                            : "Internal only"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )})}
 
@@ -766,6 +1075,16 @@ export function VehicleManagementHub({
                 placeholder="Search customer name, phone, email, or customer ID"
                 className="min-w-[260px] flex-1"
               />
+              {isSuperAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDeleteEmptyCustomers()}
+                  disabled={cleanupDeleting}
+                  className="rounded-full border border-amber-200 bg-amber-50 px-5 py-3 text-sm font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {cleanupDeleting ? "Cleaning..." : "Delete empty customer records"}
+                </button>
+              ) : null}
               <button type="button" onClick={() => openCustomerEditor()} className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                 New customer
               </button>

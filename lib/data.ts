@@ -10,6 +10,7 @@ import {
   createSuperAdminPermissions,
   hasAdminPermission,
   isAdminLikeRole,
+  isCraigSuperAdminEmail,
   isSellerLikeRole,
   isSellerWorkspaceRole,
   isSuperAdminUser,
@@ -1556,6 +1557,14 @@ function serializeVehicleActivityEventDoc(id: string, data: Record<string, unkno
       : "offer_created",
     message: typeof data.message === "string" ? data.message : "",
     imageUrls,
+    emailSentStatus:
+      data.emailSentStatus === "no_email"
+      || data.emailSentStatus === "sent"
+      || data.emailSentStatus === "send_failed"
+      || data.emailSentStatus === "missing_env"
+      ? data.emailSentStatus
+      : "not_requested",
+    emailErrorMessage: typeof data.emailErrorMessage === "string" ? data.emailErrorMessage : undefined,
     createdBy:
       typeof data.createdBy === "string"
         ? data.createdBy
@@ -3499,15 +3508,26 @@ async function writeVehicleActivityEvent(
   type: VehicleActivityEvent["type"],
   message: string,
   actor?: Pick<VehicleActor, "id" | "displayName" | "name" | "email">,
-  visibility: VehicleActivityEvent["visibility"] = "admin"
+  visibility: VehicleActivityEvent["visibility"] = "admin",
+  metadata?: {
+    imageUrls?: string[];
+    emailSentStatus?: VehicleActivityEvent["emailSentStatus"];
+    emailErrorMessage?: string;
+  }
 ) {
+  const normalizedImageUrls = Array.from(
+    new Set((metadata?.imageUrls ?? []).filter((imageUrl) => typeof imageUrl === "string" && imageUrl.trim().length > 0).map((imageUrl) => imageUrl.trim()))
+  );
   const payloadBase = {
     vehicleId,
     type,
     message: message.trim(),
     createdBy: getVehicleActivityActorLabel(actor),
     ...(actor?.id ? { createdByUid: actor.id, actorUid: actor.id } : {}),
-    visibility
+    visibility,
+    ...(normalizedImageUrls.length ? { imageUrls: normalizedImageUrls } : {}),
+    ...(metadata?.emailSentStatus ? { emailSentStatus: metadata.emailSentStatus } : {}),
+    ...(metadata?.emailErrorMessage ? { emailErrorMessage: metadata.emailErrorMessage } : {})
   };
 
   if (!payloadBase.message) {
@@ -3579,6 +3599,7 @@ export async function addVehicleActivityNote(
     recipientEmail?: string;
     vehicleTitle?: string;
     referenceId?: string;
+    imageUrls?: string[];
   }
 ) {
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can add manual vehicle activity notes.");
@@ -3589,14 +3610,6 @@ export async function addVehicleActivityNote(
   }
 
   const normalizedRecipientEmail = options?.recipientEmail ? normalizeCustomerEmailList(options.recipientEmail) : "";
-
-  const event = await writeVehicleActivityEvent(
-    vehicleId,
-    options?.type ?? "admin_note_added",
-    note,
-    actor,
-    options?.visibility ?? "admin"
-  );
 
   let emailStatus:
     | { attempted: false; sent: false; reason?: "not_requested" | "no_email" }
@@ -3710,6 +3723,28 @@ export async function addVehicleActivityNote(
       }
     }
   }
+
+  const event = await writeVehicleActivityEvent(
+    vehicleId,
+    options?.type ?? "admin_note_added",
+    note,
+    actor,
+    options?.visibility ?? "admin",
+    {
+      imageUrls: options?.imageUrls,
+      emailSentStatus:
+        emailStatus.attempted && emailStatus.sent
+          ? "sent"
+          : emailStatus.reason === "no_email"
+            ? "no_email"
+            : emailStatus.reason === "missing_env"
+              ? "missing_env"
+              : emailStatus.reason === "send_failed"
+                ? "send_failed"
+                : "not_requested",
+      emailErrorMessage: emailStatus.attempted && !emailStatus.sent ? emailStatus.errorMessage : undefined
+    }
+  );
 
   return {
     event,
@@ -3850,6 +3885,72 @@ export async function getCustomerProfilesData() {
 
 export async function getVehicleRecordsData() {
   return await getCollection<VehicleRecord>("vehicleRecords", [], serializeVehicleRecordDoc);
+}
+
+export async function deleteEmptyCustomerProfiles(
+  actor: VehicleActor
+): Promise<{ deletedIds: string[]; source: VehicleDataSource }> {
+  if (actor.role !== "super_admin" && !isCraigSuperAdminEmail(actor.email)) {
+    throw new Error("Only super admins can delete empty customer records.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      deletedIds: [],
+      source: "mock" as const
+    };
+  }
+
+  const customerSnapshot = await getDocs(collection(db, "customerProfiles"));
+  const profiles = customerSnapshot.docs.map((item) => serializeCustomerProfileDoc(item.id, item.data()));
+  const batch = writeBatch(db);
+  const deletedIds: string[] = [];
+
+  for (const profile of profiles) {
+    const hasIdentity = Boolean(profile.fullName.trim() || profile.phone.trim() || profile.email.trim());
+    const hasLinks = Boolean(
+      profile.linkedListingIds.length
+      || profile.linkedVehicleRecordIds.length
+      || (profile.latestIntakeId ?? "").trim()
+      || (profile.latestVehicleRecordId ?? "").trim()
+    );
+
+    if (hasIdentity || hasLinks) {
+      continue;
+    }
+
+    const signedIntakeSnapshot = await getDocs(
+      query(
+        collection(db, "warehouseIntakes"),
+        where("customerProfileId", "==", profile.id),
+        where("status", "==", "signed"),
+        limit(1)
+      )
+    );
+
+    if (!signedIntakeSnapshot.empty) {
+      continue;
+    }
+
+    batch.delete(doc(db, "customerProfiles", profile.id));
+    deletedIds.push(profile.id);
+  }
+
+  if (deletedIds.length) {
+    await batch.commit();
+    await writeAdminOperationalEvent({
+      actor,
+      recordType: "customer_profile",
+      actionType: "updated",
+      affectedRecordId: deletedIds[0],
+      summary: `Deleted ${deletedIds.length} empty customer profile${deletedIds.length === 1 ? "" : "s"}.`
+    }).catch(() => undefined);
+  }
+
+  return {
+    deletedIds,
+    source: "firestore" as const
+  };
 }
 
 export async function archiveVehicleRecord(

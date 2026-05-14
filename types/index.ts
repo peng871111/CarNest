@@ -656,6 +656,8 @@ export interface VehicleActivityEvent {
   type: VehicleActivityType;
   message: string;
   imageUrls?: string[];
+  emailSentStatus?: "not_requested" | "no_email" | "sent" | "send_failed" | "missing_env";
+  emailErrorMessage?: string;
   createdAt?: string;
   createdBy?: string;
   createdByUid?: string;
