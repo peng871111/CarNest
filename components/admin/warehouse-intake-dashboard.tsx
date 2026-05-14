@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
-import { archiveVehicleRecord, getCustomerProfilesData, getVehicleRecordsData, getVehiclesData, getWarehouseIntakesData } from "@/lib/data";
+import type { ReactNode } from "react";
+import { getVehiclesData, getWarehouseIntakesData } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
 import { getVehicleImage } from "@/lib/permissions";
 import { formatCurrency, formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { CustomerProfile, Vehicle, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
+import { Vehicle, WarehouseIntakeRecord } from "@/types";
 import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
 
 function getIntakeStatusLabel(intake: WarehouseIntakeRecord) {
@@ -22,33 +22,6 @@ function isWarehouseIntakePermissionError(message?: string) {
   return normalized.includes("missing or insufficient permissions")
     || normalized.includes("permission-denied")
     || normalized.includes("unauthenticated");
-}
-
-function hasAnyWarehousePermissionError(messages: Array<string | undefined>) {
-  return messages.some((message) => isWarehouseIntakePermissionError(message));
-}
-
-function getVehicleRecordLabel(record: VehicleRecord | null | undefined) {
-  if (!record) return "Pending vehicle record";
-  const title = record.title?.trim();
-  if (title) return title;
-  return [record.year, record.make, record.model].filter(Boolean).join(" ").trim() || "Vehicle record";
-}
-
-function getCustomerProfileLabel(profile: CustomerProfile | null | undefined) {
-  if (!profile) return "Pending customer profile";
-  return profile.fullName || profile.email || "Customer profile";
-}
-
-function StatusPill({ label, tone = "default" }: { label: string; tone?: "default" | "success" | "warning" }) {
-  const classes =
-    tone === "success"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-      : tone === "warning"
-        ? "border-amber-200 bg-amber-50 text-amber-700"
-        : "border-black/8 bg-shell text-ink/68";
-
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${classes}`}>{label}</span>;
 }
 
 function SectionCard({
@@ -89,18 +62,12 @@ export function WarehouseIntakeDashboard() {
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [intakes, setIntakes] = useState<WarehouseIntakeRecord[]>([]);
-  const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
-  const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [sectionState, setSectionState] = useState({
-    relationships: true,
-    customerTree: false,
     listings: false,
     recent: true
   });
-  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
-  const [archivingRecordId, setArchivingRecordId] = useState("");
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
 
   useEffect(() => {
@@ -121,38 +88,27 @@ export function WarehouseIntakeDashboard() {
       setLoading(true);
 
       const runLoad = async () => {
-        const [vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult] = await Promise.all([
+        const [vehiclesResult, intakesResult] = await Promise.all([
           getVehiclesData(),
-          getWarehouseIntakesData(),
-          getCustomerProfilesData(),
-          getVehicleRecordsData()
+          getWarehouseIntakesData()
         ]);
-        return { vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult };
+        return { vehiclesResult, intakesResult };
       };
 
       try {
         await firebaseUser.getIdToken();
-        let { vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult } = await runLoad();
+        let { vehiclesResult, intakesResult } = await runLoad();
 
-        if (
-          hasAnyWarehousePermissionError([
-            intakesResult.error,
-            customerProfilesResult.error,
-            vehicleRecordsResult.error
-          ])
-        ) {
+        if (isWarehouseIntakePermissionError(intakesResult.error)) {
           await firebaseUser.getIdToken(true);
-          ({ vehiclesResult, intakesResult, customerProfilesResult, vehicleRecordsResult } = await runLoad());
+          ({ vehiclesResult, intakesResult } = await runLoad());
         }
 
         if (cancelled) return;
 
         setVehicles(vehiclesResult.items);
         setIntakes(intakesResult.items);
-        setCustomerProfiles(customerProfilesResult.items);
-        setVehicleRecords(vehicleRecordsResult.items);
-        const firstPrivateError = intakesResult.error || customerProfilesResult.error || vehicleRecordsResult.error || "";
-        setErrorMessage(firstPrivateError && !intakesResult.items.length && !customerProfilesResult.items.length && !vehicleRecordsResult.items.length ? firstPrivateError : "");
+        setErrorMessage(intakesResult.error && !intakesResult.items.length ? intakesResult.error : "");
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : "We couldn't load warehouse intake records.");
@@ -179,82 +135,19 @@ export function WarehouseIntakeDashboard() {
   }
 
   const recentVehicles = vehicles.slice(0, 8);
-  const customerProfileMap = new Map(customerProfiles.map((profile) => [profile.id, profile]));
-  const vehicleRecordMap = new Map(vehicleRecords.map((record) => [record.id, record]));
-  const listingMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
-  const intakeCountsByVehicleRecordId = new Map<string, number>();
-  for (const intake of intakes) {
-    if (!intake.vehicleRecordId) continue;
-    intakeCountsByVehicleRecordId.set(intake.vehicleRecordId, (intakeCountsByVehicleRecordId.get(intake.vehicleRecordId) ?? 0) + 1);
-  }
-  const relationshipSnapshots = intakes.slice(0, 6).map((intake) => ({
-    intake,
-    customerProfile: intake.customerProfileId ? customerProfileMap.get(intake.customerProfileId) ?? null : null,
-    vehicleRecord: intake.vehicleRecordId ? vehicleRecordMap.get(intake.vehicleRecordId) ?? null : null,
-    listing: intake.vehicleId ? listingMap.get(intake.vehicleId) ?? null : null
-  }));
-  const customerRelationshipCards = customerProfiles.slice(0, 6).map((profile) => {
-    const records = vehicleRecords.filter((record) => record.customerProfileId === profile.id);
-    return {
-      profile,
-      activeRecordCount: records.filter((record) => record.status !== "archived").length,
-      archivedRecordCount: records.filter((record) => record.status === "archived").length,
-      records: records.map((record) => ({
-        record,
-        listing: record.publicListingId ? listingMap.get(record.publicListingId) ?? null : null,
-        intakeCount: intakeCountsByVehicleRecordId.get(record.id) ?? 0
-      }))
-    };
-  });
-
-  async function handleArchiveVehicleRecord(record: VehicleRecord, intakeCount: number) {
-    if (!appUser) return;
-    const actor = appUser as VehicleActor;
-    const message = [
-      `Archive ${getVehicleRecordLabel(record)}?`,
-      "",
-      "This removes it from the active customer relationship list only.",
-      record.publicListingId ? "The linked public listing will stay untouched." : "No public listing will be deleted.",
-      intakeCount ? `Existing intake history (${intakeCount}) will be preserved.` : "No intake history will be deleted."
-    ].join("\n");
-
-    if (!window.confirm(message)) {
-      return;
-    }
-
-    setArchivingRecordId(record.id);
-    setErrorMessage("");
-
-    try {
-      await archiveVehicleRecord(record.id, actor);
-      setVehicleRecords((current) => current.map((item) => (item.id === record.id ? { ...item, status: "archived" } : item)));
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We couldn't archive this vehicle record right now.");
-    } finally {
-      setArchivingRecordId("");
-    }
-  }
 
   return (
     <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-6">
+      <div className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-6">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">iPad workflow</p>
           <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Warehouse Intake & Storage</h2>
-          <p className="mt-2 text-sm text-ink/58">Customer profiles, vehicle records, intake events, signatures, and PDFs.</p>
+          <p className="mt-2 text-sm text-ink/58">Use an existing listing to start paperwork, or reopen a recent intake to continue it.</p>
         </div>
-        <Link
-          href="/admin/warehouse-intake/new"
-          className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92"
-        >
-          Start customer onboarding
-        </Link>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4 md:gap-4">
+      <div className="grid gap-3 sm:grid-cols-2 md:gap-4">
         {[
-          ["Customer profiles", String(customerProfiles.length)],
-          ["Vehicle records", String(vehicleRecords.length)],
           ["Intake events", String(intakes.length)],
           ["Public listings", String(vehicles.length)]
         ].map(([label, value]) => (
@@ -268,150 +161,6 @@ export function WarehouseIntakeDashboard() {
       {errorMessage ? (
         <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{errorMessage}</div>
       ) : null}
-
-      <SectionCard
-        eyebrow="Relationship tree"
-        title="Customer, vehicle, intake, and listing links"
-        summary="Quick operational view of the latest linked records."
-        open={sectionState.relationships}
-        onToggle={() => setSectionState((current) => ({ ...current, relationships: !current.relationships }))}
-      >
-        <div className="grid gap-3 xl:grid-cols-2 md:gap-4">
-          {relationshipSnapshots.map(({ intake, customerProfile, vehicleRecord, listing }) => (
-            <Link
-              key={intake.id}
-              href={`/admin/warehouse-intake/${intake.id}`}
-              className="rounded-[20px] border border-black/6 bg-shell px-4 py-4 transition hover:border-[#C6A87D]/35 hover:bg-white md:rounded-[24px] md:px-5 md:py-5"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-bronze">{intake.id}</p>
-                <StatusPill
-                  label={getIntakeStatusLabel(intake)}
-                  tone={intake.status === "signed" ? "success" : intake.status === "review_ready" ? "warning" : "default"}
-                />
-              </div>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-[16px] border border-black/6 bg-white/80 px-4 py-3 md:rounded-[18px]">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Customer profile</p>
-                  <p className="mt-1 text-sm font-semibold text-ink">{getCustomerProfileLabel(customerProfile)}</p>
-                  <p className="mt-1 text-xs text-ink/58">{customerProfile?.email || intake.ownerDetails.email || "Email pending"}</p>
-                </div>
-
-                <div className="rounded-[16px] border border-black/6 bg-white/80 px-4 py-3 md:rounded-[18px]">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Vehicle record</p>
-                  <p className="mt-1 text-sm font-semibold text-ink">{getVehicleRecordLabel(vehicleRecord)}</p>
-                  <p className="mt-1 text-xs text-ink/58">{vehicleRecord?.registrationPlate || intake.vehicleDetails.registrationPlate || "Registration pending"}</p>
-                </div>
-
-                <div className="rounded-[16px] border border-black/6 bg-white/80 px-4 py-3 md:rounded-[18px]">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Public listing</p>
-                  <p className="mt-1 text-sm font-semibold text-ink">
-                    {listing ? `${listing.year} ${listing.make} ${listing.model}` : intake.vehicleTitle || "Not linked yet"}
-                  </p>
-                  <p className="mt-1 text-xs text-ink/58">{listing ? getVehicleDisplayReference(listing) : "Standalone onboarding record"}</p>
-                </div>
-
-                <div className="rounded-[16px] border border-black/6 bg-white/80 px-4 py-3 md:rounded-[18px]">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-ink/45">Latest activity</p>
-                  <p className="mt-1 text-sm font-semibold text-ink">{formatAdminDateTime(intake.updatedAt || intake.createdAt)}</p>
-                  <p className="mt-1 text-xs text-ink/58">{intake.photos.length} photos, PDF {intake.signedPdfStoragePath ? "ready" : "pending"}</p>
-                </div>
-              </div>
-            </Link>
-          ))}
-
-          {!relationshipSnapshots.length && !loading ? (
-            <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8 xl:col-span-2">
-              Relationship snapshots will appear here as soon as customer onboarding and warehouse intake events are saved.
-            </div>
-          ) : null}
-        </div>
-      </SectionCard>
-
-      <SectionCard
-        eyebrow="Customer relationships"
-        title="Customer → vehicles → intake history → listing status"
-        summary="Open each customer only when you need to review or clean up records."
-        open={sectionState.customerTree}
-        onToggle={() => setSectionState((current) => ({ ...current, customerTree: !current.customerTree }))}
-      >
-        <div className="grid gap-3 xl:grid-cols-2 md:gap-4">
-          {customerRelationshipCards.map(({ profile, records, activeRecordCount, archivedRecordCount }) => {
-            const customerExpanded = expandedCustomers[profile.id] ?? false;
-            const visibleRecords = records.filter(({ record }) => record.status !== "archived");
-
-            return (
-              <div key={profile.id} className="rounded-[20px] border border-black/6 bg-shell px-4 py-4 md:rounded-[24px] md:px-5 md:py-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-base font-semibold text-ink">{getCustomerProfileLabel(profile)}</h4>
-                    <p className="mt-1 text-sm text-ink/58">{profile.phone || "Phone pending"} · {profile.preferredContactMethod.replace(/_/g, " ")}</p>
-                    <p className="mt-1 text-xs text-ink/50">
-                      {activeRecordCount} active vehicle{activeRecordCount === 1 ? "" : "s"}
-                      {archivedRecordCount ? ` · ${archivedRecordCount} archived` : ""}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedCustomers((current) => ({ ...current, [profile.id]: !customerExpanded }))}
-                    className="rounded-full border border-black/8 bg-white px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                  >
-                    {customerExpanded ? "Hide vehicles" : "Show vehicles"}
-                  </button>
-                </div>
-
-                {customerExpanded ? (
-                  <div className="mt-4 space-y-3">
-                    {visibleRecords.map(({ record, listing, intakeCount }) => (
-                      <div key={record.id} className="rounded-[16px] border border-black/6 bg-white/85 px-4 py-3 md:rounded-[18px]">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-ink">{getVehicleRecordLabel(record)}</p>
-                            <p className="mt-1 text-xs text-ink/58">
-                              Intake history: {intakeCount} event{intakeCount === 1 ? "" : "s"} · Public listing: {listing ? getVehicleDisplayReference(listing) : "Not linked"}
-                            </p>
-                          </div>
-                          <StatusPill label={record.status === "archived" ? "Archived" : "Active"} tone={record.status === "archived" ? "warning" : "default"} />
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Link
-                            href={record.publicListingId ? `/admin/warehouse-intake/new?vehicleId=${record.publicListingId}` : "/admin/warehouse-intake/new"}
-                            className="rounded-full border border-black/8 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                          >
-                            Start intake
-                          </Link>
-                          <button
-                            type="button"
-                            disabled={archivingRecordId === record.id}
-                            onClick={() => void handleArchiveVehicleRecord(record, intakeCount)}
-                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:border-amber-300 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {archivingRecordId === record.id ? "Archiving..." : "Archive duplicate"}
-                          </button>
-                        </div>
-                        <p className="mt-2 text-[11px] text-ink/48">Archives this private record only. Public listings and intake history stay preserved.</p>
-                      </div>
-                    ))}
-                    {!visibleRecords.length ? (
-                      <div className="rounded-[16px] border border-dashed border-black/10 bg-white/80 px-4 py-4 text-sm text-ink/58 md:rounded-[18px]">
-                        No active vehicle records linked right now.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-
-          {!customerRelationshipCards.length && !loading ? (
-            <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8 xl:col-span-2">
-              Customer relationship cards will appear here as soon as the first reusable customer profile is saved.
-            </div>
-          ) : null}
-        </div>
-      </SectionCard>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
         <SectionCard

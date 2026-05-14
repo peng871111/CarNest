@@ -7,7 +7,7 @@ export default function AdminWarehouseIntakePage() {
   return (
     <AdminShell
       title="Warehouse Intake"
-      description="Manage customer profiles, vehicle records, intake events, signed PDFs, and customer handover emails."
+      description="Start paperwork from active listings or continue recent intake records."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeDashboard />
