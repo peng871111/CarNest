@@ -30,8 +30,8 @@ export default function AdminVehiclesPage() {
 
   return (
     <VehicleWorkspaceScreen
-      title="Vehicle Workspace"
-      description="Manage reusable customer profiles, core vehicle records, intake events, and public listings from one staff workspace."
+      title="Vehicles"
+      description="Manage active listings, linked owners, and warehouse paperwork from one operational vehicle screen."
       defaultView="vehicles"
       writeStatus={writeStatus}
     />

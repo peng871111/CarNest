@@ -13,12 +13,14 @@ export function VehicleWorkspaceScreen({
   description,
   defaultView,
   writeStatus,
+  initialCustomerSearch = "",
   requiredPermission = "manageVehicles"
 }: {
   title: string;
   description: string;
   defaultView: "customers" | "vehicles" | "warehouse" | "listings";
   writeStatus?: string;
+  initialCustomerSearch?: string;
   requiredPermission?: AdminPermissionKey;
 }) {
   const { appUser, firebaseUser, loading } = useAuth();
@@ -81,6 +83,7 @@ export function VehicleWorkspaceScreen({
         writeStatus={memoWriteStatus}
         error={error}
         defaultView={defaultView}
+        initialCustomerSearch={initialCustomerSearch}
       />
     </AdminShell>
   );

@@ -3,13 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { getVehiclesData, getWarehouseIntakesData } from "@/lib/data";
+import { getVehiclesData, getWarehouseIntakesData, saveWarehouseIntake } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
-import { getVehicleImage } from "@/lib/permissions";
 import { formatCurrency, formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
-import { Vehicle, WarehouseIntakeRecord } from "@/types";
-import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
+import { Vehicle, VehicleActor, WarehouseIntakeRecord } from "@/types";
 
 function getIntakeStatusLabel(intake: WarehouseIntakeRecord) {
   if (intake.status === "signed") return "Signed";
@@ -68,6 +66,10 @@ export function WarehouseIntakeDashboard() {
     listings: false,
     recent: true
   });
+  const [listingSearch, setListingSearch] = useState("");
+  const [intakeSearch, setIntakeSearch] = useState("");
+  const [assigningIntakeId, setAssigningIntakeId] = useState("");
+  const [listingSelectionByIntakeId, setListingSelectionByIntakeId] = useState<Record<string, string>>({});
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
 
   useEffect(() => {
@@ -133,8 +135,98 @@ export function WarehouseIntakeDashboard() {
       </div>
     );
   }
+  const actor = appUser
+    ? ({
+        id: appUser.id,
+        role: appUser.role,
+        email: appUser.email,
+        displayName: appUser.displayName,
+        name: appUser.name,
+        adminPermissions: appUser.adminPermissions
+      } satisfies VehicleActor)
+    : null;
+  const activeListings = vehicles
+    .filter((vehicle) => !vehicle.deleted && vehicle.status === "approved" && vehicle.sellerStatus !== "SOLD" && vehicle.sellerStatus !== "WITHDRAWN")
+    .sort((left, right) => getVehicleDisplayReference(left).localeCompare(getVehicleDisplayReference(right)));
+  const listingSearchTerm = listingSearch.trim().toLowerCase();
+  const filteredListings = activeListings
+    .filter((vehicle) => {
+      if (!listingSearchTerm) return true;
+      const searchText = [
+        getVehicleDisplayReference(vehicle),
+        vehicle.year,
+        vehicle.make,
+        vehicle.model,
+        vehicle.variant,
+        vehicle.rego,
+        vehicle.vin,
+        vehicle.customerName,
+        vehicle.customerEmail
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return searchText.includes(listingSearchTerm);
+    })
+    .slice(0, 12);
+  const intakeSearchTerm = intakeSearch.trim().toLowerCase();
+  const filteredIntakes = [...intakes]
+    .filter((intake) => {
+      if (!intakeSearchTerm) return true;
+      const linkedListing = intake.vehicleId ? vehicles.find((vehicle) => vehicle.id === intake.vehicleId) ?? null : null;
+      const searchText = [
+        intake.id,
+        intake.vehicleReference,
+        intake.vehicleTitle,
+        intake.vehicleDetails.registrationPlate,
+        intake.vehicleDetails.make,
+        intake.vehicleDetails.model,
+        intake.vehicleDetails.year,
+        intake.ownerDetails.fullName,
+        intake.ownerDetails.phone,
+        intake.ownerDetails.email,
+        linkedListing ? getVehicleDisplayReference(linkedListing) : ""
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return searchText.includes(intakeSearchTerm);
+    })
+    .slice(0, 24);
 
-  const recentVehicles = vehicles.slice(0, 8);
+  async function handleAssignListing(intake: WarehouseIntakeRecord) {
+    if (!actor) return;
+    const nextVehicleId = listingSelectionByIntakeId[intake.id] ?? intake.vehicleId ?? "";
+    const linkedListing = activeListings.find((vehicle) => vehicle.id === nextVehicleId) ?? null;
+    if (!nextVehicleId || !linkedListing) return;
+
+    const { id: _id, updatedAt: _updatedAt, photoCount: _photoCount, ...input } = intake;
+
+    try {
+      setAssigningIntakeId(intake.id);
+      setErrorMessage("");
+      const result = await saveWarehouseIntake(
+        {
+          ...input,
+          vehicleId: linkedListing.id,
+          vehicleReference: getVehicleDisplayReference(linkedListing),
+          vehicleTitle: `${linkedListing.year} ${linkedListing.make} ${linkedListing.model} ${linkedListing.variant}`.trim()
+        },
+        actor,
+        intake.id
+      );
+      setIntakes((current) =>
+        current
+          .map((item) => (item.id === intake.id ? result.intake : item))
+          .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""))
+      );
+      setListingSelectionByIntakeId((current) => ({ ...current, [intake.id]: linkedListing.id }));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't link that intake to the selected listing.");
+    } finally {
+      setAssigningIntakeId("");
+    }
+  }
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -149,7 +241,7 @@ export function WarehouseIntakeDashboard() {
       <div className="grid gap-3 sm:grid-cols-2 md:gap-4">
         {[
           ["Intake events", String(intakes.length)],
-          ["Public listings", String(vehicles.length)]
+          ["Active listings", String(activeListings.length)]
         ].map(([label, value]) => (
           <div key={label} className="rounded-[22px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[24px] md:p-5">
             <p className="text-xs uppercase tracking-[0.22em] text-bronze">{label}</p>
@@ -164,39 +256,35 @@ export function WarehouseIntakeDashboard() {
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
         <SectionCard
-          eyebrow="Optional public listing links"
+          eyebrow="Active listings"
           title="Attach onboarding to an existing listing"
-          summary={`${vehicles.length} listings available`}
+          summary={`${activeListings.length} listings available`}
           open={sectionState.listings}
           onToggle={() => setSectionState((current) => ({ ...current, listings: !current.listings }))}
         >
-          <div className="grid gap-3 md:grid-cols-2 md:gap-4">
-            {recentVehicles.map((vehicle) => (
-              <div key={vehicle.id} className="overflow-hidden rounded-[20px] border border-black/5 bg-shell md:rounded-[24px]">
-                <div className="relative aspect-[16/10]">
-                  <PublicVehicleImage
-                    src={getVehicleImage(vehicle)}
-                    alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
-                    loading="lazy"
-                    sizes="(max-width: 767px) 100vw, 40vw"
-                    className="object-cover object-center"
-                  />
-                </div>
-                <div className="space-y-3 p-4">
-                  <div>
+          <div className="space-y-3">
+            <input
+              value={listingSearch}
+              onChange={(event) => setListingSearch(event.target.value)}
+              placeholder="Search CN/listing ID, make, model, rego, VIN, or customer"
+              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+            />
+            {filteredListings.map((vehicle) => (
+              <div key={vehicle.id} className="rounded-[20px] border border-black/5 bg-shell p-4 md:rounded-[24px]">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
                     <p className="text-[11px] uppercase tracking-[0.24em] text-bronze">{getVehicleDisplayReference(vehicle)}</p>
                     <h4 className="mt-1 text-base font-semibold text-ink">
-                      {vehicle.year} {vehicle.make} {vehicle.model}
+                      {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.variant}
                     </h4>
+                    <p className="mt-1 text-sm text-ink/62">
+                      {formatCurrency(vehicle.price)} · {vehicle.mileage.toLocaleString()} km · {vehicle.rego || "Rego pending"}
+                    </p>
                   </div>
-                  <div className="flex items-center justify-between gap-4 text-sm text-ink/62">
-                    <span>{formatCurrency(vehicle.price)}</span>
-                    <span>{vehicle.mileage.toLocaleString()} km</span>
-                  </div>
-                  <div className="flex gap-3">
+                  <div className="flex shrink-0 flex-wrap gap-3">
                     <Link
                       href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`}
-                      className="flex-1 rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-ink/92"
+                      className="rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-ink/92"
                     >
                       Start intake
                     </Link>
@@ -210,44 +298,104 @@ export function WarehouseIntakeDashboard() {
                 </div>
               </div>
             ))}
-            {!recentVehicles.length && !loading ? (
+            {!filteredListings.length && !loading ? (
               <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8">
-                No listings are ready yet. You can still start a standalone intake and attach it later.
+                No active listings match this search right now.
               </div>
             ) : null}
           </div>
         </SectionCard>
 
         <SectionCard
-          eyebrow="Existing records"
+          eyebrow="Intake contracts"
           title="Recent intake records"
-          summary={`${intakes.length} records`}
+          summary={`${intakes.length} records available to continue`}
           open={sectionState.recent}
           onToggle={() => setSectionState((current) => ({ ...current, recent: !current.recent }))}
         >
           <div className="space-y-3">
-            {intakes.slice(0, 10).map((intake) => (
-              <Link
-                key={intake.id}
-                href={`/admin/warehouse-intake/${intake.id}`}
-                className="block rounded-[20px] border border-black/6 bg-shell px-4 py-4 transition hover:border-[#C6A87D]/35 hover:bg-white md:rounded-[22px]"
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-bronze">{intake.vehicleReference || intake.id}</p>
-                    <h4 className="mt-1 text-sm font-semibold text-ink">{intake.vehicleTitle || "Standalone intake record"}</h4>
-                    <p className="mt-1 text-sm text-ink/58">{intake.ownerDetails.fullName || intake.ownerDetails.email || "Owner details pending"}</p>
+            <input
+              value={intakeSearch}
+              onChange={(event) => setIntakeSearch(event.target.value)}
+              placeholder="Search rego, make, model, year, customer, phone, email, CN/listing ID, or intake reference"
+              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+            />
+            {filteredIntakes.map((intake) => {
+              const linkedListing = intake.vehicleId ? activeListings.find((vehicle) => vehicle.id === intake.vehicleId) ?? vehicles.find((vehicle) => vehicle.id === intake.vehicleId) ?? null : null;
+              const signatureReady = Boolean(intake.signature.signatureStoragePath && intake.signature.signedAt);
+              const pdfReady = Boolean(intake.signedPdfStoragePath);
+              const selectedListingId = listingSelectionByIntakeId[intake.id] ?? intake.vehicleId ?? "";
+
+              return (
+                <div
+                  key={intake.id}
+                  className="rounded-[20px] border border-black/6 bg-shell px-4 py-4 md:rounded-[22px]"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] uppercase tracking-[0.22em] text-bronze">{intake.vehicleReference || intake.id}</p>
+                      <h4 className="mt-1 text-sm font-semibold text-ink">
+                        {intake.ownerDetails.fullName || intake.ownerDetails.email || "Customer pending"} · {intake.vehicleDetails.year || "Year pending"} {intake.vehicleDetails.make} {intake.vehicleDetails.model}
+                      </h4>
+                      <p className="mt-1 text-sm text-ink/58">
+                        {intake.vehicleDetails.registrationPlate || "Rego pending"} · Listing {linkedListing ? getVehicleDisplayReference(linkedListing) : "Not linked"}
+                      </p>
+                      <p className="mt-1 text-xs text-ink/52">
+                        {intake.ownerDetails.phone || "Phone pending"} · {intake.ownerDetails.email || "Email pending"} · {formatAdminDateTime(intake.updatedAt || intake.createdAt)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${signatureReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+                        {signatureReady ? "Signature captured" : "Signature pending"}
+                      </span>
+                      <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${pdfReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-black/8 bg-white text-ink/62"}`}>
+                        {pdfReady ? "PDF ready" : "PDF pending"}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right text-xs text-ink/55">
-                    <p className="font-semibold text-ink">{getIntakeStatusLabel(intake)}</p>
-                    <p className="mt-1">{formatAdminDateTime(intake.updatedAt || intake.createdAt)}</p>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr),auto]">
+                    <select
+                      value={selectedListingId}
+                      onChange={(event) => setListingSelectionByIntakeId((current) => ({ ...current, [intake.id]: event.target.value }))}
+                      className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+                    >
+                      <option value="">No linked listing</option>
+                      {activeListings.map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="flex flex-wrap gap-3">
+                      <Link
+                        href={`/admin/warehouse-intake/${intake.id}`}
+                        className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                      >
+                        Continue intake
+                      </Link>
+                      <Link
+                        href={`/admin/warehouse-intake/${intake.id}`}
+                        className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                      >
+                        {pdfReady ? "View PDF" : "Generate PDF"}
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={!selectedListingId || assigningIntakeId === intake.id}
+                        onClick={() => void handleAssignListing(intake)}
+                        className="rounded-full bg-ink px-4 py-3 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {assigningIntakeId === intake.id ? "Saving..." : linkedListing ? "Change listing" : "Assign listing"}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </Link>
-            ))}
-            {!intakes.length && !loading ? (
+              );
+            })}
+            {!filteredIntakes.length && !loading ? (
               <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8">
-                Completed and in-progress warehouse intakes will appear here for quick access.
+                No intake contracts match this search right now.
               </div>
             ) : null}
           </div>

@@ -1915,6 +1915,10 @@ function normalizeCustomerProfilePhone(value?: string) {
   return sanitizeSingleLineText(value ?? "").replace(/\D/g, "");
 }
 
+function normalizeCustomerProfileName(value?: string) {
+  return sanitizeSingleLineText(value ?? "").trim().toLowerCase();
+}
+
 function normalizeCustomerEmailList(value?: string) {
   const uniqueEmails = Array.from(new Set(parseCustomerEmailList(value ?? "")));
   if (!uniqueEmails.length) return "";
@@ -3922,6 +3926,12 @@ async function resolveCustomerProfileId(
     if (!snapshot.empty) return snapshot.docs[0].id;
   }
 
+  const normalizedFullName = normalizeCustomerProfileName(intake.ownerDetails?.fullName);
+  if (normalizedFullName) {
+    const snapshot = await getDocs(query(collection(db, "customerProfiles"), where("normalizedFullName", "==", normalizedFullName), limit(2)));
+    if (snapshot.size === 1) return snapshot.docs[0].id;
+  }
+
   return "";
 }
 
@@ -4026,9 +4036,11 @@ function buildCustomerProfileWritePayload(
 ) {
   const normalizedEmail = normalizeCustomerProfileEmail(input.ownerDetails?.email);
   const normalizedPhone = normalizeCustomerProfilePhone(input.ownerDetails?.phone);
+  const normalizedFullName = normalizeCustomerProfileName(input.ownerDetails?.fullName);
 
   return {
     fullName: sanitizeSingleLineText(input.ownerDetails?.fullName ?? ""),
+    normalizedFullName,
     email: normalizedEmail,
     normalizedEmail,
     phone: sanitizeSingleLineText(input.ownerDetails?.phone ?? ""),
@@ -4288,6 +4300,7 @@ export async function saveCustomerProfile(
     ...createEmptyCustomerProfile(),
     ...input,
     fullName: sanitizeSingleLineText(input.fullName),
+    normalizedFullName: normalizeCustomerProfileName(input.fullName),
     email: normalizeCustomerProfileEmail(input.email),
     normalizedEmail: normalizeCustomerProfileEmail(input.email),
     phone: sanitizeSingleLineText(input.phone),
@@ -4325,6 +4338,7 @@ export async function saveCustomerProfile(
       id: ref.id,
       ...createEmptyCustomerProfile(),
       ...input,
+      fullName: sanitizeSingleLineText(input.fullName),
       email: normalizeCustomerProfileEmail(input.email),
       normalizedEmail: normalizeCustomerProfileEmail(input.email),
       phone: sanitizeSingleLineText(input.phone),

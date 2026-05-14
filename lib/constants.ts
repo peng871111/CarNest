@@ -12,10 +12,9 @@ export const NAV_LINKS = [
 ];
 
 export const ADMIN_LINKS: Array<{ href: string; label: string; permission?: AdminPermissionKey }> = [
-  { href: "/admin/vehicles", label: "Vehicle Workspace", permission: "manageVehicles" },
+  { href: "/admin/vehicles", label: "Vehicles", permission: "manageVehicles" },
   { href: "/admin/customers", label: "Customers", permission: "manageVehicles" },
   { href: "/admin/warehouse-intake", label: "Warehouse Intake", permission: "manageVehicles" },
-  { href: "/admin/public-listings", label: "Public Listings", permission: "manageVehicles" },
   { href: "/admin/vehicles/add", label: "Add Vehicle", permission: "manageVehicles" },
   { href: "/admin/analytics", label: "Analytics" },
   { href: "/admin/compliance", label: "Compliance", permission: "manageUsers" },
