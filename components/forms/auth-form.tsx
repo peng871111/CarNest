@@ -98,7 +98,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       return redirect;
     }
 
-    if (user.role === "admin" || user.role === "super_admin") return "/admin/vehicles";
+    if (user.role === "admin" || user.role === "super_admin") return "/admin";
     if (isDealerIntent) {
       if (flow === "register") return "/dealer/apply";
       return user.role === "dealer" && user.dealerStatus === "approved"

@@ -50,7 +50,7 @@ export function VehicleWarehouseIntakeSummary({ vehicleId }: { vehicleId: string
         setErrorMessage("");
       } catch (error) {
         if (!cancelled) {
-          setErrorMessage(error instanceof Error ? error.message : "Unable to load warehouse intake status.");
+          setErrorMessage(error instanceof Error ? error.message : "Unable to load storage contract status.");
         }
       } finally {
         if (!cancelled) {
@@ -67,12 +67,12 @@ export function VehicleWarehouseIntakeSummary({ vehicleId }: { vehicleId: string
 
   return (
     <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-      <p className="text-xs uppercase tracking-[0.25em] text-bronze">Warehouse intake</p>
+      <p className="text-xs uppercase tracking-[0.25em] text-bronze">Storage contract</p>
       {errorMessage ? (
         <p className="mt-4 text-sm text-red-700">{errorMessage}</p>
       ) : null}
       {loading ? (
-        <p className="mt-4 text-sm text-ink/60">Loading intake status...</p>
+        <p className="mt-4 text-sm text-ink/60">Loading contract status...</p>
       ) : tree?.intakeRecords?.[0] ? (
         <div className="mt-4 space-y-3 text-sm text-ink/70">
           <div>
@@ -132,17 +132,17 @@ export function VehicleWarehouseIntakeSummary({ vehicleId }: { vehicleId: string
             href={`/admin/warehouse-intake/${tree.intakeRecords[0].id}`}
             className="inline-flex rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
           >
-            Open intake record
+            Open storage contract
           </Link>
         </div>
       ) : (
         <div className="mt-4 space-y-4">
-          <p className="text-sm leading-6 text-ink/60">No warehouse intake record is attached to this listing yet.</p>
+          <p className="text-sm leading-6 text-ink/60">No storage contract is attached to this listing yet.</p>
           <Link
             href={`/admin/warehouse-intake/new?vehicleId=${vehicleId}`}
             className="inline-flex rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/92"
           >
-            Start warehouse intake
+            Start storage contract
           </Link>
         </div>
       )}

@@ -113,7 +113,7 @@ export function WarehouseIntakeDashboard() {
         setErrorMessage(intakesResult.error && !intakesResult.items.length ? intakesResult.error : "");
       } catch (error) {
         if (!cancelled) {
-          setErrorMessage(error instanceof Error ? error.message : "We couldn't load warehouse intake records.");
+          setErrorMessage(error instanceof Error ? error.message : "We couldn't load storage contract records.");
         }
       } finally {
         if (!cancelled) {
@@ -131,7 +131,7 @@ export function WarehouseIntakeDashboard() {
   if (!canManageVehicles) {
     return (
       <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
-        <p className="text-sm text-ink/60">You need vehicle-management permission to use the warehouse intake workspace.</p>
+        <p className="text-sm text-ink/60">You need vehicle-management permission to use the storage contracts workspace.</p>
       </div>
     );
   }
@@ -233,8 +233,8 @@ export function WarehouseIntakeDashboard() {
       <div className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-6">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">iPad workflow</p>
-          <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Warehouse Intake & Storage</h2>
-          <p className="mt-2 text-sm text-ink/58">Use an existing listing to start paperwork, or reopen a recent intake to continue it.</p>
+          <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Storage Contracts</h2>
+          <p className="mt-2 text-sm text-ink/58">Use an existing listing to start contract paperwork, or reopen a recent storage contract to continue it.</p>
         </div>
       </div>
 
@@ -286,7 +286,7 @@ export function WarehouseIntakeDashboard() {
                       href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`}
                       className="rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-ink/92"
                     >
-                      Start intake
+                      Start storage contract
                     </Link>
                     <Link
                       href={`/admin/vehicles/${vehicle.id}`}
@@ -307,8 +307,8 @@ export function WarehouseIntakeDashboard() {
         </SectionCard>
 
         <SectionCard
-          eyebrow="Intake contracts"
-          title="Recent intake records"
+          eyebrow="Storage contracts"
+          title="Recent contract records"
           summary={`${intakes.length} records available to continue`}
           open={sectionState.recent}
           onToggle={() => setSectionState((current) => ({ ...current, recent: !current.recent }))}
@@ -317,7 +317,7 @@ export function WarehouseIntakeDashboard() {
             <input
               value={intakeSearch}
               onChange={(event) => setIntakeSearch(event.target.value)}
-              placeholder="Search rego, make, model, year, customer, phone, email, CN/listing ID, or intake reference"
+              placeholder="Search rego, make, model, year, customer, phone, email, CN/listing ID, or contract reference"
               className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
             />
             {filteredIntakes.map((intake) => {
@@ -372,7 +372,7 @@ export function WarehouseIntakeDashboard() {
                         href={`/admin/warehouse-intake/${intake.id}`}
                         className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                       >
-                        Continue intake
+                        Open storage contract
                       </Link>
                       <Link
                         href={`/admin/warehouse-intake/${intake.id}`}
@@ -395,7 +395,7 @@ export function WarehouseIntakeDashboard() {
             })}
             {!filteredIntakes.length && !loading ? (
               <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8">
-                No intake contracts match this search right now.
+                No storage contracts match this search right now.
               </div>
             ) : null}
           </div>

@@ -27,7 +27,7 @@ export function SiteHeader() {
           {appUser ? (
             <>
               {appUser.role === "admin" || appUser.role === "super_admin" ? (
-                <Link href="/admin/vehicles" className="text-sm font-medium text-ink">
+                <Link href="/admin" className="text-sm font-medium text-ink">
                   Admin
                 </Link>
               ) : (

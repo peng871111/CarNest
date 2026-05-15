@@ -1008,7 +1008,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   if (!hasAdminPermission(appUser, "manageVehicles")) {
     return (
       <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
-        <p className="text-sm text-ink/60">You need vehicle-management permission to use the warehouse intake workspace.</p>
+        <p className="text-sm text-ink/60">You need vehicle-management permission to use the storage contracts workspace.</p>
       </div>
     );
   }
@@ -1016,7 +1016,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   if (loading) {
     return (
       <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
-        <p className="text-sm text-ink/60">Preparing the warehouse intake workflow...</p>
+        <p className="text-sm text-ink/60">Preparing the storage contract workflow...</p>
       </div>
     );
   }
@@ -1025,8 +1025,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest warehouse intake</p>
-          <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone intake record"}</h2>
+          <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest storage contract</p>
+          <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone storage contract"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">
             Complete reusable customer onboarding, private vehicle record setup, intake-event documentation, digital agreement, signature, PDF, print, and customer email workflow from one iPad-friendly workspace.
           </p>

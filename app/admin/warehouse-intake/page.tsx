@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 export default function AdminWarehouseIntakePage() {
   return (
     <AdminShell
-      title="Warehouse Intake"
-      description="Start paperwork from active listings or continue recent intake records."
+      title="Storage Contracts"
+      description="Start contract paperwork from active listings or continue recent storage contract records."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeDashboard />

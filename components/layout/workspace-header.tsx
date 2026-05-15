@@ -18,7 +18,7 @@ export function WorkspaceHeader({ workspaceLabel }: { workspaceLabel: "ADMIN" | 
 
   const dashboardHref =
     appUser?.role === "admin" || appUser?.role === "super_admin"
-      ? "/admin/vehicles"
+      ? "/admin"
       : appUser?.role === "dealer"
         ? "/dealer/dashboard"
         : appUser?.role === "seller" || appUser?.role === "buyer"

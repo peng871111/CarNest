@@ -217,6 +217,7 @@ export function VehicleManagementHub({
   const [vehicleLogLoadingByVehicleId, setVehicleLogLoadingByVehicleId] = useState<Record<string, boolean>>({});
   const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
+  const [showVehicleSummary, setShowVehicleSummary] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState<VehicleListingsFilter>(defaultView === "vehicles" ? "Active" : "All");
@@ -597,7 +598,7 @@ export function VehicleManagementHub({
     try {
       setSaving(true);
       const recipientEmail = customer?.email || vehicle.customerEmail || "";
-      const imageUrls = mode === "photo" ? parseImageUrlList(draft.imageUrlsText) : [];
+      const imageUrls = mode === "internal" ? [] : parseImageUrlList(draft.imageUrlsText);
       const result = await addVehicleActivityNote(vehicle.id, draft.message, actor, {
         visibility: mode === "owner" ? "customer" : "admin",
         type: mode === "photo" ? "warehouse_activity_added" : "admin_note_added",
@@ -618,15 +619,15 @@ export function VehicleManagementHub({
 
       if (mode === "owner") {
         if (result.emailStatus.sent) {
-          setNotice("Owner-facing update saved and email sent.");
+          setNotice("Notes to customer saved and email sent.");
         } else if (result.emailStatus.reason === "no_email") {
-          setNotice("Owner-facing update saved. No owner email was available to send.");
+          setNotice("Notes to customer saved. No owner email was available to send.");
         } else if (result.emailStatus.reason === "missing_env") {
-          setNotice("Owner-facing update saved. Email delivery is not configured in this environment.");
+          setNotice("Notes to customer saved. Email delivery is not configured in this environment.");
         } else if (result.emailStatus.reason === "send_failed") {
-          setNotice("Owner-facing update saved, but the email could not be sent.");
+          setNotice("Notes to customer saved, but the email could not be sent.");
         } else {
-          setNotice("Owner-facing update saved.");
+          setNotice("Notes to customer saved.");
         }
       } else if (mode === "photo") {
         setNotice("Photo/update saved to the vehicle log.");
@@ -646,7 +647,7 @@ export function VehicleManagementHub({
   const pageTitle = showingCustomersPage ? "Customer profiles" : "Vehicles and listings";
   const pageDescription = showingCustomersPage
     ? "Search active customer profiles, open linked vehicles, and keep owner records tidy for staff."
-    : "Work from live listings first, then link owners and warehouse paperwork without touching the public website.";
+    : "Work from live listings first, then link owners and storage contract paperwork without touching the public website.";
 
   return (
     <div className="space-y-6">
@@ -660,7 +661,7 @@ export function VehicleManagementHub({
           <div className="flex flex-wrap gap-3">
             {showingVehiclesPage ? (
               <Link href="/admin/warehouse-intake" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92">
-                Warehouse intake
+                Storage contracts
               </Link>
             ) : null}
             <button
@@ -840,13 +841,6 @@ export function VehicleManagementHub({
 
       {showingVehiclesPage ? (
         <section className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
-              <InfoStat label="Active listing revenue" value={formatCurrency(workspaceMetrics.activeListingRevenue)} helper="GST-inclusive service-fee totals tied to active public listings" />
-              <InfoStat label="Warehouse revenue" value={formatCurrency(workspaceMetrics.warehouseManagedRevenue)} helper="GST-inclusive service-fee totals on warehouse-managed vehicles" />
-              <InfoStat label="Pending fees" value={formatCurrency(workspaceMetrics.pendingFees)} helper="Draft or unsigned intake-event fees" />
-              <InfoStat label="Projected active revenue" value={formatCurrency(workspaceMetrics.totalActiveListingPotentialRevenue)} helper="Linked listing price plus GST-inclusive intake fees" />
-            </div>
-
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
             <div className="flex flex-wrap gap-3">
               <CompactInput
@@ -861,18 +855,25 @@ export function VehicleManagementHub({
                 <option value="Withdrawn">Withdrawn</option>
                 <option value="All">All</option>
               </CompactSelect>
+              <button
+                type="button"
+                onClick={() => setShowVehicleSummary((current) => !current)}
+                className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+              >
+                {showVehicleSummary ? "Hide summary" : "Show summary"}
+              </button>
             </div>
 
             <div className="mt-5 space-y-3">
               {listingRows.map(({ vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedRevenue, status }) => {
                 const latestIntake = linkedIntakes[0] ?? null;
-                const warehouseStatus = latestIntake
+                const storageContractStatus = latestIntake
                   ? latestIntake.status === "signed"
                     ? "Contract signed"
                     : latestIntake.status === "review_ready"
                   ? "Ready for signature"
-                      : "Draft intake"
-                  : "No intake";
+                      : "Draft contract"
+                  : "No contract";
                 const ownerEmail = linkedCustomer?.email || vehicle.customerEmail || "";
                 const logItems = vehicleLogItemsByVehicleId[vehicle.id] ?? [];
                 const logComposer = vehicleLogComposerByVehicleId[vehicle.id] ?? null;
@@ -898,8 +899,7 @@ export function VehicleManagementHub({
                       <p className="truncate">
                         Owner: {linkedCustomer ? getCustomerLabel(linkedCustomer) : vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Not linked"}
                       </p>
-                      <p className="truncate">Intake: {warehouseStatus}</p>
-                      <p className="truncate">VIN: {vehicle.vin || "Pending"}</p>
+                      <p className="truncate">Storage contract: {storageContractStatus}</p>
                       <p className="truncate">Rego: {vehicle.rego || "Pending"}</p>
                       <p className="truncate">Projected revenue: {formatCurrency(projectedRevenue)}</p>
                     </div>
@@ -936,15 +936,15 @@ export function VehicleManagementHub({
                         ) : null}
                         {latestIntake ? (
                           <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                            Open intake contract
+                            Open storage contract
                           </Link>
                         ) : linkedRecord ? (
                           <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                            Start warehouse intake
+                            Start storage contract
                           </Link>
                         ) : (
                           <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                            Start warehouse intake
+                            Start storage contract
                           </Link>
                         )}
                         <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
@@ -975,14 +975,14 @@ export function VehicleManagementHub({
                           onClick={() => openVehicleLogComposer(vehicle.id, "owner", ownerEmail)}
                           className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                         >
-                          Add owner-facing update
+                          Add note to customer
                         </button>
                       </div>
 
                       {logComposer ? (
                         <div className="mt-4 space-y-3 rounded-[16px] border border-black/6 bg-shell p-4">
                           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-bronze">
-                            {logComposer.mode === "internal" ? "Internal note" : logComposer.mode === "photo" ? "Photo / update" : "Owner-facing update"}
+                            {logComposer.mode === "internal" ? "Internal note" : logComposer.mode === "photo" ? "Photo / update" : "Notes to customer"}
                           </p>
                           <CompactTextarea
                             value={logComposer.message}
@@ -995,10 +995,10 @@ export function VehicleManagementHub({
                                 ? "Add an internal note for staff"
                                 : logComposer.mode === "photo"
                                   ? "Describe the update or uploaded photos"
-                                  : "Write the owner-facing update"
+                                  : "Write the note to the customer"
                             }
                           />
-                          {logComposer.mode === "photo" ? (
+                          {logComposer.mode !== "internal" ? (
                             <CompactTextarea
                               className="min-h-[76px]"
                               value={logComposer.imageUrlsText}
@@ -1060,7 +1060,7 @@ export function VehicleManagementHub({
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold text-ink">
-                                  {entry.visibility === "customer" ? "Owner-facing update" : entry.type === "warehouse_activity_added" ? "Photo / update" : "Internal note"}
+                                  {entry.visibility === "customer" ? "Notes to customer" : entry.type === "warehouse_activity_added" ? "Photo / update" : "Internal note"}
                                 </p>
                                 <p className="mt-1 whitespace-pre-wrap text-sm text-ink/70">{entry.message}</p>
                                 {entry.imageUrls?.length ? (
@@ -1089,10 +1089,10 @@ export function VehicleManagementHub({
                                       ? "No owner email"
                                       : entry.emailSentStatus === "missing_env"
                                         ? "Email not configured"
-                                        : entry.emailSentStatus === "send_failed"
+                                    : entry.emailSentStatus === "send_failed"
                                           ? "Email failed"
                                           : entry.visibility === "customer"
-                                            ? "Owner visible"
+                                            ? "Customer visible"
                                             : "Internal only"}
                                 </p>
                               </div>
@@ -1112,6 +1112,14 @@ export function VehicleManagementHub({
               ) : null}
             </div>
           </div>
+          {showVehicleSummary ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              <InfoStat label="Active listing revenue" value={formatCurrency(workspaceMetrics.activeListingRevenue)} helper="GST-inclusive service-fee totals tied to active public listings" />
+              <InfoStat label="Warehouse revenue" value={formatCurrency(workspaceMetrics.warehouseManagedRevenue)} helper="GST-inclusive service-fee totals on warehouse-managed vehicles" />
+              <InfoStat label="Pending fees" value={formatCurrency(workspaceMetrics.pendingFees)} helper="Draft or unsigned intake-event fees" />
+              <InfoStat label="Projected active revenue" value={formatCurrency(workspaceMetrics.totalActiveListingPotentialRevenue)} helper="Linked listing price plus GST-inclusive intake fees" />
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1201,7 +1209,7 @@ export function VehicleManagementHub({
                               </Link>
                             ) : null}
                             <Link href={latestIntake ? `/admin/warehouse-intake/${latestIntake.id}` : `/admin/warehouse-intake/new?customerProfileId=${profile.id}&vehicleRecordId=${record.id}${listing ? `&vehicleId=${listing.id}` : ""}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                              {latestIntake ? "Continue intake" : "Start intake"}
+                              {latestIntake ? "Open storage contract" : "Start storage contract"}
                             </Link>
                           </div>
                         </div>

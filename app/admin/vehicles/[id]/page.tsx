@@ -45,7 +45,7 @@ export default async function AdminVehicleDetailPage({
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-            Warehouse intake
+            Start storage contract
           </Link>
           <AdminVehicleActions vehicle={vehicle} redirectBase={`/admin/vehicles/${vehicle.id}`} />
           <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze">

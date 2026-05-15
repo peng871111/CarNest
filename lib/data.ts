@@ -3650,7 +3650,8 @@ export async function addVehicleActivityNote(
             customerEmail: normalizedRecipientEmail,
             vehicleTitle: options.vehicleTitle ?? "Vehicle listing",
             referenceId: options.referenceId ?? vehicleId,
-            message: note
+            message: note,
+            imageUrls: options?.imageUrls ?? []
           }),
           keepalive: true,
           cache: "no-store"

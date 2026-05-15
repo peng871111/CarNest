@@ -6,8 +6,8 @@ export const dynamic = "force-dynamic";
 export default function AdminWarehouseIntakeNewPage() {
   return (
     <AdminShell
-      title="New Warehouse Intake"
-      description="Use the iPad-friendly workflow to select or create a reusable customer profile, capture a private vehicle record, document the intake event, and complete the final agreement."
+      title="New Storage Contract"
+      description="Use the iPad-friendly workflow to select or create a reusable customer profile, capture a private vehicle record, document the storage event, and complete the final agreement."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeWorkspace />

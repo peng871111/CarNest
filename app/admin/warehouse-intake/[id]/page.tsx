@@ -12,8 +12,8 @@ export default async function AdminWarehouseIntakeDetailPage({
 
   return (
     <AdminShell
-      title="Warehouse Intake"
-      description="Review the intake event, continue documentation capture, regenerate the signed PDF, and resend the customer copy when required."
+      title="Storage Contract"
+      description="Review the contract event, continue documentation capture, regenerate the signed PDF, and resend the customer copy when required."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeWorkspace intakeId={id} />
