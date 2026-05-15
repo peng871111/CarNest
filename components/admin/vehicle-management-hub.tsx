@@ -84,6 +84,18 @@ function getVehicleListTitle(vehicle: Vehicle) {
   return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ").trim() || getVehicleDisplayReference(vehicle);
 }
 
+function getVehicleListedAt(vehicle: Vehicle) {
+  return vehicle.approvedAt || vehicle.createdAt || "";
+}
+
+function getDaysBetweenIsoDates(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate) return null;
+  const startTime = new Date(startDate).getTime();
+  const endTime = new Date(endDate).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return null;
+  return Math.max(Math.ceil((endTime - startTime) / (1000 * 60 * 60 * 24)), 0);
+}
+
 function parseMoneyString(value?: string) {
   const normalized = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(normalized) ? normalized : 0;
@@ -282,6 +294,19 @@ export function VehicleManagementHub({
     });
     return map;
   }, [localIntakes]);
+  const intakesByVehicleId = useMemo(() => {
+    const map = new Map<string, WarehouseIntakeRecord[]>();
+    localIntakes.forEach((intake) => {
+      if (!intake.vehicleId) return;
+      const existing = map.get(intake.vehicleId) ?? [];
+      existing.push(intake);
+      map.set(intake.vehicleId, existing);
+    });
+    map.forEach((items, key) => {
+      map.set(key, [...items].sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || "")));
+    });
+    return map;
+  }, [localIntakes]);
 
   const customerRows = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
@@ -353,7 +378,14 @@ export function VehicleManagementHub({
         const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id) ?? null;
         const linkedCustomer = linkedRecord?.customerProfileId ? customerMap.get(linkedRecord.customerProfileId) ?? null : null;
         const linkedSeller = ownerMap.get(vehicle.ownerUid) ?? null;
-        const linkedIntakes = linkedRecord ? intakesByVehicleRecordId.get(linkedRecord.id) ?? [] : [];
+        const linkedIntakes = Array.from(
+          new Map(
+            [
+              ...(linkedRecord ? intakesByVehicleRecordId.get(linkedRecord.id) ?? [] : []),
+              ...(intakesByVehicleId.get(vehicle.id) ?? [])
+            ].map((intake) => [intake.id, intake] as const)
+          ).values()
+        ).sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || ""));
         const projectedRevenue = linkedRecord?.estimatedTotalIncome
           || linkedIntakes.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
         const status = getPublicListingStatus(vehicle);
@@ -393,7 +425,7 @@ export function VehicleManagementHub({
         const rightRef = getVehicleDisplayReference(right.vehicle);
         return leftRef.localeCompare(rightRef);
       });
-  }, [customerMap, globalSearch, intakesByVehicleRecordId, localVehicleRecords, localVehicles, ownerMap, vehicleStatusFilter]);
+  }, [customerMap, globalSearch, intakesByVehicleId, intakesByVehicleRecordId, localVehicleRecords, localVehicles, ownerMap, vehicleStatusFilter]);
 
   const workspaceMetrics = useMemo(() => {
     const listingLinkedRecords = localVehicleRecords
@@ -992,6 +1024,9 @@ export function VehicleManagementHub({
                     ? baseGrossInclusiveAmount / 1.1
                     : 0;
                 const grossEditingValue = vehicleGrossEditingById[vehicle.id];
+                const listedAt = getVehicleListedAt(vehicle);
+                const listingEndDate = vehicle.soldAt || new Date().toISOString();
+                const daysListed = listedAt ? getDaysBetweenIsoDates(listedAt, listingEndDate) : null;
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1009,7 +1044,14 @@ export function VehicleManagementHub({
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/60">
                         <span>{formatCurrency(vehicle.price)}</span>
                         <span>{vehicle.mileage.toLocaleString()} km</span>
-                        <span>{storageContractStatus}</span>
+                        <span>{daysListed != null ? `Listed ${daysListed} day${daysListed === 1 ? "" : "s"}` : "Listed date pending"}</span>
+                        {latestIntake ? (
+                          <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="font-semibold text-ink underline-offset-4 transition hover:text-bronze hover:underline">
+                            View contract
+                          </Link>
+                        ) : (
+                          <span>No contract</span>
+                        )}
                       </div>
                     </div>
 
