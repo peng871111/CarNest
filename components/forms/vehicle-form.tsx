@@ -58,10 +58,16 @@ function buildVehicleImageAssets(vehicle?: Vehicle) {
 
 export function VehicleForm({
   vehicle,
-  listingTypeReadOnly = false
+  listingTypeReadOnly = false,
+  embedded = false,
+  onSuccess,
+  onCancel
 }: {
   vehicle?: Vehicle;
   listingTypeReadOnly?: boolean;
+  embedded?: boolean;
+  onSuccess?: (vehicle: Vehicle) => void;
+  onCancel?: () => void;
 }) {
   const router = useRouter();
   const { appUser, loading } = useAuth();
@@ -460,6 +466,11 @@ export function VehicleForm({
         window.localStorage.removeItem(draftStorageKey);
       }
 
+      if (embedded) {
+        onSuccess?.(result.vehicle);
+        return;
+      }
+
       const basePath =
         isSellerManagedUser && currentVehicle
           ? `/seller/vehicles/${result.vehicle.id}/edit`
@@ -734,7 +745,13 @@ export function VehicleForm({
         <Button
           type="button"
           className="bg-white text-ink ring-1 ring-black/10 hover:bg-shell"
-          onClick={() => router.push(isSellerManagedUser ? "/seller/vehicles" : "/admin/vehicles")}
+          onClick={() => {
+            if (embedded) {
+              onCancel?.();
+              return;
+            }
+            router.push(isSellerManagedUser ? "/seller/vehicles" : "/admin/vehicles");
+          }}
         >
           Cancel
         </Button>

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { VehicleForm } from "@/components/forms/vehicle-form";
 import {
   readAdminGrossAmountDrafts,
   writeAdminGrossAmountDrafts
@@ -254,6 +255,7 @@ export function VehicleManagementHub({
   const [localVehicleRecords, setLocalVehicleRecords] = useState(vehicleRecords);
   const [localIntakes, setLocalIntakes] = useState(intakes);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [showCreateVehicleForm, setShowCreateVehicleForm] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
   const [customerDraft, setCustomerDraft] = useState<Omit<CustomerProfile, "id" | "createdAt" | "updatedAt"> | null>(null);
   const [vehicleDraft, setVehicleDraft] = useState<Omit<VehicleRecord, "id" | "createdAt" | "updatedAt"> | null>(null);
@@ -560,6 +562,12 @@ export function VehicleManagementHub({
     setCustomerDraft(createEmptyCustomerProfile());
   }
 
+  function openCreateVehicleForm() {
+    setActionError("");
+    setNotice("");
+    setShowCreateVehicleForm(true);
+  }
+
   function openVehicleEditor(record?: VehicleRecord, customerProfileId = "") {
     setActionError("");
     setNotice("");
@@ -600,6 +608,18 @@ export function VehicleManagementHub({
       askingPrice: String(listing.price || ""),
       status: listing.storedInWarehouse || listing.listingType === "warehouse" ? "warehouse_managed" : "listed"
     });
+  }
+
+  function handleCreateVehicleSuccess(vehicle: Vehicle) {
+    setLocalVehicles((current) =>
+      current
+        .filter((item) => item.id !== vehicle.id)
+        .concat(vehicle)
+        .sort((left, right) => getVehicleDisplayReference(left).localeCompare(getVehicleDisplayReference(right)))
+    );
+    setShowCreateVehicleForm(false);
+    setNotice("Vehicle created successfully.");
+    setActionError("");
   }
 
   async function handleSaveCustomer() {
@@ -868,7 +888,7 @@ export function VehicleManagementHub({
             {showingVehiclesPage ? (
               <button
                 type="button"
-                onClick={() => openVehicleEditor()}
+                onClick={openCreateVehicleForm}
                 className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92"
               >
                 Add vehicle
@@ -889,6 +909,29 @@ export function VehicleManagementHub({
       {notice ? <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
       {actionError ? <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{actionError}</div> : null}
       {error ? <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</div> : null}
+
+      {showingVehiclesPage && showCreateVehicleForm ? (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Create vehicle</p>
+              <h3 className="mt-1 text-xl font-semibold text-ink">Add a new vehicle listing</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCreateVehicleForm(false)}
+              className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            >
+              Close
+            </button>
+          </div>
+          <VehicleForm
+            embedded
+            onSuccess={handleCreateVehicleSuccess}
+            onCancel={() => setShowCreateVehicleForm(false)}
+          />
+        </section>
+      ) : null}
 
       {editingCustomerId && customerDraft ? (
         <section className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
