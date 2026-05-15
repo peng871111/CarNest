@@ -33,7 +33,9 @@ type VehicleOperationalStatus =
 type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "Sold" | "Draft" | "Withdrawn";
 type VehicleListingsFilter = "Active" | "Sold" | "Withdrawn" | "All";
 type VehicleRowStatusControl = "ACTIVE" | "SOLD" | "WITHDRAWN";
-type VehicleLogComposerMode = "internal" | "photo" | "owner";
+type VehicleLogComposerMode = "internal" | "owner";
+type VehicleGrossDisplayMode = "gst_inclusive" | "no_gst";
+type VehiclePaymentMethod = "bank_transfer" | "cash";
 type VehicleLogComposerDraft = {
   mode: VehicleLogComposerMode;
   message: string;
@@ -214,6 +216,8 @@ export function VehicleManagementHub({
   const [vehicleLogLoadingByVehicleId, setVehicleLogLoadingByVehicleId] = useState<Record<string, boolean>>({});
   const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
+  const [vehicleGrossDisplayById, setVehicleGrossDisplayById] = useState<Record<string, VehicleGrossDisplayMode>>({});
+  const [vehiclePaymentMethodById, setVehiclePaymentMethodById] = useState<Record<string, VehiclePaymentMethod>>({});
   const [showVehicleSummary, setShowVehicleSummary] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
@@ -598,7 +602,7 @@ export function VehicleManagementHub({
       const vehicleTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.trim();
       const result = await addVehicleActivityNote(vehicle.id, draft.message, actor, {
         visibility: mode === "owner" ? "customer" : "admin",
-        type: mode === "photo" ? "warehouse_activity_added" : "admin_note_added",
+        type: "admin_note_added",
         sendEmail: false,
         recipientEmail,
         vehicleTitle,
@@ -689,8 +693,6 @@ export function VehicleManagementHub({
         } else {
           setNotice("Notes to customer saved.");
         }
-      } else if (mode === "photo") {
-        setNotice("Photo/update saved to the vehicle log.");
       } else {
         setNotice("Internal note saved to the vehicle log.");
       }
@@ -940,34 +942,32 @@ export function VehicleManagementHub({
                 const logLoading = vehicleLogLoadingByVehicleId[vehicle.id] ?? false;
                 const logError = vehicleLogErrorByVehicleId[vehicle.id] ?? "";
                 const logOpen = openVehicleLogId === vehicle.id;
+                const grossDisplayMode = vehicleGrossDisplayById[vehicle.id] ?? "gst_inclusive";
+                const paymentMethod = vehiclePaymentMethodById[vehicle.id] ?? "bank_transfer";
+                const grossAmount = grossDisplayMode === "gst_inclusive"
+                  ? projectedRevenue
+                  : projectedRevenue > 0
+                    ? projectedRevenue / 1.1
+                    : 0;
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_auto] xl:items-start">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink/52">
                         <span className="rounded-full border border-black/8 bg-white px-2.5 py-1 font-semibold text-ink/72">
                           {getVehicleDisplayReference(vehicle)}
                         </span>
-                        {vehicle.variant ? <span>Variant: {vehicle.variant}</span> : null}
+                        <span>{vehicle.listingType === "warehouse" || vehicle.storedInWarehouse ? "Warehouse" : "Private"}</span>
                       </div>
                       <p className="mt-2 text-base font-semibold text-ink xl:text-lg">
-                        {getVehicleListTitle(vehicle)}
+                        {[vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").trim() || getVehicleListTitle(vehicle)}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/60">
                         <span>{formatCurrency(vehicle.price)}</span>
                         <span>{vehicle.mileage.toLocaleString()} km</span>
-                        <span>{vehicle.listingType === "warehouse" || vehicle.storedInWarehouse ? "Warehouse" : "Private"}</span>
+                        <span>{storageContractStatus}</span>
                       </div>
-                    </div>
-
-                    <div className="grid min-w-0 gap-x-6 gap-y-2 text-sm text-ink/60 sm:grid-cols-2">
-                      <p className="min-w-0">
-                        Owner: {linkedCustomer ? getCustomerLabel(linkedCustomer) : vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Not linked"}
-                      </p>
-                      <p className="min-w-0">Storage contract: {storageContractStatus}</p>
-                      <p className="min-w-0">Rego: {vehicle.rego || "Pending"}</p>
-                      <p className="min-w-0">Projected revenue: {formatCurrency(projectedRevenue)}</p>
                     </div>
 
                     <div className="flex flex-col items-start gap-3 xl:items-end">
@@ -985,7 +985,7 @@ export function VehicleManagementHub({
                         </CompactSelect>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 xl:justify-end">
+                      <div className="hidden flex-wrap gap-2 xl:justify-end">
                         <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Edit listing
                         </Link>
@@ -1019,6 +1019,69 @@ export function VehicleManagementHub({
                       </div>
                     </div>
                   </div>
+                  <div className="mt-4 flex flex-col gap-3 border-t border-black/6 pt-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                      <div className="rounded-2xl border border-black/8 bg-white px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-[0.18em] text-bronze">Gross amount</p>
+                        <p className="mt-1 text-sm font-semibold text-ink">{formatCurrency(grossAmount)}</p>
+                      </div>
+                      <CompactSelect
+                        value={grossDisplayMode}
+                        onChange={(event) => setVehicleGrossDisplayById((current) => ({
+                          ...current,
+                          [vehicle.id]: event.target.value as VehicleGrossDisplayMode
+                        }))}
+                        className="min-h-[42px] w-full sm:w-[160px]"
+                      >
+                        <option value="gst_inclusive">GST inclusive</option>
+                        <option value="no_gst">No GST</option>
+                      </CompactSelect>
+                      <CompactSelect
+                        value={paymentMethod}
+                        onChange={(event) => setVehiclePaymentMethodById((current) => ({
+                          ...current,
+                          [vehicle.id]: event.target.value as VehiclePaymentMethod
+                        }))}
+                        className="min-h-[42px] w-full sm:w-[170px]"
+                      >
+                        <option value="bank_transfer">Bank transfer</option>
+                        <option value="cash">Cash</option>
+                      </CompactSelect>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 xl:justify-end">
+                      <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        Edit listing
+                      </Link>
+                      <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        View listing
+                      </Link>
+                      <button type="button" onClick={() => openVehicleEditorForListing(vehicle, linkedRecord)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        {linkedCustomer ? "Change owner" : "Assign owner"}
+                      </button>
+                      {linkedCustomer ? (
+                        <Link href={`/admin/customers?customerId=${linkedCustomer.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Open customer
+                        </Link>
+                      ) : null}
+                      {latestIntake ? (
+                        <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Open storage contract
+                        </Link>
+                      ) : linkedRecord ? (
+                        <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Start storage contract
+                        </Link>
+                      ) : (
+                        <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                          Start storage contract
+                        </Link>
+                      )}
+                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        Vehicle log
+                      </button>
+                    </div>
+                  </div>
                   {logOpen ? (
                     <div className="mt-4 rounded-[18px] border border-black/6 bg-white/80 p-4">
                       <div className="flex flex-wrap gap-2">
@@ -1028,13 +1091,6 @@ export function VehicleManagementHub({
                           className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                         >
                           Add internal note
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openVehicleLogComposer(vehicle.id, "photo", ownerEmail)}
-                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                        >
-                          Add photo/update
                         </button>
                         <button
                           type="button"
@@ -1048,7 +1104,7 @@ export function VehicleManagementHub({
                       {logComposer ? (
                         <div className="mt-4 space-y-3 rounded-[16px] border border-black/6 bg-shell p-4">
                           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-bronze">
-                            {logComposer.mode === "internal" ? "Internal note" : logComposer.mode === "photo" ? "Photo / update" : "Notes to customer"}
+                            {logComposer.mode === "internal" ? "Internal note" : "Notes to customer"}
                           </p>
                           <CompactTextarea
                             value={logComposer.message}
@@ -1059,15 +1115,13 @@ export function VehicleManagementHub({
                             placeholder={
                               logComposer.mode === "internal"
                                 ? "Add an internal note for staff"
-                                : logComposer.mode === "photo"
-                                  ? "Describe the update or uploaded photos"
-                                  : "Write the note to the customer"
+                                : "Write the note to the customer"
                             }
                           />
                           {logComposer.mode !== "internal" ? (
                             <div className="space-y-2">
                               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">
-                                {logComposer.mode === "owner" ? "Attach photos for the customer update" : "Attach progress photos"}
+                                Attach photos for the customer update
                               </label>
                               <input
                                 type="file"

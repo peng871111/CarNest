@@ -63,10 +63,8 @@ export function WarehouseIntakeDashboard() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [sectionState, setSectionState] = useState({
-    listings: false,
     recent: true
   });
-  const [listingSearch, setListingSearch] = useState("");
   const [intakeSearch, setIntakeSearch] = useState("");
   const [assigningIntakeId, setAssigningIntakeId] = useState("");
   const [listingSelectionByIntakeId, setListingSelectionByIntakeId] = useState<Record<string, string>>({});
@@ -148,27 +146,6 @@ export function WarehouseIntakeDashboard() {
   const activeListings = vehicles
     .filter((vehicle) => !vehicle.deleted && vehicle.status === "approved" && vehicle.sellerStatus !== "SOLD" && vehicle.sellerStatus !== "WITHDRAWN")
     .sort((left, right) => getVehicleDisplayReference(left).localeCompare(getVehicleDisplayReference(right)));
-  const listingSearchTerm = listingSearch.trim().toLowerCase();
-  const filteredListings = activeListings
-    .filter((vehicle) => {
-      if (!listingSearchTerm) return true;
-      const searchText = [
-        getVehicleDisplayReference(vehicle),
-        vehicle.year,
-        vehicle.make,
-        vehicle.model,
-        vehicle.variant,
-        vehicle.rego,
-        vehicle.vin,
-        vehicle.customerName,
-        vehicle.customerEmail
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return searchText.includes(listingSearchTerm);
-    })
-    .slice(0, 12);
   const intakeSearchTerm = intakeSearch.trim().toLowerCase();
   const filteredIntakes = [...intakes]
     .filter((intake) => {
@@ -234,14 +211,13 @@ export function WarehouseIntakeDashboard() {
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">iPad workflow</p>
           <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Storage Contracts</h2>
-          <p className="mt-2 text-sm text-ink/58">Use an existing listing to start contract paperwork, or reopen a recent storage contract to continue it.</p>
+          <p className="mt-2 text-sm text-ink/58">Open existing storage contract records, assign a listing where needed, and continue contract paperwork.</p>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 md:gap-4">
+      <div className="grid gap-3 sm:grid-cols-1 md:gap-4">
         {[
-          ["Intake events", String(intakes.length)],
-          ["Active listings", String(activeListings.length)]
+          ["Storage contracts", String(intakes.length)]
         ].map(([label, value]) => (
           <div key={label} className="rounded-[22px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[24px] md:p-5">
             <p className="text-xs uppercase tracking-[0.22em] text-bronze">{label}</p>
@@ -254,58 +230,7 @@ export function WarehouseIntakeDashboard() {
         <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{errorMessage}</div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-        <SectionCard
-          eyebrow="Active listings"
-          title="Attach onboarding to an existing listing"
-          summary={`${activeListings.length} listings available`}
-          open={sectionState.listings}
-          onToggle={() => setSectionState((current) => ({ ...current, listings: !current.listings }))}
-        >
-          <div className="space-y-3">
-            <input
-              value={listingSearch}
-              onChange={(event) => setListingSearch(event.target.value)}
-              placeholder="Search CN/listing ID, make, model, rego, VIN, or customer"
-              className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-            />
-            {filteredListings.map((vehicle) => (
-              <div key={vehicle.id} className="rounded-[20px] border border-black/5 bg-shell p-4 md:rounded-[24px]">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-bronze">{getVehicleDisplayReference(vehicle)}</p>
-                    <h4 className="mt-1 text-base font-semibold text-ink">
-                      {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.variant}
-                    </h4>
-                    <p className="mt-1 text-sm text-ink/62">
-                      {formatCurrency(vehicle.price)} · {vehicle.mileage.toLocaleString()} km · {vehicle.rego || "Rego pending"}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap gap-3">
-                    <Link
-                      href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`}
-                      className="rounded-full bg-ink px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-ink/92"
-                    >
-                      Start storage contract
-                    </Link>
-                    <Link
-                      href={`/admin/vehicles/${vehicle.id}`}
-                      className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                    >
-                      View listing
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ))}
-            {!filteredListings.length && !loading ? (
-              <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm leading-6 text-ink/60 md:rounded-[24px] md:px-5 md:py-8">
-                No active listings match this search right now.
-              </div>
-            ) : null}
-          </div>
-        </SectionCard>
-
+      <div className="grid gap-6">
         <SectionCard
           eyebrow="Storage contracts"
           title="Recent contract records"
@@ -331,20 +256,27 @@ export function WarehouseIntakeDashboard() {
                   key={intake.id}
                   className="rounded-[20px] border border-black/6 bg-shell px-4 py-4 md:rounded-[22px]"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] uppercase tracking-[0.22em] text-bronze">{intake.vehicleReference || intake.id}</p>
-                      <h4 className="mt-1 text-sm font-semibold text-ink">
-                        {intake.ownerDetails.fullName || intake.ownerDetails.email || "Customer pending"} · {intake.vehicleDetails.year || "Year pending"} {intake.vehicleDetails.make} {intake.vehicleDetails.model}
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_auto] xl:items-start">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] uppercase tracking-[0.22em] text-bronze">
+                        <span>{intake.vehicleReference || intake.id}</span>
+                        <span>{linkedListing ? getVehicleDisplayReference(linkedListing) : "No listing linked"}</span>
+                      </div>
+                      <h4 className="mt-2 text-base font-semibold text-ink">
+                        {intake.vehicleDetails.year || "Year pending"} {intake.vehicleDetails.make} {intake.vehicleDetails.model} {intake.vehicleDetails.variant}
                       </h4>
-                      <p className="mt-1 text-sm text-ink/58">
-                        {intake.vehicleDetails.registrationPlate || "Rego pending"} · Listing {linkedListing ? getVehicleDisplayReference(linkedListing) : "Not linked"}
-                      </p>
-                      <p className="mt-1 text-xs text-ink/52">
-                        {intake.ownerDetails.phone || "Phone pending"} · {intake.ownerDetails.email || "Email pending"} · {formatAdminDateTime(intake.updatedAt || intake.createdAt)}
-                      </p>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/58">
+                        <span>{intake.ownerDetails.fullName || intake.ownerDetails.email || "Customer pending"}</span>
+                        <span>{intake.vehicleDetails.registrationPlate || "Rego pending"}</span>
+                        <span>{formatAdminDateTime(intake.updatedAt || intake.createdAt)}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/52">
+                        <span>{intake.ownerDetails.phone || "Phone pending"}</span>
+                        <span>{intake.ownerDetails.email || "Email pending"}</span>
+                        <span>{getIntakeStatusLabel(intake)}</span>
+                      </div>
                     </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
                       <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${signatureReady ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
                         {signatureReady ? "Signature captured" : "Signature pending"}
                       </span>
@@ -354,11 +286,11 @@ export function WarehouseIntakeDashboard() {
                     </div>
                   </div>
 
-                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr),auto]">
+                  <div className="mt-4 flex flex-col gap-3 border-t border-black/6 pt-4 xl:flex-row xl:items-center xl:justify-between">
                     <select
                       value={selectedListingId}
                       onChange={(event) => setListingSelectionByIntakeId((current) => ({ ...current, [intake.id]: event.target.value }))}
-                      className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+                      className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-[#C6A87D] xl:max-w-[360px]"
                     >
                       <option value="">No linked listing</option>
                       {activeListings.map((vehicle) => (
@@ -367,7 +299,7 @@ export function WarehouseIntakeDashboard() {
                         </option>
                       ))}
                     </select>
-                    <div className="flex flex-wrap gap-3">
+                    <div className="flex flex-wrap gap-3 xl:justify-end">
                       <Link
                         href={`/admin/warehouse-intake/${intake.id}`}
                         className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"

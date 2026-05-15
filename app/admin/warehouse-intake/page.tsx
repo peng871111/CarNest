@@ -7,7 +7,7 @@ export default function AdminWarehouseIntakePage() {
   return (
     <AdminShell
       title="Storage Contracts"
-      description="Start contract paperwork from active listings or continue recent storage contract records."
+      description="Open and continue existing storage contract records."
       requiredPermission="manageVehicles"
     >
       <WarehouseIntakeDashboard />
