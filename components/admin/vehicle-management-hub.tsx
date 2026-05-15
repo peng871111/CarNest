@@ -89,6 +89,11 @@ function parseMoneyString(value?: string) {
   return Number.isFinite(normalized) ? normalized : 0;
 }
 
+function formatEditableMoneyValue(value: number) {
+  if (!Number.isFinite(value)) return "";
+  return value % 1 === 0 ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
 function calculateServiceFeeTotals(items: WarehouseIntakeRecord["serviceItems"]) {
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
   const inclusive = items.reduce((sum, item) => sum + (item.gstIncluded ? item.amount : item.amount * 1.1), 0);
@@ -217,6 +222,8 @@ export function VehicleManagementHub({
   const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
   const [vehicleGrossDisplayById, setVehicleGrossDisplayById] = useState<Record<string, VehicleGrossDisplayMode>>({});
+  const [vehicleGrossInclusiveById, setVehicleGrossInclusiveById] = useState<Record<string, number>>({});
+  const [vehicleGrossEditingById, setVehicleGrossEditingById] = useState<Record<string, string | null>>({});
   const [vehiclePaymentMethodById, setVehiclePaymentMethodById] = useState<Record<string, VehiclePaymentMethod>>({});
   const [showVehicleSummary, setShowVehicleSummary] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
@@ -703,6 +710,40 @@ export function VehicleManagementHub({
     }
   }
 
+  function openGrossAmountEditor(vehicleId: string, currentValue: number) {
+    setVehicleGrossEditingById((current) => ({
+      ...current,
+      [vehicleId]: formatEditableMoneyValue(currentValue)
+    }));
+  }
+
+  function commitGrossAmount(vehicleId: string, displayMode: VehicleGrossDisplayMode) {
+    const rawValue = vehicleGrossEditingById[vehicleId];
+    if (rawValue == null) return;
+
+    const parsedValue = parseMoneyString(rawValue);
+    const normalizedDisplayValue = Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
+    const normalizedInclusiveValue = displayMode === "gst_inclusive"
+      ? normalizedDisplayValue
+      : normalizedDisplayValue * 1.1;
+
+    setVehicleGrossInclusiveById((current) => ({
+      ...current,
+      [vehicleId]: normalizedInclusiveValue
+    }));
+    setVehicleGrossEditingById((current) => ({
+      ...current,
+      [vehicleId]: null
+    }));
+  }
+
+  function cancelGrossAmountEditor(vehicleId: string) {
+    setVehicleGrossEditingById((current) => ({
+      ...current,
+      [vehicleId]: null
+    }));
+  }
+
   const showingVehiclesPage = defaultView === "vehicles" || defaultView === "listings";
   const showingCustomersPage = defaultView === "customers";
   const pageEyebrow = showingCustomersPage ? "Customers" : "Vehicles";
@@ -944,11 +985,13 @@ export function VehicleManagementHub({
                 const logOpen = openVehicleLogId === vehicle.id;
                 const grossDisplayMode = vehicleGrossDisplayById[vehicle.id] ?? "gst_inclusive";
                 const paymentMethod = vehiclePaymentMethodById[vehicle.id] ?? "bank_transfer";
+                const baseGrossInclusiveAmount = vehicleGrossInclusiveById[vehicle.id] ?? projectedRevenue;
                 const grossAmount = grossDisplayMode === "gst_inclusive"
-                  ? projectedRevenue
-                  : projectedRevenue > 0
-                    ? projectedRevenue / 1.1
+                  ? baseGrossInclusiveAmount
+                  : baseGrossInclusiveAmount > 0
+                    ? baseGrossInclusiveAmount / 1.1
                     : 0;
+                const grossEditingValue = vehicleGrossEditingById[vehicle.id];
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1021,9 +1064,50 @@ export function VehicleManagementHub({
                   </div>
                   <div className="mt-4 flex flex-col gap-3 border-t border-black/6 pt-4 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                      <div className="rounded-2xl border border-black/8 bg-white px-3 py-2.5">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          if (grossEditingValue == null) {
+                            openGrossAmountEditor(vehicle.id, grossAmount);
+                          }
+                        }}
+                        onKeyDown={(event) => {
+                          if ((event.key === "Enter" || event.key === " ") && grossEditingValue == null) {
+                            event.preventDefault();
+                            openGrossAmountEditor(vehicle.id, grossAmount);
+                          }
+                        }}
+                        className={`rounded-2xl border bg-white px-3 py-2.5 transition ${
+                          grossEditingValue != null
+                            ? "border-[#C6A87D] shadow-[0_0_0_1px_rgba(198,168,125,0.3)]"
+                            : "cursor-text border-black/8 hover:border-[#C6A87D]"
+                        }`}
+                      >
                         <p className="text-[10px] uppercase tracking-[0.18em] text-bronze">Gross amount</p>
-                        <p className="mt-1 text-sm font-semibold text-ink">{formatCurrency(grossAmount)}</p>
+                        {grossEditingValue != null ? (
+                          <input
+                            autoFocus
+                            inputMode="decimal"
+                            value={grossEditingValue}
+                            onChange={(event) => setVehicleGrossEditingById((current) => ({
+                              ...current,
+                              [vehicle.id]: event.target.value
+                            }))}
+                            onBlur={() => commitGrossAmount(vehicle.id, grossDisplayMode)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                commitGrossAmount(vehicle.id, grossDisplayMode);
+                              }
+                              if (event.key === "Escape") {
+                                cancelGrossAmountEditor(vehicle.id);
+                              }
+                            }}
+                            className="mt-1 w-[140px] border-0 bg-transparent p-0 text-sm font-semibold text-ink outline-none"
+                          />
+                        ) : (
+                          <p className="mt-1 text-sm font-semibold text-ink">{formatCurrency(grossAmount)}</p>
+                        )}
                       </div>
                       <CompactSelect
                         value={grossDisplayMode}
