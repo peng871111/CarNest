@@ -208,10 +208,18 @@ export function WarehouseIntakeDashboard() {
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-6">
-        <div>
-          <p className="text-xs uppercase tracking-[0.28em] text-bronze">iPad workflow</p>
-          <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Storage Contracts</h2>
-          <p className="mt-2 text-sm text-ink/58">Open existing storage contract records, assign a listing where needed, and continue contract paperwork.</p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-bronze">iPad workflow</p>
+            <h2 className="mt-2 font-display text-2xl text-ink md:text-3xl">Storage Contracts</h2>
+            <p className="mt-2 text-sm text-ink/58">Open existing storage contract records, assign a listing where needed, and continue contract paperwork.</p>
+          </div>
+          <Link
+            href="/admin/warehouse-intake/new"
+            className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92"
+          >
+            New storage contract
+          </Link>
         </div>
       </div>
 
