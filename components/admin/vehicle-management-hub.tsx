@@ -866,17 +866,22 @@ export function VehicleManagementHub({
           </div>
           <div className="flex flex-wrap gap-3">
             {showingVehiclesPage ? (
-              <Link href="/admin/warehouse-intake" className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92">
-                Storage contracts
-              </Link>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => (showingCustomersPage ? openCustomerEditor() : openVehicleEditor())}
-              className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-            >
-              {showingCustomersPage ? "New customer" : "New vehicle"}
-            </button>
+              <button
+                type="button"
+                onClick={() => openVehicleEditor()}
+                className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92"
+              >
+                Add vehicle
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openCustomerEditor()}
+                className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+              >
+                New customer
+              </button>
+            )}
           </div>
         </div>
       </div>
