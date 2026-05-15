@@ -12,8 +12,10 @@ import {
   getVehicleActivityLog,
   saveCustomerProfile,
   saveVehicleRecord,
+  updateVehicleActivityImageUrls,
   updateSellerVehicleStatus
 } from "@/lib/data";
+import { uploadVehicleActivityImages } from "@/lib/storage";
 import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
@@ -35,7 +37,7 @@ type VehicleLogComposerMode = "internal" | "photo" | "owner";
 type VehicleLogComposerDraft = {
   mode: VehicleLogComposerMode;
   message: string;
-  imageUrlsText: string;
+  attachmentFiles: File[];
   sendEmail: boolean;
 };
 
@@ -43,20 +45,9 @@ function createVehicleLogComposerDraft(mode: VehicleLogComposerMode, sendEmail =
   return {
     mode,
     message: "",
-    imageUrlsText: "",
+    attachmentFiles: [],
     sendEmail
   };
-}
-
-function parseImageUrlList(value: string) {
-  return Array.from(
-    new Set(
-      value
-        .split(/\n|,/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    )
-  );
 }
 
 function createActorFromUser(user: AppUser | null): VehicleActor | null {
@@ -85,6 +76,10 @@ function getCustomerProfileDedupKey(profile: CustomerProfile) {
 
 function getVehicleRecordTitle(record: VehicleRecord) {
   return record.title?.trim() || [record.year, record.make, record.model, record.variant].filter(Boolean).join(" ").trim() || "Vehicle record";
+}
+
+function getVehicleListTitle(vehicle: Vehicle) {
+  return [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ").trim() || getVehicleDisplayReference(vehicle);
 }
 
 function parseMoneyString(value?: string) {
@@ -184,6 +179,8 @@ function CompactSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 function CompactTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={`min-h-[92px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D] ${props.className ?? ""}`} />;
 }
+
+const MAX_ACTIVITY_ATTACHMENTS = 5;
 
 export function VehicleManagementHub({
   vehicles,
@@ -598,33 +595,96 @@ export function VehicleManagementHub({
     try {
       setSaving(true);
       const recipientEmail = customer?.email || vehicle.customerEmail || "";
-      const imageUrls = mode === "internal" ? [] : parseImageUrlList(draft.imageUrlsText);
+      const vehicleTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.trim();
       const result = await addVehicleActivityNote(vehicle.id, draft.message, actor, {
         visibility: mode === "owner" ? "customer" : "admin",
         type: mode === "photo" ? "warehouse_activity_added" : "admin_note_added",
-        sendEmail: mode === "owner" ? draft.sendEmail : false,
+        sendEmail: false,
         recipientEmail,
-        vehicleTitle: `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.trim(),
-        referenceId: getVehicleDisplayReference(vehicle),
-        imageUrls
+        vehicleTitle,
+        referenceId: getVehicleDisplayReference(vehicle)
       });
 
+      let uploadedImageUrls: string[] = [];
+      let emailSentStatus: VehicleActivityEvent["emailSentStatus"] = result.event?.emailSentStatus ?? "not_requested";
+      let emailErrorMessage = result.event?.emailErrorMessage;
+
+      if (result.event?.id && mode !== "internal" && draft.attachmentFiles.length) {
+        uploadedImageUrls = await uploadVehicleActivityImages(
+          draft.attachmentFiles.slice(0, MAX_ACTIVITY_ATTACHMENTS),
+          vehicle.id,
+          result.event.id
+        );
+        await updateVehicleActivityImageUrls(result.event.id, uploadedImageUrls, actor);
+      }
+
+      if (mode === "owner" && draft.sendEmail) {
+        if (!recipientEmail.trim()) {
+          emailSentStatus = "no_email";
+        } else {
+          try {
+            const response = await fetch("/api/vehicle-activity-notifications", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({
+                vehicleId: vehicle.id,
+                customerEmail: recipientEmail,
+                customerName: customer?.fullName || vehicle.customerName || "",
+                vehicleTitle,
+                referenceId: getVehicleDisplayReference(vehicle),
+                message: draft.message,
+                updateType: "customer_update",
+                imageUrls: uploadedImageUrls
+              }),
+              cache: "no-store"
+            });
+            const payload = await response.json().catch(() => null);
+
+            if (!response.ok || payload?.success === false) {
+              emailSentStatus = "send_failed";
+              emailErrorMessage = payload?.error || "Customer update email failed to send.";
+            } else if (payload?.sent === false && payload?.reason === "no_customer_email_set") {
+              emailSentStatus = "no_email";
+            } else if (payload?.sent === false && payload?.reason === "missing_env") {
+              emailSentStatus = "missing_env";
+            } else if (payload?.sent === true) {
+              emailSentStatus = "sent";
+              emailErrorMessage = "";
+            } else {
+              emailSentStatus = "send_failed";
+              emailErrorMessage = payload?.error || "Customer update email failed to send.";
+            }
+          } catch (error) {
+            emailSentStatus = "send_failed";
+            emailErrorMessage = error instanceof Error ? error.message : "Customer update email failed to send.";
+          }
+        }
+      }
+
       if (result.event) {
+        const nextEvent: VehicleActivityEvent = {
+          ...result.event,
+          imageUrls: uploadedImageUrls,
+          emailSentStatus,
+          emailErrorMessage
+        };
         setVehicleLogItemsByVehicleId((current) => ({
           ...current,
-          [vehicle.id]: [result.event as VehicleActivityEvent, ...(current[vehicle.id] ?? [])]
+          [vehicle.id]: [nextEvent, ...(current[vehicle.id] ?? [])]
         }));
       }
       setVehicleLogComposerByVehicleId((current) => ({ ...current, [vehicle.id]: null }));
 
       if (mode === "owner") {
-        if (result.emailStatus.sent) {
+        if (emailSentStatus === "sent") {
           setNotice("Notes to customer saved and email sent.");
-        } else if (result.emailStatus.reason === "no_email") {
+        } else if (emailSentStatus === "no_email") {
           setNotice("Notes to customer saved. No owner email was available to send.");
-        } else if (result.emailStatus.reason === "missing_env") {
+        } else if (emailSentStatus === "missing_env") {
           setNotice("Notes to customer saved. Email delivery is not configured in this environment.");
-        } else if (result.emailStatus.reason === "send_failed") {
+        } else if (emailSentStatus === "send_failed") {
           setNotice("Notes to customer saved, but the email could not be sent.");
         } else {
           setNotice("Notes to customer saved.");
@@ -883,10 +943,16 @@ export function VehicleManagementHub({
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] xl:items-start">
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1.1fr)_auto] xl:items-start">
                     <div className="min-w-0">
-                      <p className="truncate text-base font-semibold text-ink">
-                        {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.variant}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink/52">
+                        <span className="rounded-full border border-black/8 bg-white px-2.5 py-1 font-semibold text-ink/72">
+                          {getVehicleDisplayReference(vehicle)}
+                        </span>
+                        {vehicle.variant ? <span>Variant: {vehicle.variant}</span> : null}
+                      </div>
+                      <p className="mt-2 text-base font-semibold text-ink xl:text-lg">
+                        {getVehicleListTitle(vehicle)}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/60">
                         <span>{formatCurrency(vehicle.price)}</span>
@@ -895,13 +961,13 @@ export function VehicleManagementHub({
                       </div>
                     </div>
 
-                    <div className="min-w-0 space-y-1 text-sm text-ink/60">
-                      <p className="truncate">
+                    <div className="grid min-w-0 gap-x-6 gap-y-2 text-sm text-ink/60 sm:grid-cols-2">
+                      <p className="min-w-0">
                         Owner: {linkedCustomer ? getCustomerLabel(linkedCustomer) : vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || linkedSeller?.email || "Not linked"}
                       </p>
-                      <p className="truncate">Storage contract: {storageContractStatus}</p>
-                      <p className="truncate">Rego: {vehicle.rego || "Pending"}</p>
-                      <p className="truncate">Projected revenue: {formatCurrency(projectedRevenue)}</p>
+                      <p className="min-w-0">Storage contract: {storageContractStatus}</p>
+                      <p className="min-w-0">Rego: {vehicle.rego || "Pending"}</p>
+                      <p className="min-w-0">Projected revenue: {formatCurrency(projectedRevenue)}</p>
                     </div>
 
                     <div className="flex flex-col items-start gap-3 xl:items-end">
@@ -999,15 +1065,29 @@ export function VehicleManagementHub({
                             }
                           />
                           {logComposer.mode !== "internal" ? (
-                            <CompactTextarea
-                              className="min-h-[76px]"
-                              value={logComposer.imageUrlsText}
-                              onChange={(event) => setVehicleLogComposerByVehicleId((current) => ({
-                                ...current,
-                                [vehicle.id]: current[vehicle.id] ? { ...current[vehicle.id]!, imageUrlsText: event.target.value } : current[vehicle.id]
-                              }))}
-                              placeholder="Paste one or more image URLs, separated by commas or new lines"
-                            />
+                            <div className="space-y-2">
+                              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">
+                                {logComposer.mode === "owner" ? "Attach photos for the customer update" : "Attach progress photos"}
+                              </label>
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                onChange={(event) => {
+                                  const files = Array.from(event.target.files ?? []).slice(0, MAX_ACTIVITY_ATTACHMENTS);
+                                  setVehicleLogComposerByVehicleId((current) => ({
+                                    ...current,
+                                    [vehicle.id]: current[vehicle.id] ? { ...current[vehicle.id]!, attachmentFiles: files } : current[vehicle.id]
+                                  }));
+                                }}
+                                className="block w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink file:mr-3 file:rounded-full file:border-0 file:bg-shell file:px-3 file:py-2 file:text-xs file:font-semibold file:text-ink"
+                              />
+                              <p className="text-xs text-ink/56">
+                                {logComposer.attachmentFiles.length
+                                  ? `${logComposer.attachmentFiles.length} image${logComposer.attachmentFiles.length === 1 ? "" : "s"} selected`
+                                  : "Attach up to 5 images. Photos upload as real attachments, not pasted links."}
+                              </p>
+                            </div>
                           ) : null}
                           {logComposer.mode === "owner" ? (
                             <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink">
@@ -1064,17 +1144,27 @@ export function VehicleManagementHub({
                                 </p>
                                 <p className="mt-1 whitespace-pre-wrap text-sm text-ink/70">{entry.message}</p>
                                 {entry.imageUrls?.length ? (
-                                  <div className="mt-2 flex flex-wrap gap-2">
+                                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                                     {entry.imageUrls.map((imageUrl) => (
-                                      <a
-                                        key={imageUrl}
-                                        href={imageUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="rounded-full border border-black/10 px-3 py-1 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                                      >
-                                        Open image
-                                      </a>
+                                      <div key={imageUrl} className="overflow-hidden rounded-[16px] border border-black/8 bg-white">
+                                        <div className="aspect-[4/3] bg-shell">
+                                          <img
+                                            src={imageUrl}
+                                            alt="Vehicle update attachment"
+                                            className="h-full w-full object-cover"
+                                          />
+                                        </div>
+                                        <div className="flex items-center justify-end border-t border-black/6 px-3 py-2">
+                                          <a
+                                            href={imageUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="rounded-full border border-black/10 px-3 py-1 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                                          >
+                                            Open image
+                                          </a>
+                                        </div>
+                                      </div>
                                     ))}
                                   </div>
                                 ) : null}
