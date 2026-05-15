@@ -3,6 +3,10 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import {
+  readAdminGrossAmountDrafts,
+  writeAdminGrossAmountDrafts
+} from "@/components/admin/admin-gross-amount-storage";
 import { useAuth } from "@/lib/auth";
 import {
   addVehicleActivityNote,
@@ -74,6 +78,10 @@ function getCustomerProfileDedupKey(profile: CustomerProfile) {
   const normalizedName = (profile.fullName || "").trim().toLowerCase();
   if (normalizedName) return `name:${normalizedName}`;
   return `id:${profile.id}`;
+}
+
+function buildCustomerDisplayId(index: number) {
+  return `CUS-${String(index + 1).padStart(4, "0")}`;
 }
 
 function getVehicleRecordTitle(record: VehicleRecord) {
@@ -278,6 +286,53 @@ export function VehicleManagementHub({
     setLocalIntakes(intakes);
   }, [intakes]);
 
+  useEffect(() => {
+    const drafts = readAdminGrossAmountDrafts();
+    setVehicleGrossInclusiveById(
+      Object.fromEntries(
+        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.grossInclusiveAmount])
+      )
+    );
+    setVehicleGrossDisplayById(
+      Object.fromEntries(
+        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.displayMode])
+      )
+    );
+    setVehiclePaymentMethodById(
+      Object.fromEntries(
+        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.paymentMethod])
+      )
+    );
+  }, []);
+
+  useEffect(() => {
+    const allVehicleIds = new Set([
+      ...Object.keys(vehicleGrossInclusiveById),
+      ...Object.keys(vehicleGrossDisplayById),
+      ...Object.keys(vehiclePaymentMethodById)
+    ]);
+    if (!allVehicleIds.size) return;
+
+    const drafts = Object.fromEntries(
+      [...allVehicleIds]
+        .map((vehicleId) => {
+          const grossInclusiveAmount = vehicleGrossInclusiveById[vehicleId];
+          if (!Number.isFinite(grossInclusiveAmount) || grossInclusiveAmount < 0) return null;
+          return [
+            vehicleId,
+            {
+              grossInclusiveAmount,
+              displayMode: vehicleGrossDisplayById[vehicleId] ?? "gst_inclusive",
+              paymentMethod: vehiclePaymentMethodById[vehicleId] ?? "bank_transfer"
+            }
+          ] as const;
+        })
+        .filter((entry): entry is readonly [string, { grossInclusiveAmount: number; displayMode: VehicleGrossDisplayMode; paymentMethod: VehiclePaymentMethod }] => entry != null)
+    );
+
+    writeAdminGrossAmountDrafts(drafts);
+  }, [vehicleGrossDisplayById, vehicleGrossInclusiveById, vehiclePaymentMethodById]);
+
   const listingMap = useMemo(() => new Map(localVehicles.map((vehicle) => [vehicle.id, vehicle])), [localVehicles]);
   const customerMap = useMemo(() => new Map(localCustomerProfiles.map((profile) => [profile.id, profile])), [localCustomerProfiles]);
   const ownerMap = useMemo(() => new Map(owners.map((owner) => [owner.id, owner])), [owners]);
@@ -311,6 +366,16 @@ export function VehicleManagementHub({
   const customerRows = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
     const latestProfiles = new Map<string, CustomerProfile>();
+    const customerDisplayIdById = new Map(
+      [...localCustomerProfiles]
+        .sort((left, right) => {
+          const leftTime = new Date(left.createdAt || left.updatedAt || 0).getTime();
+          const rightTime = new Date(right.createdAt || right.updatedAt || 0).getTime();
+          if (leftTime !== rightTime) return leftTime - rightTime;
+          return left.id.localeCompare(right.id);
+        })
+        .map((profile, index) => [profile.id, buildCustomerDisplayId(index)] as const)
+    );
 
     localCustomerProfiles
       .filter((profile) => profile.status !== "archived")
@@ -355,7 +420,7 @@ export function VehicleManagementHub({
           .sort((left, right) => getVehicleRecordTitle(left.record).localeCompare(getVehicleRecordTitle(right.record)));
 
         const searchText = [
-          profile.id,
+          customerDisplayIdById.get(profile.id) ?? "",
           getCustomerLabel(profile),
           profile.email,
           profile.phone,
@@ -364,7 +429,13 @@ export function VehicleManagementHub({
           .join(" ")
           .toLowerCase();
 
-        return { profile, linkedVehicles, searchText, hasUsableIdentity };
+        return {
+          profile,
+          linkedVehicles,
+          searchText,
+          hasUsableIdentity,
+          displayCustomerId: customerDisplayIdById.get(profile.id) ?? "CUS-pending"
+        };
       })
       .filter((row) => row.hasUsableIdentity)
       .filter((row) => (term ? row.searchText.includes(term) : true))
@@ -1419,15 +1490,22 @@ export function VehicleManagementHub({
             </div>
           </div>
 
-          {customerRows.map(({ profile, linkedVehicles }) => {
+          {customerRows.map(({ profile, linkedVehicles, displayCustomerId }) => {
             const isExpanded = expandedCustomers[profile.id] ?? false;
             return (
               <div key={profile.id} className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-ink">{getCustomerLabel(profile)}</h3>
-                    <p className="mt-1 text-sm text-ink/60">{profile.phone || "Phone pending"} · {profile.email || "Email pending"}</p>
-                    <p className="mt-1 text-xs text-ink/52">Customer ID: {profile.id}</p>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-ink">{getCustomerLabel(profile)}</h3>
+                      <span className="rounded-full border border-black/8 bg-shell px-3 py-1 text-[11px] font-semibold text-ink/70">
+                        {displayCustomerId}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink/60">
+                      <span>{profile.phone || "Phone pending"}</span>
+                      <span>{profile.email || "Email pending"}</span>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full border border-black/8 bg-shell px-3 py-1 text-xs font-semibold text-ink/70">
