@@ -52,8 +52,8 @@ export default function AdminDashboardPage() {
             </Link>
           ))}
         </div>
-        <AdminOverviewMetrics />
         <AdminAccountingPanel />
+        <AdminOverviewMetrics />
       </div>
     </AdminShell>
   );

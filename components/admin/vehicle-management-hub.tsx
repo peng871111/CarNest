@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { ListingPublicationChecklist } from "@/components/admin/listing-publication-checklist";
+import { VehicleAccountingSummary } from "@/components/admin/vehicle-accounting-summary";
 import { VehicleForm } from "@/components/forms/vehicle-form";
 import {
   readAdminGrossAmountDrafts,
@@ -24,7 +25,7 @@ import {
 import { uploadVehicleActivityImages } from "@/lib/storage";
 import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
-import { AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
+import { AdminAccountingEntry, AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
 type VehicleManagementView = "customers" | "vehicles" | "warehouse" | "listings";
 type VehicleOperationalStatus =
@@ -217,6 +218,7 @@ export function VehicleManagementHub({
   customerProfiles,
   vehicleRecords,
   intakes,
+  accountingEntries,
   writeStatus,
   error,
   defaultView = "vehicles",
@@ -227,6 +229,7 @@ export function VehicleManagementHub({
   customerProfiles: CustomerProfile[];
   vehicleRecords: VehicleRecord[];
   intakes: WarehouseIntakeRecord[];
+  accountingEntries: AdminAccountingEntry[];
   writeStatus?: string;
   error?: string;
   defaultView?: VehicleManagementView;
@@ -508,28 +511,40 @@ export function VehicleManagementHub({
         const status = getVehicleOperationalStatus(record, listing, (intakesByVehicleRecordId.get(record.id) ?? []).length);
         return { record, listing, status };
       });
-    const activeListingRevenue = listingLinkedRecords
-      .filter((row) => row.listing && isPublicInventoryListing(row.listing))
-      .reduce((sum, row) => sum + (row.record.gstInclusiveServiceFeeTotal ?? 0), 0);
-    const warehouseManagedRevenue = listingLinkedRecords
-      .filter((row) => row.status === "Warehouse managed")
-      .reduce((sum, row) => sum + (row.record.gstInclusiveServiceFeeTotal ?? 0), 0);
-    const pendingFees = localIntakes
-      .filter((intake) => intake.status !== "signed")
-      .reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
-    const totalActiveListingPotentialRevenue = localVehicles
-      .filter((vehicle) => isPublicInventoryListing(vehicle))
-      .reduce((sum, vehicle) => {
-        const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id);
-        return sum + (linkedRecord?.estimatedTotalIncome || vehicle.price || 0);
-      }, 0);
+    const activeListingIds = new Set(
+      listingLinkedRecords
+        .filter((row) => row.listing && isPublicInventoryListing(row.listing))
+        .map((row) => row.listing?.id)
+        .filter((value): value is string => Boolean(value))
+    );
+    const warehouseManagedVehicleRecordIds = new Set(
+      listingLinkedRecords
+        .filter((row) => row.status === "Warehouse managed")
+        .map((row) => row.record.id)
+    );
+    const activeListingIncome = accountingEntries
+      .filter((entry) => entry.type === "income" && entry.relatedVehicleId && activeListingIds.has(entry.relatedVehicleId))
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const warehouseManagedIncome = accountingEntries
+      .filter((entry) => entry.type === "income" && entry.relatedVehicleRecordId && warehouseManagedVehicleRecordIds.has(entry.relatedVehicleRecordId))
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const outstandingReceivables = accountingEntries
+      .filter((entry) => entry.type === "receivable" && entry.status !== "paid")
+      .reduce((sum, entry) => sum + entry.amount, 0);
+    const gstPayableEstimate = accountingEntries.reduce((sum, entry) => {
+      if (!entry.gstIncluded) return sum;
+      const gst = entry.amount / 11;
+      if (entry.type === "income" || entry.type === "receivable") return sum + gst;
+      if (entry.type === "expense" || entry.type === "payable") return sum - gst;
+      return sum;
+    }, 0);
     return {
-      activeListingRevenue,
-      warehouseManagedRevenue,
-      pendingFees,
-      totalActiveListingPotentialRevenue
+      activeListingIncome,
+      warehouseManagedIncome,
+      outstandingReceivables,
+      gstPayableEstimate
     };
-  }, [intakesByVehicleRecordId, listingMap, localIntakes, localVehicleRecords, localVehicles]);
+  }, [accountingEntries, intakesByVehicleRecordId, listingMap, localVehicleRecords]);
 
   async function handleVehicleListingStatusChange(vehicle: Vehicle, nextStatus: VehicleRowStatusControl) {
     if (!actor) return;
@@ -1336,6 +1351,14 @@ export function VehicleManagementHub({
                     </div>
                   </div>
                   <div className="mt-4">
+                    <VehicleAccountingSummary
+                      vehicleId={vehicle.id}
+                      vehicleRecordId={linkedRecord?.id}
+                      entries={accountingEntries}
+                      compact
+                    />
+                  </div>
+                  <div className="mt-4">
                     <ListingPublicationChecklist
                       vehicle={vehicle}
                       vehicleRecord={linkedRecord}
@@ -1519,10 +1542,10 @@ export function VehicleManagementHub({
           </div>
           {showVehicleSummary ? (
             <div className="grid gap-3 md:grid-cols-4">
-              <InfoStat label="Active listing revenue" value={formatCurrency(workspaceMetrics.activeListingRevenue)} helper="GST-inclusive service-fee totals tied to active public listings" />
-              <InfoStat label="Warehouse revenue" value={formatCurrency(workspaceMetrics.warehouseManagedRevenue)} helper="GST-inclusive service-fee totals on warehouse-managed vehicles" />
-              <InfoStat label="Pending fees" value={formatCurrency(workspaceMetrics.pendingFees)} helper="Draft or unsigned intake-event fees" />
-              <InfoStat label="Projected active revenue" value={formatCurrency(workspaceMetrics.totalActiveListingPotentialRevenue)} helper="Linked listing price plus GST-inclusive intake fees" />
+              <InfoStat label="Active listing income" value={formatCurrency(workspaceMetrics.activeListingIncome)} helper="Actual CarNest income entries linked to active listings" />
+              <InfoStat label="Warehouse income" value={formatCurrency(workspaceMetrics.warehouseManagedIncome)} helper="Actual CarNest income linked to warehouse-managed vehicles" />
+              <InfoStat label="Receivables" value={formatCurrency(workspaceMetrics.outstandingReceivables)} helper="Outstanding money still owed to CarNest" />
+              <InfoStat label="GST payable est." value={formatCurrency(workspaceMetrics.gstPayableEstimate)} helper="GST-inclusive accounting entries only" />
             </div>
           ) : null}
         </section>

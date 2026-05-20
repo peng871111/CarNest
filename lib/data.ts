@@ -4048,6 +4048,37 @@ export async function saveAdminAccountingEntry(
   };
 }
 
+export async function deleteAdminAccountingEntry(id: string, actor: VehicleActor) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage accounting entries.");
+
+  if (!id) {
+    throw new Error("Accounting entry ID is required.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      deletedId: id,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await deleteDoc(doc(db, "adminAccountingEntries", id));
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "vehicle_record",
+    actionType: "updated",
+    affectedRecordId: id,
+    summary: "Accounting entry deleted."
+  }).catch(() => undefined);
+
+  return {
+    deletedId: id,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 export async function deleteEmptyCustomerProfiles(
   actor: VehicleActor
 ): Promise<{ deletedIds: string[]; source: VehicleDataSource }> {

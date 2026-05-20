@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { VehicleManagementHub } from "@/components/admin/vehicle-management-hub";
 import { useAuth } from "@/lib/auth";
-import { getCustomerProfilesData, getVehicleRecordsData, getVehiclesData, getWarehouseIntakesData, listUsers } from "@/lib/data";
+import { getAdminAccountingEntriesData, getCustomerProfilesData, getVehicleRecordsData, getVehiclesData, getWarehouseIntakesData, listUsers } from "@/lib/data";
 import { canAccessRole } from "@/lib/permissions";
-import { AdminPermissionKey, AppUser, CustomerProfile, Vehicle, VehicleRecord, WarehouseIntakeRecord } from "@/types";
+import { AdminAccountingEntry, AdminPermissionKey, AppUser, CustomerProfile, Vehicle, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
 export function VehicleWorkspaceScreen({
   title,
@@ -29,6 +29,7 @@ export function VehicleWorkspaceScreen({
   const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
   const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [intakes, setIntakes] = useState<WarehouseIntakeRecord[]>([]);
+  const [accountingEntries, setAccountingEntries] = useState<AdminAccountingEntry[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -42,12 +43,13 @@ export function VehicleWorkspaceScreen({
       }
 
       await firebaseUser.getIdToken();
-      const [vehiclesResult, nextOwners, customerProfilesResult, vehicleRecordsResult, intakesResult] = await Promise.all([
+      const [vehiclesResult, nextOwners, customerProfilesResult, vehicleRecordsResult, intakesResult, accountingEntriesResult] = await Promise.all([
         getVehiclesData(),
         listUsers(),
         getCustomerProfilesData(),
         getVehicleRecordsData(),
-        getWarehouseIntakesData()
+        getWarehouseIntakesData(),
+        getAdminAccountingEntriesData()
       ]);
       if (cancelled) return;
       setVehicles(vehiclesResult.items);
@@ -55,11 +57,13 @@ export function VehicleWorkspaceScreen({
       setCustomerProfiles(customerProfilesResult.items);
       setVehicleRecords(vehicleRecordsResult.items);
       setIntakes(intakesResult.items);
+      setAccountingEntries(accountingEntriesResult.items);
       setError(
         vehiclesResult.error
         || customerProfilesResult.error
         || vehicleRecordsResult.error
         || intakesResult.error
+        || accountingEntriesResult.error
         || ""
       );
     }
@@ -80,6 +84,7 @@ export function VehicleWorkspaceScreen({
         customerProfiles={customerProfiles}
         vehicleRecords={vehicleRecords}
         intakes={intakes}
+        accountingEntries={accountingEntries}
         writeStatus={memoWriteStatus}
         error={error}
         defaultView={defaultView}
