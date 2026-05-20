@@ -27,21 +27,33 @@ import { hasAdminPermission } from "@/lib/permissions";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AdminAccountingEntry, CustomerProfile, Vehicle, VehicleActor, VehicleRecord } from "@/types";
 
-const ACCOUNTING_CATEGORY_OPTIONS = [
+const INCOME_CATEGORY_OPTIONS = [
+  "Listing fee",
   "Storage fee",
-  "Detailing",
-  "Transport",
   "Photography",
-  "Carsales",
-  "Facebook ads",
-  "Xiaohongshu ads",
-  "Repair",
+  "Detailing",
+  "Ceramic coating",
+  "Inspection",
+  "Transport",
+  "Platform fee",
   "Cleaning",
-  "Commission",
-  "Fuel",
-  "Reimbursement",
-  "Miscellaneous"
+  "Other income"
 ] as const;
+
+const EXPENSE_CATEGORY_OPTIONS = [
+  "Repair",
+  "RWC",
+  "Detailing expense",
+  "Transport expense",
+  "Advertising",
+  "Fuel",
+  "Contractor payment",
+  "Refund",
+  "Cleaning expense",
+  "Other expense"
+] as const;
+
+const BALANCE_CATEGORY_OPTIONS = ["Receivable", "Payable", "Other"] as const;
 
 type SearchableVehicleOption = {
   vehicle: Vehicle;
@@ -51,6 +63,47 @@ type SearchableVehicleOption = {
   title: string;
   subtitle: string;
 };
+
+function getAccountingCategoryOptions(type: AdminAccountingEntry["type"]) {
+  if (type === "income") return INCOME_CATEGORY_OPTIONS;
+  if (type === "expense") return EXPENSE_CATEGORY_OPTIONS;
+  return BALANCE_CATEGORY_OPTIONS;
+}
+
+function isOtherCategory(category: string) {
+  return category === "Other income" || category === "Other expense" || category === "Other";
+}
+
+function getEntryTypeLabel(type: AdminAccountingEntry["type"]) {
+  if (type === "receivable") return "Receivable";
+  if (type === "payable") return "Payable";
+  return type === "income" ? "Income" : "Expense";
+}
+
+function getEntryTypeStyles(type: AdminAccountingEntry["type"]) {
+  if (type === "income") {
+    return {
+      badge: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      card: "border-emerald-100 bg-emerald-50/40"
+    };
+  }
+  if (type === "expense") {
+    return {
+      badge: "bg-rose-50 text-rose-700 border-rose-200",
+      card: "border-rose-100 bg-rose-50/35"
+    };
+  }
+  if (type === "receivable") {
+    return {
+      badge: "bg-amber-50 text-amber-700 border-amber-200",
+      card: "border-amber-100 bg-amber-50/35"
+    };
+  }
+  return {
+    badge: "bg-sky-50 text-sky-700 border-sky-200",
+    card: "border-sky-100 bg-sky-50/35"
+  };
+}
 
 function createActorFromUser(user: ReturnType<typeof useAuth>["appUser"]): VehicleActor | null {
   if (!user) return null;
@@ -204,6 +257,8 @@ export function AdminAccountingPanel() {
     return filtered.slice(0, 8);
   }, [vehicleSearch, vehicleSearchOptions]);
 
+  const currentCategoryOptions = useMemo(() => getAccountingCategoryOptions(draft.type), [draft.type]);
+
   const todayKey = useMemo(() => getTodayMelbourneDateKey(), []);
 
   useEffect(() => {
@@ -289,6 +344,8 @@ export function AdminAccountingPanel() {
       status: entry.status,
       createdByUid: entry.createdByUid || "",
       createdByName: entry.createdByName || "",
+      updatedByUid: entry.updatedByUid || "",
+      updatedByName: entry.updatedByName || "",
       createdAt: entry.createdAt || "",
       updatedAt: entry.updatedAt || ""
     });
@@ -336,7 +393,15 @@ export function AdminAccountingPanel() {
       const result = await saveAdminAccountingEntry(
         {
           ...draft,
-          category: draft.category || "Miscellaneous",
+          category:
+            draft.category
+            || (draft.type === "income"
+              ? "Other income"
+              : draft.type === "expense"
+                ? "Other expense"
+                : draft.type === "receivable"
+                  ? "Receivable"
+                  : "Payable"),
           relatedVehicleId: linkedVehicle?.vehicle.id || "",
           relatedVehicleRecordId: linkedVehicle?.vehicleRecord?.id || "",
           relatedDisplayReference: linkedVehicle ? getVehicleDisplayReference(linkedVehicle.vehicle) : draft.relatedDisplayReference,
@@ -445,14 +510,19 @@ export function AdminAccountingPanel() {
               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Entry type</label>
               <select
                 value={draft.type}
-                onChange={(event) => setDraft((current) => ({
-                  ...current,
-                  type: event.target.value as AdminAccountingEntry["type"],
-                  status:
-                    event.target.value === "income" || event.target.value === "expense"
-                      ? "paid"
-                      : current.status
-                }))}
+                onChange={(event) =>
+                  setDraft((current) => {
+                    const nextType = event.target.value as AdminAccountingEntry["type"];
+                    const nextOptions = getAccountingCategoryOptions(nextType);
+                    const categoryStillValid = nextOptions.includes(current.category as never);
+                    return {
+                      ...current,
+                      type: nextType,
+                      category: categoryStillValid ? current.category : "",
+                      status: nextType === "income" || nextType === "expense" ? "paid" : current.status
+                    };
+                  })
+                }
                 className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
               >
                 <option value="income">Income</option>
@@ -478,7 +548,7 @@ export function AdminAccountingPanel() {
                 className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
               >
                 <option value="">Select a category</option>
-                {ACCOUNTING_CATEGORY_OPTIONS.map((category) => (
+                {currentCategoryOptions.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>
@@ -545,7 +615,7 @@ export function AdminAccountingPanel() {
                   <p className="text-xs text-ink/58">
                     {selectedVehicleOption
                       ? `${selectedVehicleOption.subtitle || "Linked vehicle selected"}`
-                      : "No linked vehicle"}
+                      : "General business entry"}
                   </p>
                   {(draft.relatedVehicleId || vehicleSearch) ? (
                     <button
@@ -564,7 +634,7 @@ export function AdminAccountingPanel() {
                       onClick={clearVehicleSelection}
                       className="w-full rounded-2xl border border-dashed border-black/10 px-3 py-3 text-left text-sm text-ink/60 transition hover:border-[#C6A87D] hover:text-ink"
                     >
-                      No linked vehicle
+                      General business entry
                     </button>
                     {filteredVehicleOptions.map((option) => (
                       <button
@@ -611,15 +681,15 @@ export function AdminAccountingPanel() {
             </div>
             <div className="space-y-2 md:col-span-2">
               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">
-                {draft.category === "Miscellaneous" ? "Miscellaneous note" : "Note"}
+                {isOtherCategory(draft.category) ? "Supporting note" : "Note"}
               </label>
               <textarea
                 value={draft.note}
                 onChange={(event) => setDraft((current) => ({ ...current, note: event.target.value }))}
                 className="min-h-[96px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
                 placeholder={
-                  draft.category === "Miscellaneous"
-                    ? "Optional note for this miscellaneous accounting item"
+                  isOtherCategory(draft.category)
+                    ? "Optional note for this other accounting item"
                     : "Add internal accounting context"
                 }
               />
@@ -639,7 +709,7 @@ export function AdminAccountingPanel() {
 
         <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
           <p className="text-xs uppercase tracking-[0.22em] text-bronze">Recent entries</p>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 max-h-[840px] space-y-3 overflow-y-auto pr-1">
             {groupedEntries.map((group) => {
               const isExpanded = expandedDateGroups[group.dateKey] ?? false;
               return (
@@ -649,11 +719,19 @@ export function AdminAccountingPanel() {
                     onClick={() => toggleDateGroup(group.dateKey)}
                     className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-4 text-left"
                   >
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-ink">{formatMelbourneDateHeading(group.dateKey)}</p>
-                      <p className="mt-1 text-xs text-ink/58">
-                        {formatCurrency(group.summary.totalIncome)} income · {formatCurrency(group.summary.totalExpense)} expense · Net {formatCurrency(group.summary.netCashflow)}
-                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">
+                          Income {formatCurrency(group.summary.totalIncome)}
+                        </span>
+                        <span className="rounded-full bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">
+                          Expense {formatCurrency(group.summary.totalExpense)}
+                        </span>
+                        <span className="rounded-full bg-ink/5 px-2.5 py-1 font-semibold text-ink">
+                          Net {formatCurrency(group.summary.netCashflow)}
+                        </span>
+                      </div>
                     </div>
                     <span className="text-xs font-semibold text-ink/60">{isExpanded ? "Hide" : "Show"}</span>
                   </button>
@@ -663,18 +741,24 @@ export function AdminAccountingPanel() {
                         const daysOutstanding = getOutstandingDays(entry);
                         const ageLabel = getOutstandingAgeLabel(daysOutstanding);
                         const isOverdue = daysOutstanding != null && daysOutstanding > 7;
+                        const typeStyles = getEntryTypeStyles(entry.type);
                         return (
-                          <div key={entry.id} className="rounded-[18px] border border-black/6 bg-white px-4 py-4">
+                          <div key={entry.id} className={`rounded-[18px] border px-4 py-4 ${typeStyles.card}`}>
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-ink">
-                                  {entry.category || entry.type} · {formatCurrency(entry.amount)}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${typeStyles.badge}`}>
+                                    {getEntryTypeLabel(entry.type)}
+                                  </span>
+                                  <p className="text-sm font-semibold text-ink">
+                                    {entry.category || getEntryTypeLabel(entry.type)} · {formatCurrency(entry.amount)}
+                                  </p>
+                                </div>
+                                <p className="mt-1 text-xs text-ink/56">
+                                  {entry.paymentMethod === "bank_transfer" ? "Bank transfer" : "Cash"} · {entry.status.replace(/_/g, " ")}
                                 </p>
                                 <p className="mt-1 text-xs text-ink/56">
-                                  {entry.type.replace(/_/g, " ")} · {entry.paymentMethod === "bank_transfer" ? "Bank transfer" : "Cash"} · {entry.status.replace(/_/g, " ")}
-                                </p>
-                                <p className="mt-1 text-xs text-ink/56">
-                                  {entry.relatedDisplayReference || "No linked listing"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}
+                                  {entry.relatedDisplayReference || "General business entry"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}
                                 </p>
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/62">
                                   <span>Gross {formatCurrency(entry.amount)}</span>
@@ -691,6 +775,15 @@ export function AdminAccountingPanel() {
                               <div className="text-right text-xs text-ink/55">
                                 <p className="font-semibold text-ink">{entry.createdByName || "CarNest Admin"}</p>
                                 <p className="mt-1">{entry.gstIncluded ? "GST inclusive" : "No GST"}</p>
+                                <p className="mt-2">
+                                  Created {entry.createdAt ? new Date(entry.createdAt).toLocaleString("en-AU") : "pending"}
+                                </p>
+                                <p className="mt-1">
+                                  Updated {entry.updatedAt ? new Date(entry.updatedAt).toLocaleString("en-AU") : "pending"}
+                                </p>
+                                <p className="mt-1">
+                                  Updated by {entry.updatedByName || entry.createdByName || "CarNest Admin"}
+                                </p>
                               </div>
                             </div>
                             <div className="mt-3 flex flex-wrap justify-end gap-2">

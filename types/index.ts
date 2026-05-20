@@ -487,6 +487,8 @@ export interface AdminAccountingEntry {
   status: AdminAccountingEntryStatus;
   createdByUid?: string;
   createdByName?: string;
+  updatedByUid?: string;
+  updatedByName?: string;
   createdAt?: string;
   updatedAt?: string;
 }

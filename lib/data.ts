@@ -1075,6 +1075,8 @@ export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "i
     status: "paid",
     createdByUid: "",
     createdByName: "",
+    updatedByUid: "",
+    updatedByName: "",
     createdAt: "",
     updatedAt: ""
   };
@@ -1616,6 +1618,8 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     status: normalizeAdminAccountingEntryStatus(data.status),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
     createdByName: typeof data.createdByName === "string" ? data.createdByName : "",
+    updatedByUid: typeof data.updatedByUid === "string" ? data.updatedByUid : "",
+    updatedByName: typeof data.updatedByName === "string" ? data.updatedByName : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   };
@@ -3981,7 +3985,7 @@ export async function getAdminAccountingEntriesData() {
 }
 
 export async function saveAdminAccountingEntry(
-  input: Omit<AdminAccountingEntry, "id" | "createdAt" | "updatedAt" | "createdByUid" | "createdByName">,
+  input: Omit<AdminAccountingEntry, "id" | "updatedAt" | "updatedByUid" | "updatedByName">,
   actor: VehicleActor,
   existingId?: string
 ) {
@@ -4002,8 +4006,14 @@ export async function saveAdminAccountingEntry(
     relatedVehicleTitle: sanitizeSingleLineText(input.relatedVehicleTitle ?? ""),
     note: sanitizeMultilineText(input.note ?? ""),
     status: normalizeAdminAccountingEntryStatus(input.status),
-    createdByUid: actor.id,
-    createdByName: getActorDisplayName(actor),
+    ...(existingId
+      ? {}
+      : {
+          createdByUid: actor.id,
+          createdByName: getActorDisplayName(actor)
+        }),
+    updatedByUid: actor.id,
+    updatedByName: getActorDisplayName(actor),
     ...(existingId ? {} : { createdAt: serverTimestamp() }),
     updatedAt: serverTimestamp()
   });
@@ -4015,9 +4025,11 @@ export async function saveAdminAccountingEntry(
         id,
         ...createEmptyAdminAccountingEntry(),
         ...input,
-        createdByUid: actor.id,
-        createdByName: getActorDisplayName(actor),
-        createdAt: new Date().toISOString(),
+        createdByUid: existingId ? input.createdByUid || "" : actor.id,
+        createdByName: existingId ? input.createdByName || "" : getActorDisplayName(actor),
+        updatedByUid: actor.id,
+        updatedByName: getActorDisplayName(actor),
+        createdAt: existingId ? input.createdAt || new Date().toISOString() : new Date().toISOString(),
         updatedAt: new Date().toISOString()
       } satisfies AdminAccountingEntry,
       source: "mock" as const,
@@ -4040,7 +4052,13 @@ export async function saveAdminAccountingEntry(
   return {
     entry: serializeAdminAccountingEntryDoc(ref.id, {
       ...payload,
-      createdAt: existingId ? new Date().toISOString() : new Date().toISOString(),
+      ...(existingId
+        ? {
+            createdByUid: input.createdByUid || "",
+            createdByName: input.createdByName || ""
+          }
+        : {}),
+      createdAt: existingId ? input.createdAt || new Date().toISOString() : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }),
     source: "firestore" as const,
