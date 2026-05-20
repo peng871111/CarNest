@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AdminAccountingPanel } from "@/components/admin/admin-accounting-panel";
 import { AdminOverviewMetrics } from "@/components/admin/admin-overview-metrics";
 import { AdminShell } from "@/components/layout/admin-shell";
 
@@ -52,6 +53,7 @@ export default function AdminDashboardPage() {
           ))}
         </div>
         <AdminOverviewMetrics />
+        <AdminAccountingPanel />
       </div>
     </AdminShell>
   );

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { ListingPublicationChecklist } from "@/components/admin/listing-publication-checklist";
 import { VehicleForm } from "@/components/forms/vehicle-form";
 import {
   readAdminGrossAmountDrafts,
@@ -682,6 +683,13 @@ export function VehicleManagementHub({
     }
   }
 
+  function handlePublicationChecklistSaved(vehicleRecord: VehicleRecord) {
+    setLocalVehicleRecords((current) => {
+      const next = current.filter((record) => record.id !== vehicleRecord.id).concat(vehicleRecord);
+      return next.sort((left, right) => getVehicleRecordTitle(left).localeCompare(getVehicleRecordTitle(right)));
+    });
+  }
+
   async function openVehicleLog(vehicleId: string) {
     setOpenVehicleLogId((current) => (current === vehicleId ? null : vehicleId));
     if (vehicleLogItemsByVehicleId[vehicleId] || vehicleLogLoadingByVehicleId[vehicleId]) {
@@ -1326,6 +1334,14 @@ export function VehicleManagementHub({
                         Vehicle log
                       </button>
                     </div>
+                  </div>
+                  <div className="mt-4">
+                    <ListingPublicationChecklist
+                      vehicle={vehicle}
+                      vehicleRecord={linkedRecord}
+                      compact
+                      onSaved={handlePublicationChecklistSaved}
+                    />
                   </div>
                   {logOpen ? (
                     <div className="mt-4 rounded-[18px] border border-black/6 bg-white/80 p-4">

@@ -1,0 +1,151 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { createEmptyVehicleRecord, saveVehicleRecord } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { hasAdminPermission } from "@/lib/permissions";
+import { getVehicleDisplayReference } from "@/lib/utils";
+import { Vehicle, VehicleActor, VehiclePublicationChecklist, VehicleRecord } from "@/types";
+
+const PUBLICATION_PLATFORMS: Array<{
+  key: keyof VehiclePublicationChecklist;
+  label: string;
+}> = [
+  { key: "carsales", label: "Carsales" },
+  { key: "facebookMarketplace", label: "Facebook Marketplace" },
+  { key: "xiaohongshu", label: "Xiaohongshu" },
+  { key: "website", label: "Website" },
+  { key: "other", label: "Other" }
+];
+
+function createActorFromUser(user: ReturnType<typeof useAuth>["appUser"]): VehicleActor | null {
+  if (!user) return null;
+  return {
+    id: user.id,
+    role: user.role,
+    email: user.email,
+    displayName: user.displayName,
+    name: user.name,
+    adminPermissions: user.adminPermissions
+  };
+}
+
+function createEmptyChecklist(): VehiclePublicationChecklist {
+  return {
+    carsales: false,
+    facebookMarketplace: false,
+    xiaohongshu: false,
+    website: false,
+    other: false
+  };
+}
+
+function buildVehicleRecordForChecklist(
+  vehicle: Vehicle,
+  vehicleRecord: VehicleRecord | null,
+  checklist: VehiclePublicationChecklist
+): Omit<VehicleRecord, "id" | "createdAt" | "updatedAt"> {
+  return {
+    ...createEmptyVehicleRecord(),
+    ...vehicleRecord,
+    customerProfileId: vehicleRecord?.customerProfileId || "",
+    publicListingId: vehicle.id,
+    displayReference: vehicleRecord?.displayReference || getVehicleDisplayReference(vehicle),
+    title: vehicleRecord?.title || `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.trim(),
+    make: vehicleRecord?.make || vehicle.make || "",
+    model: vehicleRecord?.model || vehicle.model || "",
+    variant: vehicleRecord?.variant || vehicle.variant || "",
+    year: vehicleRecord?.year || String(vehicle.year || ""),
+    registrationPlate: vehicleRecord?.registrationPlate || vehicle.rego || "",
+    vin: vehicleRecord?.vin || vehicle.vin || "",
+    colour: vehicleRecord?.colour || vehicle.colour || "",
+    odometer: vehicleRecord?.odometer || String(vehicle.mileage || ""),
+    fuelType: vehicleRecord?.fuelType || vehicle.fuelType || "",
+    transmission: vehicleRecord?.transmission || vehicle.transmission || "",
+    askingPrice: vehicleRecord?.askingPrice || String(vehicle.price || ""),
+    publicationChecklist: checklist,
+    status:
+      vehicleRecord?.status
+      || (vehicle.sellerStatus === "SOLD"
+        ? "sold"
+        : vehicle.sellerStatus === "WITHDRAWN"
+          ? "withdrawn"
+          : vehicle.storedInWarehouse || vehicle.listingType === "warehouse"
+            ? "warehouse_managed"
+            : "listed")
+  };
+}
+
+export function ListingPublicationChecklist({
+  vehicle,
+  vehicleRecord,
+  compact = false,
+  onSaved
+}: {
+  vehicle: Vehicle;
+  vehicleRecord?: VehicleRecord | null;
+  compact?: boolean;
+  onSaved?: (vehicleRecord: VehicleRecord) => void;
+}) {
+  const { appUser } = useAuth();
+  const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
+  const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
+  const [savingKey, setSavingKey] = useState<keyof VehiclePublicationChecklist | "">("");
+  const [errorMessage, setErrorMessage] = useState("");
+
+  const checklist = vehicleRecord?.publicationChecklist ?? createEmptyChecklist();
+
+  if (!canManageVehicles) {
+    return null;
+  }
+
+  async function handleToggle(platform: keyof VehiclePublicationChecklist, checked: boolean) {
+    if (!actor) return;
+
+    try {
+      setSavingKey(platform);
+      setErrorMessage("");
+      const nextChecklist = {
+        ...checklist,
+        [platform]: checked
+      };
+      const result = await saveVehicleRecord(
+        buildVehicleRecordForChecklist(vehicle, vehicleRecord ?? null, nextChecklist),
+        actor,
+        vehicleRecord?.id
+      );
+      onSaved?.(result.vehicleRecord);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't update the publication checklist.");
+    } finally {
+      setSavingKey("");
+    }
+  }
+
+  return (
+    <div className={`rounded-[18px] border border-black/6 bg-white/80 ${compact ? "px-3 py-3" : "px-4 py-4"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-bronze">Publication checklist</p>
+        <p className="text-[11px] text-ink/50">Admin only</p>
+      </div>
+      <div className={`mt-3 grid gap-2 ${compact ? "sm:grid-cols-2 xl:grid-cols-5" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
+        {PUBLICATION_PLATFORMS.map((platform) => (
+          <label
+            key={platform.key}
+            className="flex min-h-[42px] items-center gap-3 rounded-2xl border border-black/8 bg-shell px-3 py-2 text-sm text-ink"
+          >
+            <input
+              type="checkbox"
+              checked={checklist[platform.key]}
+              disabled={savingKey === platform.key}
+              onChange={(event) => void handleToggle(platform.key, event.target.checked)}
+              className="h-4 w-4 rounded border-black/20 text-ink"
+            />
+            <span>{platform.label}</span>
+          </label>
+        ))}
+      </div>
+      {errorMessage ? <p className="mt-2 text-xs text-amber-700">{errorMessage}</p> : null}
+    </div>
+  );
+}

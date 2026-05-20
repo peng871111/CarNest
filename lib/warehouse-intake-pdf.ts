@@ -276,6 +276,148 @@ export async function generateWarehouseIntakePdf(
     cursorY -= 20;
   };
 
+  const drawPhotoSection = async (
+    title: string,
+    photos: WarehouseIntakeRecord["photos"],
+    sectionOptions?: {
+      includeMeta?: boolean;
+      emptyMessage?: string;
+    }
+  ) => {
+    if (!photos.length) return;
+
+    drawSectionTitle(title);
+    const photoGap = 16;
+    const photoWidth = (CONTENT_WIDTH - photoGap) / 2;
+    const photoHeight = photoWidth * 0.75;
+    const metaHeight = sectionOptions?.includeMeta ? 44 : 18;
+    const photoCardHeight = photoHeight + metaHeight + 22;
+    let column = 0;
+
+    for (const photo of photos) {
+      ensureSpace(photoCardHeight + 12);
+      const x = column === 0 ? PAGE_MARGIN : PAGE_MARGIN + photoWidth + photoGap;
+      const frameY = cursorY - photoHeight - 12;
+      const lowerPath = photo.storagePath.toLowerCase();
+      const wheelPhoto = isWheelPhoto(photo.label, photo.category);
+
+      page.drawRectangle({
+        x,
+        y: frameY,
+        width: photoWidth,
+        height: photoHeight,
+        color: rgb(0.985, 0.985, 0.985),
+        borderColor: rgb(0.86, 0.86, 0.86),
+        borderWidth: 1
+      });
+
+      try {
+        const bytes = options?.resolveStorageBytes
+          ? await options.resolveStorageBytes(photo.storagePath)
+          : (() => {
+              throw new Error("Storage byte resolver unavailable.");
+            })();
+        const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+
+        if (wheelPhoto) {
+          const insetSize = Math.min(photoHeight - 18, 112);
+          const wheelFrame = {
+            x: x + (photoWidth - insetSize) / 2,
+            y: frameY + (photoHeight - insetSize) / 2,
+            width: insetSize,
+            height: insetSize
+          };
+          const wheelImageRect = getContainedImageRect(embedded, wheelFrame, 6);
+
+          page.drawCircle({
+            x: wheelFrame.x + wheelFrame.width / 2,
+            y: wheelFrame.y + wheelFrame.height / 2,
+            size: wheelFrame.width / 2,
+            borderColor: rgb(0.78, 0.78, 0.78),
+            borderWidth: 1
+          });
+          page.drawImage(embedded, wheelImageRect);
+        } else {
+          const imageRect = getContainedImageRect(embedded, {
+            x: x + 6,
+            y: frameY + 6,
+            width: photoWidth - 12,
+            height: photoHeight - 12
+          });
+          page.drawImage(embedded, imageRect);
+        }
+      } catch {
+        page.drawRectangle({
+          x,
+          y: frameY,
+          width: photoWidth,
+          height: photoHeight,
+          borderColor: rgb(0.82, 0.82, 0.82),
+          borderWidth: 1
+        });
+        page.drawText(normalizePdfText("Photo unavailable in PDF render", supportsUnicode), {
+          x: x + 16,
+          y: frameY + photoHeight / 2,
+          size: 10,
+          font: regular,
+          color: rgb(0.45, 0.45, 0.45)
+        });
+      }
+
+      page.drawText(normalizePdfText(photo.label, supportsUnicode), {
+        x,
+        y: frameY - 16,
+        size: 10,
+        font: bold,
+        color: rgb(0.12, 0.12, 0.12)
+      });
+
+      if (sectionOptions?.includeMeta) {
+        const categoryLabel = photo.category.replace(/([A-Z])/g, " $1").replace(/_/g, " ").trim();
+        const noteValue = photo.note || photo.name || record.conditionReport.exterior.visibleDefects?.notes || "";
+        let metaY = frameY - 29;
+
+        if (categoryLabel) {
+          page.drawText(normalizePdfText(categoryLabel, supportsUnicode), {
+            x,
+            y: metaY,
+            size: 8.5,
+            font: regular,
+            color: rgb(0.42, 0.42, 0.42),
+            maxWidth: photoWidth
+          });
+          metaY -= 11;
+        }
+
+        if (noteValue) {
+          const noteLines = wrapText(noteValue, 42).slice(0, 2);
+          noteLines.forEach((line) => {
+            page.drawText(normalizePdfText(line, supportsUnicode), {
+              x,
+              y: metaY,
+              size: 8.5,
+              font: regular,
+              color: rgb(0.18, 0.18, 0.18),
+              maxWidth: photoWidth
+            });
+            metaY -= 10;
+          });
+        }
+      }
+
+      if (column === 1) {
+        cursorY = frameY - metaHeight - 12;
+        column = 0;
+      } else {
+        column = 1;
+      }
+    }
+
+    if (column === 1) {
+      cursorY -= photoCardHeight + 6;
+    }
+  };
+
   drawHeading(
     "CarNest Warehouse Intake",
     record.vehicleTitle || "Warehouse Intake Record",
@@ -434,102 +576,12 @@ export async function generateWarehouseIntakePdf(
   }
 
   if (record.photos.length) {
-    drawSectionTitle("Vehicle documentation photos");
-    const photoGap = 16;
-    const photoWidth = (CONTENT_WIDTH - photoGap) / 2;
-    const photoHeight = photoWidth * 0.75;
-    const photoCardHeight = photoHeight + 40;
-    let column = 0;
+    await drawPhotoSection("Vehicle documentation photos", record.photos.slice(0, 12));
+  }
 
-    for (const photo of record.photos.slice(0, 12)) {
-      ensureSpace(photoCardHeight + 12);
-      const x = column === 0 ? PAGE_MARGIN : PAGE_MARGIN + photoWidth + photoGap;
-      const frameY = cursorY - photoHeight - 12;
-      const lowerPath = photo.storagePath.toLowerCase();
-      const wheelPhoto = isWheelPhoto(photo.label, photo.category);
-
-      page.drawRectangle({
-        x,
-        y: frameY,
-        width: photoWidth,
-        height: photoHeight,
-        color: rgb(0.985, 0.985, 0.985),
-        borderColor: rgb(0.86, 0.86, 0.86),
-        borderWidth: 1
-      });
-
-      try {
-        const bytes = options?.resolveStorageBytes
-          ? await options.resolveStorageBytes(photo.storagePath)
-          : (() => {
-              throw new Error("Storage byte resolver unavailable.");
-            })();
-        const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
-
-        if (wheelPhoto) {
-          const insetSize = Math.min(photoHeight - 18, 112);
-          const wheelFrame = {
-            x: x + (photoWidth - insetSize) / 2,
-            y: frameY + (photoHeight - insetSize) / 2,
-            width: insetSize,
-            height: insetSize
-          };
-          const wheelImageRect = getContainedImageRect(embedded, wheelFrame, 6);
-
-          page.drawCircle({
-            x: wheelFrame.x + wheelFrame.width / 2,
-            y: wheelFrame.y + wheelFrame.height / 2,
-            size: wheelFrame.width / 2,
-            borderColor: rgb(0.78, 0.78, 0.78),
-            borderWidth: 1
-          });
-          page.drawImage(embedded, wheelImageRect);
-        } else {
-          const imageRect = getContainedImageRect(embedded, {
-            x: x + 6,
-            y: frameY + 6,
-            width: photoWidth - 12,
-            height: photoHeight - 12
-          });
-          page.drawImage(embedded, imageRect);
-        }
-      } catch {
-        page.drawRectangle({
-          x,
-          y: frameY,
-          width: photoWidth,
-          height: photoHeight,
-          borderColor: rgb(0.82, 0.82, 0.82),
-          borderWidth: 1
-        });
-        page.drawText(normalizePdfText("Photo unavailable in PDF render", supportsUnicode), {
-          x: x + 16,
-          y: frameY + photoHeight / 2,
-          size: 10,
-          font: regular,
-          color: rgb(0.45, 0.45, 0.45)
-        });
-      }
-
-      page.drawText(normalizePdfText(photo.label, supportsUnicode), {
-        x,
-        y: frameY - 16,
-        size: 10,
-        font: bold,
-        color: rgb(0.12, 0.12, 0.12)
-      });
-
-      if (column === 1) {
-        cursorY = frameY - 34;
-        column = 0;
-      } else {
-        column = 1;
-      }
-    }
-
-    if (column === 1) {
-      cursorY -= photoCardHeight + 6;
-    }
+  const damagePhotos = record.photos.filter((photo) => photo.category === "damagePhotos");
+  if (damagePhotos.length) {
+    await drawPhotoSection("Damage / condition notes", damagePhotos, { includeMeta: true });
   }
 
   const pages = pdfDoc.getPages();

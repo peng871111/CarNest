@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { VehicleInsightsPanel } from "@/components/analytics/vehicle-insights-panel";
+import { ListingPublicationChecklist } from "@/components/admin/listing-publication-checklist";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { AdminVehicleActions } from "@/components/vehicles/admin-vehicle-actions";
 import { AdminPendingDescriptionActions } from "@/components/vehicles/admin-pending-description-actions";
@@ -133,6 +134,8 @@ export default async function AdminVehicleDetailPage({
           </div>
 
           <VehicleWarehouseIntakeSummary vehicleId={vehicle.id} />
+
+          <ListingPublicationChecklist vehicle={vehicle} />
 
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">All uploaded images</p>

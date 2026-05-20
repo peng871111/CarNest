@@ -89,6 +89,15 @@ export type WarehouseServiceFeeCategory =
   | "storage_fee"
   | "sundry"
   | "other";
+export type VehiclePublicationPlatform =
+  | "carsales"
+  | "facebook_marketplace"
+  | "xiaohongshu"
+  | "website"
+  | "other";
+export type AdminAccountingEntryType = "income" | "expense" | "receivable" | "payable";
+export type AdminAccountingPaymentMethod = "bank_transfer" | "cash";
+export type AdminAccountingEntryStatus = "paid" | "unpaid" | "partially_paid";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"
@@ -228,6 +237,7 @@ export interface WarehouseIntakePhotoRecord {
   label: string;
   storagePath: string;
   name?: string;
+  note?: string;
   uploadedAt?: string;
   contentType?: string;
 }
@@ -348,6 +358,14 @@ export interface VehicleListingHistoryEntry {
   statusTransitions: VehicleListingStatusTimelineEntry[];
 }
 
+export interface VehiclePublicationChecklist {
+  carsales: boolean;
+  facebookMarketplace: boolean;
+  xiaohongshu: boolean;
+  website: boolean;
+  other: boolean;
+}
+
 export interface AdminAuditEvent {
   id: string;
   recordType: AdminAuditRecordType;
@@ -428,6 +446,7 @@ export interface VehicleRecord {
   ownershipProof?: WarehouseIntakeFileRecord | null;
   declarations: WarehouseIntakeDeclarations;
   notes: string;
+  publicationChecklist?: VehiclePublicationChecklist;
   linkedIntakeIds: string[];
   latestIntakeId?: string;
   status: VehicleRecordStatus;
@@ -448,6 +467,26 @@ export interface VehicleRecord {
   activeIntakeEditedAt?: string;
   lastCalculatedAt?: string;
   createdByUid?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminAccountingEntry {
+  id: string;
+  type: AdminAccountingEntryType;
+  date: string;
+  amount: number;
+  category: string;
+  paymentMethod: AdminAccountingPaymentMethod;
+  gstIncluded: boolean;
+  relatedVehicleId?: string;
+  relatedVehicleRecordId?: string;
+  relatedDisplayReference?: string;
+  relatedVehicleTitle?: string;
+  note: string;
+  status: AdminAccountingEntryStatus;
+  createdByUid?: string;
+  createdByName?: string;
   createdAt?: string;
   updatedAt?: string;
 }

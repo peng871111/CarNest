@@ -22,6 +22,10 @@ import { deleteVehicleImageFiles } from "@/lib/storage";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import {
   AccountType,
+  AdminAccountingEntry,
+  AdminAccountingEntryStatus,
+  AdminAccountingEntryType,
+  AdminAccountingPaymentMethod,
   AdminAuditActionType,
   AdminAuditRecordType,
   AdminPermissions,
@@ -72,6 +76,7 @@ import {
   VehicleListingHistoryStatus,
   VehicleListingPriceHistoryEntry,
   VehicleListingStatusTimelineEntry,
+  VehiclePublicationChecklist,
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
@@ -116,7 +121,8 @@ type CollectionName =
   | "warehouseIntakes"
   | "customerProfiles"
   | "vehicleRecords"
-  | "adminOperationalEvents";
+  | "adminOperationalEvents"
+  | "adminAccountingEntries";
 export type VehicleDataSource = "firestore" | "mock";
 
 interface CollectionResult<T> {
@@ -1020,6 +1026,60 @@ function createEmptyVehicleListingHistoryEntry(): VehicleListingHistoryEntry {
   };
 }
 
+function createEmptyVehiclePublicationChecklist(): VehiclePublicationChecklist {
+  return {
+    carsales: false,
+    facebookMarketplace: false,
+    xiaohongshu: false,
+    website: false,
+    other: false
+  };
+}
+
+function normalizeVehiclePublicationChecklist(value: unknown): VehiclePublicationChecklist {
+  const input = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return {
+    carsales: input.carsales === true,
+    facebookMarketplace: input.facebookMarketplace === true,
+    xiaohongshu: input.xiaohongshu === true,
+    website: input.website === true,
+    other: input.other === true
+  };
+}
+
+function normalizeAdminAccountingEntryType(value: unknown): AdminAccountingEntryType {
+  return value === "expense" || value === "receivable" || value === "payable" ? value : "income";
+}
+
+function normalizeAdminAccountingPaymentMethod(value: unknown): AdminAccountingPaymentMethod {
+  return value === "cash" ? "cash" : "bank_transfer";
+}
+
+function normalizeAdminAccountingEntryStatus(value: unknown): AdminAccountingEntryStatus {
+  return value === "unpaid" || value === "partially_paid" ? value : "paid";
+}
+
+export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "id"> {
+  return {
+    type: "income",
+    date: new Date().toISOString().slice(0, 10),
+    amount: 0,
+    category: "",
+    paymentMethod: "bank_transfer",
+    gstIncluded: true,
+    relatedVehicleId: "",
+    relatedVehicleRecordId: "",
+    relatedDisplayReference: "",
+    relatedVehicleTitle: "",
+    note: "",
+    status: "paid",
+    createdByUid: "",
+    createdByName: "",
+    createdAt: "",
+    updatedAt: ""
+  };
+}
+
 export function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
   return {
     fullName: "",
@@ -1081,6 +1141,7 @@ export function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
     ownershipProof: null,
     declarations: createEmptyWarehouseDeclarations(),
     notes: "",
+    publicationChecklist: createEmptyVehiclePublicationChecklist(),
     linkedIntakeIds: [],
     latestIntakeId: "",
     status: "draft",
@@ -1192,6 +1253,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
                 : ""
           ),
           name: typeof item.name === "string" ? item.name : "",
+          note: typeof item.note === "string" ? item.note : "",
           uploadedAt: serializeDate(item.uploadedAt),
           contentType: typeof item.contentType === "string" ? item.contentType : ""
         }))
@@ -1496,6 +1558,7 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
       ...(serializeWarehouseIntakeDoc(id, { declarations: data.declarations }).declarations)
     },
     notes: typeof data.notes === "string" ? data.notes : "",
+    publicationChecklist: normalizeVehiclePublicationChecklist(data.publicationChecklist),
     linkedIntakeIds: Array.isArray(data.linkedIntakeIds)
       ? (data.linkedIntakeIds as unknown[]).filter((item): item is string => typeof item === "string" && item.trim().length > 0)
       : [],
@@ -1528,6 +1591,31 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
     activeIntakeEditedAt: serializeDate(data.activeIntakeEditedAt),
     lastCalculatedAt: serializeDate(data.lastCalculatedAt),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt)
+  };
+}
+
+function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unknown>): AdminAccountingEntry {
+  const base = createEmptyAdminAccountingEntry();
+
+  return {
+    id,
+    ...base,
+    type: normalizeAdminAccountingEntryType(data.type),
+    date: typeof data.date === "string" ? data.date : base.date,
+    amount: Number(data.amount ?? 0),
+    category: typeof data.category === "string" ? data.category : "",
+    paymentMethod: normalizeAdminAccountingPaymentMethod(data.paymentMethod),
+    gstIncluded: data.gstIncluded !== false,
+    relatedVehicleId: typeof data.relatedVehicleId === "string" ? data.relatedVehicleId : "",
+    relatedVehicleRecordId: typeof data.relatedVehicleRecordId === "string" ? data.relatedVehicleRecordId : "",
+    relatedDisplayReference: typeof data.relatedDisplayReference === "string" ? data.relatedDisplayReference : "",
+    relatedVehicleTitle: typeof data.relatedVehicleTitle === "string" ? data.relatedVehicleTitle : "",
+    note: typeof data.note === "string" ? data.note : "",
+    status: normalizeAdminAccountingEntryStatus(data.status),
+    createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
+    createdByName: typeof data.createdByName === "string" ? data.createdByName : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   };
@@ -3888,6 +3976,78 @@ export async function getVehicleRecordsData() {
   return await getCollection<VehicleRecord>("vehicleRecords", [], serializeVehicleRecordDoc);
 }
 
+export async function getAdminAccountingEntriesData() {
+  return await getCollection<AdminAccountingEntry>("adminAccountingEntries", [], serializeAdminAccountingEntryDoc);
+}
+
+export async function saveAdminAccountingEntry(
+  input: Omit<AdminAccountingEntry, "id" | "createdAt" | "updatedAt" | "createdByUid" | "createdByName">,
+  actor: VehicleActor,
+  existingId?: string
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage accounting entries.");
+
+  const payload = sanitizeFirestoreWriteData({
+    ...createEmptyAdminAccountingEntry(),
+    ...input,
+    type: normalizeAdminAccountingEntryType(input.type),
+    date: sanitizeSingleLineText(input.date) || new Date().toISOString().slice(0, 10),
+    amount: Math.max(Number(input.amount ?? 0), 0),
+    category: sanitizeSingleLineText(input.category),
+    paymentMethod: normalizeAdminAccountingPaymentMethod(input.paymentMethod),
+    gstIncluded: input.gstIncluded !== false,
+    relatedVehicleId: sanitizeSingleLineText(input.relatedVehicleId ?? ""),
+    relatedVehicleRecordId: sanitizeSingleLineText(input.relatedVehicleRecordId ?? ""),
+    relatedDisplayReference: sanitizeSingleLineText(input.relatedDisplayReference ?? ""),
+    relatedVehicleTitle: sanitizeSingleLineText(input.relatedVehicleTitle ?? ""),
+    note: sanitizeMultilineText(input.note ?? ""),
+    status: normalizeAdminAccountingEntryStatus(input.status),
+    createdByUid: actor.id,
+    createdByName: getActorDisplayName(actor),
+    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp()
+  });
+
+  if (!isFirebaseConfigured) {
+    const id = existingId || `mock-accounting-entry-${Date.now()}`;
+    return {
+      entry: {
+        id,
+        ...createEmptyAdminAccountingEntry(),
+        ...input,
+        createdByUid: actor.id,
+        createdByName: getActorDisplayName(actor),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } satisfies AdminAccountingEntry,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const ref = existingId ? doc(db, "adminAccountingEntries", existingId) : doc(collection(db, "adminAccountingEntries"));
+  await setDoc(ref, payload, { merge: true });
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "vehicle_record",
+    actionType: existingId ? "updated" : "created",
+    affectedRecordId: ref.id,
+    vehicleRecordId: sanitizeSingleLineText(input.relatedVehicleRecordId ?? ""),
+    publicListingId: sanitizeSingleLineText(input.relatedVehicleId ?? ""),
+    summary: `Accounting entry ${sanitizeSingleLineText(input.category) || normalizeAdminAccountingEntryType(input.type)} ${existingId ? "updated" : "created"}.`
+  }).catch(() => undefined);
+
+  return {
+    entry: serializeAdminAccountingEntryDoc(ref.id, {
+      ...payload,
+      createdAt: existingId ? new Date().toISOString() : new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }),
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 export async function deleteEmptyCustomerProfiles(
   actor: VehicleActor
 ): Promise<{ deletedIds: string[]; source: VehicleDataSource }> {
@@ -4197,7 +4357,8 @@ function buildVehicleRecordWritePayload(
   input: Omit<WarehouseIntakeRecord, "id" | "updatedAt" | "photoCount">,
   actor: VehicleActor,
   customerProfileId: string,
-  intakeId: string
+  intakeId: string,
+  existingPublicationChecklist?: VehiclePublicationChecklist
 ) {
   const base = createEmptyVehicleRecord();
   const listingHistory: VehicleListingHistoryEntry[] = Array.isArray((input as { listingHistory?: VehicleListingHistoryEntry[] }).listingHistory)
@@ -4241,6 +4402,7 @@ function buildVehicleRecordWritePayload(
       ...input.declarations
     },
     notes: sanitizeMultilineText(input.vehicleDetails?.notes ?? ""),
+    publicationChecklist: existingPublicationChecklist ?? base.publicationChecklist,
     linkedIntakeIds: intakeId ? [intakeId] : [],
     latestIntakeId: intakeId,
     status: linkedStatus,
@@ -4309,7 +4471,8 @@ async function upsertVehicleRecordFromIntake(
     } as Omit<WarehouseIntakeRecord, "id" | "updatedAt" | "photoCount"> & { listingHistory?: VehicleListingHistoryEntry[] },
     actor,
     customerProfileId,
-    intakeId
+    intakeId,
+    existingRecord?.publicationChecklist
   );
   const linkedIntakeIds = payload.linkedIntakeIds.filter(Boolean);
 
@@ -4502,6 +4665,7 @@ export async function saveVehicleRecord(
     serviceHistory: sanitizeMultilineText(input.serviceHistory ?? ""),
     accidentHistory: sanitizeMultilineText(input.accidentHistory ?? ""),
     notes: sanitizeMultilineText(input.notes ?? ""),
+    publicationChecklist: normalizeVehiclePublicationChecklist(input.publicationChecklist),
     linkedIntakeIds: Array.from(new Set((input.linkedIntakeIds ?? []).filter(Boolean))),
     listingHistory: serializeVehicleListingHistory(input.listingHistory),
     lastEditedByUid: actor.id,
@@ -4535,6 +4699,7 @@ export async function saveVehicleRecord(
       id: ref.id,
       ...createEmptyVehicleRecord(),
       ...input,
+      publicationChecklist: normalizeVehiclePublicationChecklist(input.publicationChecklist),
       listingHistory: serializeVehicleListingHistory(input.listingHistory),
       lastEditedByUid: actor.id,
       lastEditedByName: getActorDisplayName(actor),
@@ -4564,6 +4729,7 @@ function buildWarehouseIntakeWritePayload(
             label: photo.label || "Vehicle photo",
             storagePath: photo.storagePath.trim(),
             name: photo.name || "",
+            note: photo.note || "",
             uploadedAt: photo.uploadedAt || new Date().toISOString(),
             contentType: photo.contentType || ""
           } satisfies WarehouseIntakePhotoRecord
