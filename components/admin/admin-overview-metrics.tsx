@@ -2,66 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import {
+  buildAccountingCashSummary,
+  getEntryMelbourneDateKey,
+  getEntryMelbourneMonthKey,
+  getEntryMelbourneYearKey,
+  getTodayMelbourneDateKey,
+  getMelbourneMonthKeyFromDate,
+  getMelbourneYearKeyFromDate
+} from "@/lib/admin-accounting-utils";
 import { getAdminAccountingEntriesData } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
-
-function getStartOfTodayTime() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today.getTime();
-}
-
-function getStartOfMonthTime() {
-  const today = new Date();
-  return new Date(today.getFullYear(), today.getMonth(), 1).getTime();
-}
-
-function getStartOfYearTime() {
-  const today = new Date();
-  return new Date(today.getFullYear(), 0, 1).getTime();
-}
-
-function isOnOrAfter(dateValue: string | undefined, startTime: number) {
-  if (!dateValue) return false;
-  const time = new Date(dateValue).getTime();
-  return Number.isFinite(time) && time >= startTime;
-}
-
-function getGstPortion(entry: AdminAccountingEntry) {
-  return entry.gstIncluded ? entry.amount / 11 : 0;
-}
-
-function buildAccountingSummary(entries: AdminAccountingEntry[]) {
-  const totalIncome = entries
-    .filter((entry) => entry.type === "income")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalExpense = entries
-    .filter((entry) => entry.type === "expense")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const receivables = entries
-    .filter((entry) => entry.type === "receivable" && entry.status !== "paid")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const payables = entries
-    .filter((entry) => entry.type === "payable" && entry.status !== "paid")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const gstPayable = entries.reduce((sum, entry) => {
-    const gst = getGstPortion(entry);
-    if (entry.type === "income" || entry.type === "receivable") return sum + gst;
-    if (entry.type === "expense" || entry.type === "payable") return sum - gst;
-    return sum;
-  }, 0);
-
-  return {
-    netCashflow: totalIncome - totalExpense,
-    totalIncome,
-    totalExpense,
-    receivables,
-    payables,
-    gstPayable
-  };
-}
 
 function MetricCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
@@ -110,16 +63,19 @@ export function AdminOverviewMetrics() {
   }, [authLoading, canManageVehicles, firebaseUser]);
 
   const metrics = useMemo(() => {
-    const today = buildAccountingSummary(
-      accountingEntries.filter((entry) => isOnOrAfter(entry.date, getStartOfTodayTime()))
+    const todayKey = getTodayMelbourneDateKey();
+    const monthKey = getMelbourneMonthKeyFromDate(new Date());
+    const yearKey = getMelbourneYearKeyFromDate(new Date());
+    const today = buildAccountingCashSummary(
+      accountingEntries.filter((entry) => getEntryMelbourneDateKey(entry) === todayKey)
     );
-    const month = buildAccountingSummary(
-      accountingEntries.filter((entry) => isOnOrAfter(entry.date, getStartOfMonthTime()))
+    const month = buildAccountingCashSummary(
+      accountingEntries.filter((entry) => getEntryMelbourneMonthKey(entry) === monthKey)
     );
-    const year = buildAccountingSummary(
-      accountingEntries.filter((entry) => isOnOrAfter(entry.date, getStartOfYearTime()))
+    const year = buildAccountingCashSummary(
+      accountingEntries.filter((entry) => getEntryMelbourneYearKey(entry) === yearKey)
     );
-    const all = buildAccountingSummary(accountingEntries);
+    const all = buildAccountingCashSummary(accountingEntries);
 
     return {
       today,

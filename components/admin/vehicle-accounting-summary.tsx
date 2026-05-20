@@ -2,6 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth";
+import {
+  buildAccountingCashSummary,
+  getAccountingEntryGstPortion,
+  isOutstandingPayable,
+  isOutstandingReceivable
+} from "@/lib/admin-accounting-utils";
 import { getAdminAccountingEntriesData } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
 import { formatCurrency } from "@/lib/utils";
@@ -19,35 +25,25 @@ function getLinkedAccountingEntries(
 }
 
 function calculateGstPortion(entry: AdminAccountingEntry) {
-  return entry.gstIncluded ? entry.amount / 11 : 0;
+  return getAccountingEntryGstPortion(entry);
 }
 
 function buildVehicleAccountingSummary(entries: AdminAccountingEntry[]) {
-  const income = entries
-    .filter((entry) => entry.type === "income")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const expense = entries
-    .filter((entry) => entry.type === "expense")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const receivables = entries
-    .filter((entry) => entry.type === "receivable" && entry.status !== "paid")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const payables = entries
-    .filter((entry) => entry.type === "payable" && entry.status !== "paid")
-    .reduce((sum, entry) => sum + entry.amount, 0);
+  const cashSummary = buildAccountingCashSummary(entries);
   const gstEstimate = entries.reduce((sum, entry) => {
+    if (entry.status !== "paid") return sum;
     const gst = calculateGstPortion(entry);
-    if (entry.type === "income" || entry.type === "receivable") return sum + gst;
-    if (entry.type === "expense" || entry.type === "payable") return sum - gst;
+    if (entry.type === "income") return sum + gst;
+    if (entry.type === "expense") return sum - gst;
     return sum;
   }, 0);
 
   return {
-    income,
-    expense,
-    netProfit: income - expense,
-    receivables,
-    payables,
+    income: cashSummary.totalIncome,
+    expense: cashSummary.totalExpense,
+    netProfit: cashSummary.netCashflow,
+    receivables: entries.filter(isOutstandingReceivable).reduce((sum, entry) => sum + entry.amount, 0),
+    payables: entries.filter(isOutstandingPayable).reduce((sum, entry) => sum + entry.amount, 0),
     gstEstimate
   };
 }

@@ -2,16 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  buildAccountingCashSummary,
+  formatMelbourneDateHeading,
+  getAccountingEntryGstPortion,
+  getAccountingEntryNetPortion,
+  getEntryMelbourneDateKey,
+  getMelbourneMonthKeyFromDate,
+  getMelbourneYearKeyFromDate,
+  getOutstandingAgeLabel,
+  getOutstandingDays,
+  getTodayMelbourneDateKey
+} from "@/lib/admin-accounting-utils";
+import {
   createEmptyAdminAccountingEntry,
   deleteAdminAccountingEntry,
   getAdminAccountingEntriesData,
+  getCustomerProfilesData,
+  getVehicleRecordsData,
   getVehiclesData,
   saveAdminAccountingEntry
 } from "@/lib/data";
 import { useAuth } from "@/lib/auth";
 import { hasAdminPermission } from "@/lib/permissions";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
-import { AdminAccountingEntry, Vehicle, VehicleActor } from "@/types";
+import { AdminAccountingEntry, CustomerProfile, Vehicle, VehicleActor, VehicleRecord } from "@/types";
 
 const ACCOUNTING_CATEGORY_OPTIONS = [
   "Storage fee",
@@ -29,11 +43,13 @@ const ACCOUNTING_CATEGORY_OPTIONS = [
   "Miscellaneous"
 ] as const;
 
-type AccountingSummary = {
-  totalIncome: number;
-  totalExpense: number;
-  netCashflow: number;
-  gstPayable: number;
+type SearchableVehicleOption = {
+  vehicle: Vehicle;
+  vehicleRecord: VehicleRecord | null;
+  customerName: string;
+  searchText: string;
+  title: string;
+  subtitle: string;
 };
 
 function createActorFromUser(user: ReturnType<typeof useAuth>["appUser"]): VehicleActor | null {
@@ -54,73 +70,6 @@ function sortAccountingEntries(entries: AdminAccountingEntry[]) {
     const rightKey = right.updatedAt || right.createdAt || right.date || "";
     return rightKey.localeCompare(leftKey);
   });
-}
-
-function startOfToday() {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return now;
-}
-
-function startOfMonth() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
-}
-
-function startOfYear() {
-  const now = new Date();
-  return new Date(now.getFullYear(), 0, 1);
-}
-
-function isOnOrAfter(value: string, boundary: Date) {
-  const time = new Date(value).getTime();
-  return Number.isFinite(time) && time >= boundary.getTime();
-}
-
-function getGstPortion(entry: Pick<AdminAccountingEntry, "amount" | "gstIncluded">) {
-  return entry.gstIncluded ? entry.amount / 11 : 0;
-}
-
-function getNetPortion(entry: Pick<AdminAccountingEntry, "amount" | "gstIncluded">) {
-  return entry.amount - getGstPortion(entry);
-}
-
-function buildSummary(entries: AdminAccountingEntry[]): AccountingSummary {
-  const totalIncome = entries
-    .filter((entry) => entry.type === "income")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const totalExpense = entries
-    .filter((entry) => entry.type === "expense")
-    .reduce((sum, entry) => sum + entry.amount, 0);
-  const gstPayable = entries.reduce((sum, entry) => {
-    const gst = getGstPortion(entry);
-    if (entry.type === "income" || entry.type === "receivable") return sum + gst;
-    if (entry.type === "expense" || entry.type === "payable") return sum - gst;
-    return sum;
-  }, 0);
-
-  return {
-    totalIncome,
-    totalExpense,
-    netCashflow: totalIncome - totalExpense,
-    gstPayable
-  };
-}
-
-function getOutstandingDays(entry: AdminAccountingEntry) {
-  if ((entry.type !== "receivable" && entry.type !== "payable") || entry.status === "paid") return null;
-  const entryTime = new Date(entry.date).getTime();
-  if (!Number.isFinite(entryTime)) return null;
-  const today = startOfToday().getTime();
-  return Math.max(Math.floor((today - entryTime) / (1000 * 60 * 60 * 24)), 0);
-}
-
-function getOutstandingAgeLabel(daysOutstanding: number | null) {
-  if (daysOutstanding == null) return null;
-  if (daysOutstanding >= 60) return "60+ days";
-  if (daysOutstanding >= 30) return "30+ days";
-  if (daysOutstanding >= 7) return "7+ days";
-  return "Current";
 }
 
 function SummaryCard({
@@ -147,6 +96,8 @@ export function AdminAccountingPanel() {
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
   const [entries, setEntries] = useState<AdminAccountingEntry[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [customerProfiles, setCustomerProfiles] = useState<CustomerProfile[]>([]);
+  const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [busyDeleteId, setBusyDeleteId] = useState<string | null>(null);
@@ -154,6 +105,9 @@ export function AdminAccountingPanel() {
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState(createEmptyAdminAccountingEntry());
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [vehicleSearchOpen, setVehicleSearchOpen] = useState(false);
+  const [expandedDateGroups, setExpandedDateGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -168,13 +122,17 @@ export function AdminAccountingPanel() {
       setLoading(true);
       try {
         await firebaseUser.getIdToken();
-        const [entriesResult, vehiclesResult] = await Promise.all([
+        const [entriesResult, vehiclesResult, customerProfilesResult, vehicleRecordsResult] = await Promise.all([
           getAdminAccountingEntriesData(),
-          getVehiclesData()
+          getVehiclesData(),
+          getCustomerProfilesData(),
+          getVehicleRecordsData()
         ]);
         if (cancelled) return;
         setEntries(sortAccountingEntries(entriesResult.items));
         setVehicles(vehiclesResult.items);
+        setCustomerProfiles(customerProfilesResult.items);
+        setVehicleRecords(vehicleRecordsResult.items);
       } catch (error) {
         if (!cancelled) {
           setErrorMessage(error instanceof Error ? error.message : "We couldn't load accounting entries.");
@@ -192,35 +150,117 @@ export function AdminAccountingPanel() {
     };
   }, [authLoading, canManageVehicles, firebaseUser]);
 
+  const vehicleSearchOptions = useMemo(() => {
+    const customerMap = new Map(customerProfiles.map((profile) => [profile.id, profile]));
+    const recordByListingId = new Map(
+      vehicleRecords
+        .filter((record) => record.publicListingId)
+        .map((record) => [record.publicListingId as string, record] as const)
+    );
+
+    return vehicles.map((vehicle) => {
+      const vehicleRecord = recordByListingId.get(vehicle.id) ?? null;
+      const customer = vehicleRecord?.customerProfileId ? customerMap.get(vehicleRecord.customerProfileId) ?? null : null;
+      const customerName = customer?.fullName || vehicle.customerName || "";
+      const title = `${vehicle.year} ${vehicle.make} ${vehicle.model}${vehicle.variant ? ` ${vehicle.variant}` : ""}`.trim();
+      const subtitle = [
+        getVehicleDisplayReference(vehicle),
+        vehicle.rego || "",
+        customerName || ""
+      ].filter(Boolean).join(" · ");
+      const searchText = [
+        getVehicleDisplayReference(vehicle),
+        vehicle.year,
+        vehicle.make,
+        vehicle.model,
+        vehicle.variant,
+        vehicle.rego,
+        customerName
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return {
+        vehicle,
+        vehicleRecord,
+        customerName,
+        searchText,
+        title,
+        subtitle
+      } satisfies SearchableVehicleOption;
+    });
+  }, [customerProfiles, vehicleRecords, vehicles]);
+
+  const selectedVehicleOption = useMemo(
+    () => vehicleSearchOptions.find((option) => option.vehicle.id === draft.relatedVehicleId) ?? null,
+    [draft.relatedVehicleId, vehicleSearchOptions]
+  );
+
+  const filteredVehicleOptions = useMemo(() => {
+    const term = vehicleSearch.trim().toLowerCase();
+    const filtered = term
+      ? vehicleSearchOptions.filter((option) => option.searchText.includes(term))
+      : vehicleSearchOptions;
+    return filtered.slice(0, 8);
+  }, [vehicleSearch, vehicleSearchOptions]);
+
+  const todayKey = useMemo(() => getTodayMelbourneDateKey(), []);
+
+  useEffect(() => {
+    setExpandedDateGroups((current) => {
+      const next = { ...current };
+      const keys = new Set(entries.map((entry) => getEntryMelbourneDateKey(entry)).filter(Boolean));
+      keys.forEach((key) => {
+        if (!(key in next)) {
+          next[key] = key === todayKey;
+        }
+      });
+      return next;
+    });
+  }, [entries, todayKey]);
+
   const todaySummary = useMemo(
-    () => buildSummary(entries.filter((entry) => isOnOrAfter(entry.date, startOfToday()))),
-    [entries]
+    () => buildAccountingCashSummary(entries.filter((entry) => getEntryMelbourneDateKey(entry) === todayKey)),
+    [entries, todayKey]
   );
-  const monthSummary = useMemo(
-    () => buildSummary(entries.filter((entry) => isOnOrAfter(entry.date, startOfMonth()))),
-    [entries]
-  );
-  const yearSummary = useMemo(
-    () => buildSummary(entries.filter((entry) => isOnOrAfter(entry.date, startOfYear()))),
-    [entries]
-  );
+  const monthSummary = useMemo(() => {
+    const monthKey = getMelbourneMonthKeyFromDate(new Date());
+    return buildAccountingCashSummary(entries.filter((entry) => getEntryMelbourneDateKey(entry).slice(0, 7) === monthKey));
+  }, [entries]);
+  const yearSummary = useMemo(() => {
+    const yearKey = getMelbourneYearKeyFromDate(new Date());
+    return buildAccountingCashSummary(entries.filter((entry) => getEntryMelbourneDateKey(entry).slice(0, 4) === yearKey));
+  }, [entries]);
   const outstandingSummary = useMemo(() => {
-    const receivables = entries
-      .filter((entry) => entry.type === "receivable" && entry.status !== "paid")
-      .reduce((sum, entry) => sum + entry.amount, 0);
-    const payables = entries
-      .filter((entry) => entry.type === "payable" && entry.status !== "paid")
-      .reduce((sum, entry) => sum + entry.amount, 0);
-    return { receivables, payables };
+    const summary = buildAccountingCashSummary(entries);
+    return { receivables: summary.receivables, payables: summary.payables };
   }, [entries]);
   const gstPreview = useMemo(
     () => ({
       gross: draft.amount,
-      gst: getGstPortion(draft),
-      net: getNetPortion(draft)
+      gst: getAccountingEntryGstPortion(draft),
+      net: getAccountingEntryNetPortion(draft)
     }),
     [draft]
   );
+
+  const groupedEntries = useMemo(() => {
+    const groupedMap = new Map<string, AdminAccountingEntry[]>();
+    entries.forEach((entry) => {
+      const key = getEntryMelbourneDateKey(entry) || "pending";
+      const existing = groupedMap.get(key) ?? [];
+      existing.push(entry);
+      groupedMap.set(key, existing);
+    });
+
+    return [...groupedMap.entries()]
+      .sort(([left], [right]) => right.localeCompare(left))
+      .map(([dateKey, items]) => ({
+        dateKey,
+        items,
+        summary: buildAccountingCashSummary(items)
+      }));
+  }, [entries]);
 
   if (!canManageVehicles) {
     return null;
@@ -229,6 +269,8 @@ export function AdminAccountingPanel() {
   function resetDraft() {
     setDraft(createEmptyAdminAccountingEntry());
     setEditingEntryId(null);
+    setVehicleSearch("");
+    setVehicleSearchOpen(false);
   }
 
   function startEdit(entry: AdminAccountingEntry) {
@@ -251,8 +293,34 @@ export function AdminAccountingPanel() {
       updatedAt: entry.updatedAt || ""
     });
     setEditingEntryId(entry.id);
+    setVehicleSearch("");
+    setVehicleSearchOpen(false);
     setNotice("");
     setErrorMessage("");
+  }
+
+  function selectVehicleOption(option: SearchableVehicleOption) {
+    setDraft((current) => ({
+      ...current,
+      relatedVehicleId: option.vehicle.id,
+      relatedVehicleRecordId: option.vehicleRecord?.id || "",
+      relatedDisplayReference: getVehicleDisplayReference(option.vehicle),
+      relatedVehicleTitle: option.title
+    }));
+    setVehicleSearch(option.title);
+    setVehicleSearchOpen(false);
+  }
+
+  function clearVehicleSelection() {
+    setDraft((current) => ({
+      ...current,
+      relatedVehicleId: "",
+      relatedVehicleRecordId: "",
+      relatedDisplayReference: "",
+      relatedVehicleTitle: ""
+    }));
+    setVehicleSearch("");
+    setVehicleSearchOpen(false);
   }
 
   async function handleSaveEntry() {
@@ -263,15 +331,16 @@ export function AdminAccountingPanel() {
       setErrorMessage("");
       setNotice("");
       const linkedVehicle = draft.relatedVehicleId
-        ? vehicles.find((vehicle) => vehicle.id === draft.relatedVehicleId) ?? null
+        ? vehicleSearchOptions.find((option) => option.vehicle.id === draft.relatedVehicleId) ?? null
         : null;
       const result = await saveAdminAccountingEntry(
         {
           ...draft,
           category: draft.category || "Miscellaneous",
-          relatedVehicleId: linkedVehicle?.id || "",
-          relatedDisplayReference: linkedVehicle ? getVehicleDisplayReference(linkedVehicle) : draft.relatedDisplayReference,
-          relatedVehicleTitle: linkedVehicle ? `${linkedVehicle.year} ${linkedVehicle.make} ${linkedVehicle.model}`.trim() : draft.relatedVehicleTitle
+          relatedVehicleId: linkedVehicle?.vehicle.id || "",
+          relatedVehicleRecordId: linkedVehicle?.vehicleRecord?.id || "",
+          relatedDisplayReference: linkedVehicle ? getVehicleDisplayReference(linkedVehicle.vehicle) : draft.relatedDisplayReference,
+          relatedVehicleTitle: linkedVehicle ? linkedVehicle.title : draft.relatedVehicleTitle
         },
         actor,
         editingEntryId || undefined
@@ -308,6 +377,13 @@ export function AdminAccountingPanel() {
     }
   }
 
+  function toggleDateGroup(dateKey: string) {
+    setExpandedDateGroups((current) => ({
+      ...current,
+      [dateKey]: !current[dateKey]
+    }));
+  }
+
   return (
     <section className="space-y-4">
       <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
@@ -315,7 +391,7 @@ export function AdminAccountingPanel() {
           <div>
             <p className="text-xs uppercase tracking-[0.28em] text-bronze">Accounting</p>
             <h2 className="mt-2 font-display text-2xl text-ink">Cashflow and outstanding balances</h2>
-            <p className="mt-2 text-sm text-ink/60">Track admin-only income, expenses, receivables, and payables without affecting public listings.</p>
+            <p className="mt-2 text-sm text-ink/60">Track real CarNest income, expenses, receivables, and payables without affecting public listings.</p>
           </div>
         </div>
       </div>
@@ -327,7 +403,7 @@ export function AdminAccountingPanel() {
         <SummaryCard
           label="Daily"
           value={loading ? "Loading..." : formatCurrency(todaySummary.netCashflow)}
-          helper={loading ? "Calculating today’s net cashflow..." : `${formatCurrency(todaySummary.totalIncome)} income · ${formatCurrency(todaySummary.totalExpense)} expense`}
+          helper={loading ? "Calculating today’s local cashflow..." : `${formatCurrency(todaySummary.totalIncome)} income · ${formatCurrency(todaySummary.totalExpense)} expense`}
         />
         <SummaryCard
           label="Monthly"
@@ -351,7 +427,7 @@ export function AdminAccountingPanel() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-bronze">{editingEntryId ? "Edit entry" : "New entry"}</p>
-              <p className="mt-2 text-sm text-ink/60">Record cashflow, outstanding amounts, and linked vehicle costs in one place.</p>
+              <p className="mt-2 text-sm text-ink/60">Record real CarNest cashflow and outstanding amounts in one place.</p>
             </div>
             {editingEntryId ? (
               <button
@@ -445,18 +521,70 @@ export function AdminAccountingPanel() {
             </div>
             <div className="space-y-2 md:col-span-2">
               <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Related vehicle / listing</label>
-              <select
-                value={draft.relatedVehicleId || ""}
-                onChange={(event) => setDraft((current) => ({ ...current, relatedVehicleId: event.target.value }))}
-                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-              >
-                <option value="">No linked vehicle</option>
-                {vehicles.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
-                    {getVehicleDisplayReference(vehicle)} · {vehicle.year} {vehicle.make} {vehicle.model}
-                  </option>
-                ))}
-              </select>
+              <div className="rounded-[22px] border border-black/10 bg-white p-3">
+                <input
+                  value={selectedVehicleOption && vehicleSearch === "" ? selectedVehicleOption.title : vehicleSearch}
+                  onChange={(event) => {
+                    setVehicleSearch(event.target.value);
+                    setVehicleSearchOpen(true);
+                    if (draft.relatedVehicleId && event.target.value !== selectedVehicleOption?.title) {
+                      setDraft((current) => ({
+                        ...current,
+                        relatedVehicleId: "",
+                        relatedVehicleRecordId: "",
+                        relatedDisplayReference: "",
+                        relatedVehicleTitle: ""
+                      }));
+                    }
+                  }}
+                  onFocus={() => setVehicleSearchOpen(true)}
+                  placeholder="Search listing ID, year, make, model, variant, rego, or customer"
+                  className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+                />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs text-ink/58">
+                    {selectedVehicleOption
+                      ? `${selectedVehicleOption.subtitle || "Linked vehicle selected"}`
+                      : "No linked vehicle"}
+                  </p>
+                  {(draft.relatedVehicleId || vehicleSearch) ? (
+                    <button
+                      type="button"
+                      onClick={clearVehicleSelection}
+                      className="text-xs font-semibold text-ink/60 transition hover:text-bronze"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                {vehicleSearchOpen ? (
+                  <div className="mt-3 space-y-2">
+                    <button
+                      type="button"
+                      onClick={clearVehicleSelection}
+                      className="w-full rounded-2xl border border-dashed border-black/10 px-3 py-3 text-left text-sm text-ink/60 transition hover:border-[#C6A87D] hover:text-ink"
+                    >
+                      No linked vehicle
+                    </button>
+                    {filteredVehicleOptions.map((option) => (
+                      <button
+                        key={option.vehicle.id}
+                        type="button"
+                        onClick={() => selectVehicleOption(option)}
+                        className="w-full rounded-2xl border border-black/6 px-3 py-3 text-left transition hover:border-[#C6A87D] hover:bg-shell"
+                      >
+                        <p className="text-sm font-semibold text-ink">{option.title}</p>
+                        <p className="mt-1 text-xs text-ink/58">{option.subtitle || "No extra details available"}</p>
+                      </button>
+                    ))}
+                    {!filteredVehicleOptions.length ? (
+                      <div className="rounded-2xl border border-dashed border-black/10 px-3 py-3 text-sm text-ink/58">
+                        No matching vehicles found.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink md:col-span-2">
               <input
@@ -512,61 +640,85 @@ export function AdminAccountingPanel() {
         <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
           <p className="text-xs uppercase tracking-[0.22em] text-bronze">Recent entries</p>
           <div className="mt-4 space-y-3">
-            {entries.slice(0, 12).map((entry) => {
-              const daysOutstanding = getOutstandingDays(entry);
-              const ageLabel = getOutstandingAgeLabel(daysOutstanding);
-              const isOverdue = daysOutstanding != null && daysOutstanding > 7;
+            {groupedEntries.map((group) => {
+              const isExpanded = expandedDateGroups[group.dateKey] ?? false;
               return (
-                <div key={entry.id} className="rounded-[18px] border border-black/6 bg-shell px-4 py-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-ink">
-                        {entry.category || entry.type} · {formatCurrency(entry.amount)}
+                <div key={group.dateKey} className="rounded-[20px] border border-black/6 bg-shell">
+                  <button
+                    type="button"
+                    onClick={() => toggleDateGroup(group.dateKey)}
+                    className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-4 text-left"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{formatMelbourneDateHeading(group.dateKey)}</p>
+                      <p className="mt-1 text-xs text-ink/58">
+                        {formatCurrency(group.summary.totalIncome)} income · {formatCurrency(group.summary.totalExpense)} expense · Net {formatCurrency(group.summary.netCashflow)}
                       </p>
-                      <p className="mt-1 text-xs text-ink/56">
-                        {entry.date} · {entry.type.replace(/_/g, " ")} · {entry.paymentMethod === "bank_transfer" ? "Bank transfer" : "Cash"} · {entry.status.replace(/_/g, " ")}
-                      </p>
-                      <p className="mt-1 text-xs text-ink/56">
-                        {entry.relatedDisplayReference || "No linked listing"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/62">
-                        <span>Gross {formatCurrency(entry.amount)}</span>
-                        <span>GST {formatCurrency(getGstPortion(entry))}</span>
-                        <span>Net {formatCurrency(getNetPortion(entry))}</span>
-                        {ageLabel ? (
-                          <span className={isOverdue ? "font-semibold text-amber-700" : ""}>
-                            {ageLabel}{daysOutstanding != null ? ` · ${daysOutstanding} day${daysOutstanding === 1 ? "" : "s"} outstanding` : ""}
-                          </span>
-                        ) : null}
-                      </div>
-                      {entry.note ? <p className="mt-2 text-sm text-ink/68">{entry.note}</p> : null}
                     </div>
-                    <div className="text-right text-xs text-ink/55">
-                      <p className="font-semibold text-ink">{entry.createdByName || "CarNest Admin"}</p>
-                      <p className="mt-1">{entry.gstIncluded ? "GST inclusive" : "No GST"}</p>
+                    <span className="text-xs font-semibold text-ink/60">{isExpanded ? "Hide" : "Show"}</span>
+                  </button>
+                  {isExpanded ? (
+                    <div className="space-y-3 border-t border-black/6 px-4 py-4">
+                      {group.items.map((entry) => {
+                        const daysOutstanding = getOutstandingDays(entry);
+                        const ageLabel = getOutstandingAgeLabel(daysOutstanding);
+                        const isOverdue = daysOutstanding != null && daysOutstanding > 7;
+                        return (
+                          <div key={entry.id} className="rounded-[18px] border border-black/6 bg-white px-4 py-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-ink">
+                                  {entry.category || entry.type} · {formatCurrency(entry.amount)}
+                                </p>
+                                <p className="mt-1 text-xs text-ink/56">
+                                  {entry.type.replace(/_/g, " ")} · {entry.paymentMethod === "bank_transfer" ? "Bank transfer" : "Cash"} · {entry.status.replace(/_/g, " ")}
+                                </p>
+                                <p className="mt-1 text-xs text-ink/56">
+                                  {entry.relatedDisplayReference || "No linked listing"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/62">
+                                  <span>Gross {formatCurrency(entry.amount)}</span>
+                                  <span>GST {formatCurrency(getAccountingEntryGstPortion(entry))}</span>
+                                  <span>Net {formatCurrency(getAccountingEntryNetPortion(entry))}</span>
+                                  {ageLabel ? (
+                                    <span className={isOverdue ? "font-semibold text-amber-700" : ""}>
+                                      {ageLabel}{daysOutstanding != null ? ` · ${daysOutstanding} day${daysOutstanding === 1 ? "" : "s"} outstanding` : ""}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {entry.note ? <p className="mt-2 text-sm text-ink/68">{entry.note}</p> : null}
+                              </div>
+                              <div className="text-right text-xs text-ink/55">
+                                <p className="font-semibold text-ink">{entry.createdByName || "CarNest Admin"}</p>
+                                <p className="mt-1">{entry.gstIncluded ? "GST inclusive" : "No GST"}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEdit(entry)}
+                                className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteEntry(entry)}
+                                disabled={busyDeleteId === entry.id}
+                                className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-[#B42318] transition hover:border-[#B42318]/35 disabled:opacity-50"
+                              >
+                                {busyDeleteId === entry.id ? "Deleting..." : "Delete"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => startEdit(entry)}
-                      className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteEntry(entry)}
-                      disabled={busyDeleteId === entry.id}
-                      className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-[#B42318] transition hover:border-[#B42318]/35 disabled:opacity-50"
-                    >
-                      {busyDeleteId === entry.id ? "Deleting..." : "Delete"}
-                    </button>
-                  </div>
+                  ) : null}
                 </div>
               );
             })}
-            {!entries.length && !loading ? (
+            {!groupedEntries.length && !loading ? (
               <div className="rounded-[18px] border border-dashed border-black/10 bg-shell px-4 py-6 text-sm text-ink/58">
                 No accounting entries yet.
               </div>
