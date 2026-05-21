@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createEmptyVehicleRecord, saveVehicleRecord } from "@/lib/data";
 import { useAuth } from "@/lib/auth";
 import { hasAdminPermission } from "@/lib/permissions";
@@ -90,10 +90,14 @@ export function ListingPublicationChecklist({
   const { appUser } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
+  const [localChecklist, setLocalChecklist] = useState<VehiclePublicationChecklist>(vehicleRecord?.publicationChecklist ?? createEmptyChecklist());
   const [savingKey, setSavingKey] = useState<keyof VehiclePublicationChecklist | "">("");
   const [errorMessage, setErrorMessage] = useState("");
+  const checklist = localChecklist;
 
-  const checklist = vehicleRecord?.publicationChecklist ?? createEmptyChecklist();
+  useEffect(() => {
+    setLocalChecklist(vehicleRecord?.publicationChecklist ?? createEmptyChecklist());
+  }, [vehicleRecord?.id, vehicleRecord?.publicationChecklist]);
 
   if (!canManageVehicles) {
     return null;
@@ -102,20 +106,25 @@ export function ListingPublicationChecklist({
   async function handleToggle(platform: keyof VehiclePublicationChecklist, checked: boolean) {
     if (!actor) return;
 
+    const previousChecklist = checklist;
+    const nextChecklist = {
+      ...previousChecklist,
+      [platform]: checked
+    };
+
     try {
       setSavingKey(platform);
       setErrorMessage("");
-      const nextChecklist = {
-        ...checklist,
-        [platform]: checked
-      };
+      setLocalChecklist(nextChecklist);
       const result = await saveVehicleRecord(
         buildVehicleRecordForChecklist(vehicle, vehicleRecord ?? null, nextChecklist),
         actor,
         vehicleRecord?.id
       );
+      setLocalChecklist(result.vehicleRecord.publicationChecklist ?? nextChecklist);
       onSaved?.(result.vehicleRecord);
     } catch (error) {
+      setLocalChecklist(previousChecklist);
       setErrorMessage(error instanceof Error ? error.message : "We couldn't update the publication checklist.");
     } finally {
       setSavingKey("");
@@ -130,19 +139,22 @@ export function ListingPublicationChecklist({
       </div>
       <div className={`mt-3 grid gap-2 ${compact ? "sm:grid-cols-2 xl:grid-cols-5" : "sm:grid-cols-2 lg:grid-cols-3"}`}>
         {PUBLICATION_PLATFORMS.map((platform) => (
-          <label
-            key={platform.key}
+          <div
+            key={`${vehicle.id}-${platform.key}`}
             className="flex min-h-[42px] items-center gap-3 rounded-2xl border border-black/8 bg-shell px-3 py-2 text-sm text-ink"
           >
             <input
+              id={`publication-${vehicle.id}-${platform.key}`}
               type="checkbox"
               checked={checklist[platform.key]}
               disabled={savingKey === platform.key}
               onChange={(event) => void handleToggle(platform.key, event.target.checked)}
               className="h-4 w-4 rounded border-black/20 text-ink"
             />
-            <span>{platform.label}</span>
-          </label>
+            <label htmlFor={`publication-${vehicle.id}-${platform.key}`} className="cursor-pointer">
+              {platform.label}
+            </label>
+          </div>
         ))}
       </div>
       {errorMessage ? <p className="mt-2 text-xs text-amber-700">{errorMessage}</p> : null}

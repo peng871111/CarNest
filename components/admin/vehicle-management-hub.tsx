@@ -6,10 +6,6 @@ import { useEffect, useMemo, useState } from "react";
 import { ListingPublicationChecklist } from "@/components/admin/listing-publication-checklist";
 import { VehicleAccountingSummary } from "@/components/admin/vehicle-accounting-summary";
 import { VehicleForm } from "@/components/forms/vehicle-form";
-import {
-  readAdminGrossAmountDrafts,
-  writeAdminGrossAmountDrafts
-} from "@/components/admin/admin-gross-amount-storage";
 import { useAuth } from "@/lib/auth";
 import {
   addVehicleActivityNote,
@@ -41,8 +37,6 @@ type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "
 type VehicleListingsFilter = "Active" | "Sold" | "Withdrawn" | "All";
 type VehicleRowStatusControl = "ACTIVE" | "SOLD" | "WITHDRAWN";
 type VehicleLogComposerMode = "internal" | "owner";
-type VehicleGrossDisplayMode = "gst_inclusive" | "no_gst";
-type VehiclePaymentMethod = "bank_transfer" | "cash";
 type VehicleLogComposerDraft = {
   mode: VehicleLogComposerMode;
   message: string;
@@ -110,11 +104,6 @@ function getDaysBetweenIsoDates(startDate?: string, endDate?: string) {
 function parseMoneyString(value?: string) {
   const normalized = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
   return Number.isFinite(normalized) ? normalized : 0;
-}
-
-function formatEditableMoneyValue(value: number) {
-  if (!Number.isFinite(value)) return "";
-  return value % 1 === 0 ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
 function calculateServiceFeeTotals(items: WarehouseIntakeRecord["serviceItems"]) {
@@ -246,10 +235,6 @@ export function VehicleManagementHub({
   const [vehicleLogLoadingByVehicleId, setVehicleLogLoadingByVehicleId] = useState<Record<string, boolean>>({});
   const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
-  const [vehicleGrossDisplayById, setVehicleGrossDisplayById] = useState<Record<string, VehicleGrossDisplayMode>>({});
-  const [vehicleGrossInclusiveById, setVehicleGrossInclusiveById] = useState<Record<string, number>>({});
-  const [vehicleGrossEditingById, setVehicleGrossEditingById] = useState<Record<string, string | null>>({});
-  const [vehiclePaymentMethodById, setVehiclePaymentMethodById] = useState<Record<string, VehiclePaymentMethod>>({});
   const [showVehicleSummary, setShowVehicleSummary] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
@@ -291,53 +276,6 @@ export function VehicleManagementHub({
   useEffect(() => {
     setLocalIntakes(intakes);
   }, [intakes]);
-
-  useEffect(() => {
-    const drafts = readAdminGrossAmountDrafts();
-    setVehicleGrossInclusiveById(
-      Object.fromEntries(
-        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.grossInclusiveAmount])
-      )
-    );
-    setVehicleGrossDisplayById(
-      Object.fromEntries(
-        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.displayMode])
-      )
-    );
-    setVehiclePaymentMethodById(
-      Object.fromEntries(
-        Object.entries(drafts).map(([vehicleId, draft]) => [vehicleId, draft.paymentMethod])
-      )
-    );
-  }, []);
-
-  useEffect(() => {
-    const allVehicleIds = new Set([
-      ...Object.keys(vehicleGrossInclusiveById),
-      ...Object.keys(vehicleGrossDisplayById),
-      ...Object.keys(vehiclePaymentMethodById)
-    ]);
-    if (!allVehicleIds.size) return;
-
-    const drafts = Object.fromEntries(
-      [...allVehicleIds]
-        .map((vehicleId) => {
-          const grossInclusiveAmount = vehicleGrossInclusiveById[vehicleId];
-          if (!Number.isFinite(grossInclusiveAmount) || grossInclusiveAmount < 0) return null;
-          return [
-            vehicleId,
-            {
-              grossInclusiveAmount,
-              displayMode: vehicleGrossDisplayById[vehicleId] ?? "gst_inclusive",
-              paymentMethod: vehiclePaymentMethodById[vehicleId] ?? "bank_transfer"
-            }
-          ] as const;
-        })
-        .filter((entry): entry is readonly [string, { grossInclusiveAmount: number; displayMode: VehicleGrossDisplayMode; paymentMethod: VehiclePaymentMethod }] => entry != null)
-    );
-
-    writeAdminGrossAmountDrafts(drafts);
-  }, [vehicleGrossDisplayById, vehicleGrossInclusiveById, vehiclePaymentMethodById]);
 
   const listingMap = useMemo(() => new Map(localVehicles.map((vehicle) => [vehicle.id, vehicle])), [localVehicles]);
   const customerMap = useMemo(() => new Map(localCustomerProfiles.map((profile) => [profile.id, profile])), [localCustomerProfiles]);
@@ -856,40 +794,6 @@ export function VehicleManagementHub({
     }
   }
 
-  function openGrossAmountEditor(vehicleId: string, currentValue: number) {
-    setVehicleGrossEditingById((current) => ({
-      ...current,
-      [vehicleId]: formatEditableMoneyValue(currentValue)
-    }));
-  }
-
-  function commitGrossAmount(vehicleId: string, displayMode: VehicleGrossDisplayMode) {
-    const rawValue = vehicleGrossEditingById[vehicleId];
-    if (rawValue == null) return;
-
-    const parsedValue = parseMoneyString(rawValue);
-    const normalizedDisplayValue = Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : 0;
-    const normalizedInclusiveValue = displayMode === "gst_inclusive"
-      ? normalizedDisplayValue
-      : normalizedDisplayValue * 1.1;
-
-    setVehicleGrossInclusiveById((current) => ({
-      ...current,
-      [vehicleId]: normalizedInclusiveValue
-    }));
-    setVehicleGrossEditingById((current) => ({
-      ...current,
-      [vehicleId]: null
-    }));
-  }
-
-  function cancelGrossAmountEditor(vehicleId: string) {
-    setVehicleGrossEditingById((current) => ({
-      ...current,
-      [vehicleId]: null
-    }));
-  }
-
   const showingVehiclesPage = defaultView === "vehicles" || defaultView === "listings";
   const showingCustomersPage = defaultView === "customers";
   const pageEyebrow = showingCustomersPage ? "Customers" : "Vehicles";
@@ -1142,7 +1046,7 @@ export function VehicleManagementHub({
             </div>
 
             <div className="mt-5 space-y-3">
-              {listingRows.map(({ vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedRevenue, status }) => {
+              {listingRows.map(({ vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, status }) => {
                 const latestIntake = linkedIntakes[0] ?? null;
                 const storageContractStatus = latestIntake
                   ? latestIntake.status === "signed"
@@ -1157,15 +1061,6 @@ export function VehicleManagementHub({
                 const logLoading = vehicleLogLoadingByVehicleId[vehicle.id] ?? false;
                 const logError = vehicleLogErrorByVehicleId[vehicle.id] ?? "";
                 const logOpen = openVehicleLogId === vehicle.id;
-                const grossDisplayMode = vehicleGrossDisplayById[vehicle.id] ?? "gst_inclusive";
-                const paymentMethod = vehiclePaymentMethodById[vehicle.id] ?? "bank_transfer";
-                const baseGrossInclusiveAmount = vehicleGrossInclusiveById[vehicle.id] ?? projectedRevenue;
-                const grossAmount = grossDisplayMode === "gst_inclusive"
-                  ? baseGrossInclusiveAmount
-                  : baseGrossInclusiveAmount > 0
-                    ? baseGrossInclusiveAmount / 1.1
-                    : 0;
-                const grossEditingValue = vehicleGrossEditingById[vehicle.id];
                 const listedAt = getVehicleListedAt(vehicle);
                 const listingEndDate = vehicle.soldAt || new Date().toISOString();
                 const daysListed = listedAt ? getDaysBetweenIsoDates(listedAt, listingEndDate) : null;
@@ -1246,78 +1141,7 @@ export function VehicleManagementHub({
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-col gap-3 border-t border-black/6 pt-4 xl:flex-row xl:items-center xl:justify-between">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => {
-                          if (grossEditingValue == null) {
-                            openGrossAmountEditor(vehicle.id, grossAmount);
-                          }
-                        }}
-                        onKeyDown={(event) => {
-                          if ((event.key === "Enter" || event.key === " ") && grossEditingValue == null) {
-                            event.preventDefault();
-                            openGrossAmountEditor(vehicle.id, grossAmount);
-                          }
-                        }}
-                        className={`rounded-2xl border bg-white px-3 py-2.5 transition ${
-                          grossEditingValue != null
-                            ? "border-[#C6A87D] shadow-[0_0_0_1px_rgba(198,168,125,0.3)]"
-                            : "cursor-text border-black/8 hover:border-[#C6A87D]"
-                        }`}
-                      >
-                        <p className="text-[10px] uppercase tracking-[0.18em] text-bronze">Gross amount</p>
-                        {grossEditingValue != null ? (
-                          <input
-                            autoFocus
-                            inputMode="decimal"
-                            value={grossEditingValue}
-                            onChange={(event) => setVehicleGrossEditingById((current) => ({
-                              ...current,
-                              [vehicle.id]: event.target.value
-                            }))}
-                            onBlur={() => commitGrossAmount(vehicle.id, grossDisplayMode)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                commitGrossAmount(vehicle.id, grossDisplayMode);
-                              }
-                              if (event.key === "Escape") {
-                                cancelGrossAmountEditor(vehicle.id);
-                              }
-                            }}
-                            className="mt-1 w-[140px] border-0 bg-transparent p-0 text-sm font-semibold text-ink outline-none"
-                          />
-                        ) : (
-                          <p className="mt-1 text-sm font-semibold text-ink">{formatCurrency(grossAmount)}</p>
-                        )}
-                      </div>
-                      <CompactSelect
-                        value={grossDisplayMode}
-                        onChange={(event) => setVehicleGrossDisplayById((current) => ({
-                          ...current,
-                          [vehicle.id]: event.target.value as VehicleGrossDisplayMode
-                        }))}
-                        className="min-h-[42px] w-full sm:w-[160px]"
-                      >
-                        <option value="gst_inclusive">GST inclusive</option>
-                        <option value="no_gst">No GST</option>
-                      </CompactSelect>
-                      <CompactSelect
-                        value={paymentMethod}
-                        onChange={(event) => setVehiclePaymentMethodById((current) => ({
-                          ...current,
-                          [vehicle.id]: event.target.value as VehiclePaymentMethod
-                        }))}
-                        className="min-h-[42px] w-full sm:w-[170px]"
-                      >
-                        <option value="bank_transfer">Bank transfer</option>
-                        <option value="cash">Cash</option>
-                      </CompactSelect>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2 xl:justify-end">
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-black/6 pt-4 xl:justify-end">
                       <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Edit listing
                       </Link>
@@ -1348,7 +1172,6 @@ export function VehicleManagementHub({
                       <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Vehicle log
                       </button>
-                    </div>
                   </div>
                   <div className="mt-4">
                     <VehicleAccountingSummary

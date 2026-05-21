@@ -23,6 +23,37 @@ function parseIsoDate(value?: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function parseCalendarDateValue(
+  value?: string | Date | { seconds: number; nanoseconds?: number } | { toDate: () => Date }
+) {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "object" && "toDate" in value && typeof value.toDate === "function") {
+    const parsed = value.toDate();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value === "object" && "seconds" in value && typeof value.seconds === "number") {
+    const parsed = new Date(value.seconds * 1000);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  if (typeof value !== "string") return null;
+
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) {
+    return new Date(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3]));
+  }
+
+  const auMatch = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (auMatch) {
+    return new Date(Number(auMatch[3]), Number(auMatch[2]) - 1, Number(auMatch[1]));
+  }
+
+  const parsed = new Date(`${value}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function getVehicleLiveTimingLabel(vehicle: { approvedAt?: string; soldAt?: string; status?: string; sellerStatus?: string }) {
   const approvedAt = parseIsoDate(vehicle.approvedAt);
   if (!approvedAt) return "Timing unavailable";
@@ -67,17 +98,13 @@ export function formatMonthYear(value?: string) {
   }).format(new Date(value));
 }
 
-export function formatCalendarDate(value?: string) {
+export function formatCalendarDate(
+  value?: string | Date | { seconds: number; nanoseconds?: number } | { toDate: () => Date }
+) {
   if (!value) return "Not provided";
 
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (match) {
-    return `${match[3]}/${match[2]}/${match[1]}`;
-  }
-
-  const normalized = `${value}T00:00:00`;
-  const parsed = new Date(normalized);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseCalendarDateValue(value);
+  if (!parsed) return typeof value === "string" ? value : "Not provided";
 
   const day = String(parsed.getDate()).padStart(2, "0");
   const month = String(parsed.getMonth() + 1).padStart(2, "0");

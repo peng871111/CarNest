@@ -255,7 +255,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           </div>
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <h2 className="text-xl font-semibold text-ink">Description</h2>
-            <p className="mt-4 text-ink/70">{vehicle.description}</p>
+            <p className="mt-4 whitespace-pre-line text-ink/70">{vehicle.description}</p>
           </div>
           {isCarnestManaged ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
