@@ -26,14 +26,14 @@ export function VehicleCard({ vehicle, compact = false }: { vehicle: Vehicle; co
       href={`/inventory/${vehicle.id}`}
       className={`overflow-hidden border border-black/5 bg-white shadow-panel transition hover:-translate-y-1 ${compact ? "rounded-[22px]" : "rounded-[24px]"}`}
     >
-      <div className={`relative ${compact ? "aspect-[4/2.55]" : "aspect-[4/3]"}`}>
+      <div className="relative aspect-[4/3]">
         <PublicVehicleImage
           src={imageSrc}
           alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
           loading="lazy"
           sizes={compact ? "(max-width: 519px) 100vw, (max-width: 1279px) 50vw, (max-width: 1535px) 33vw, 25vw" : "(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"}
           quality={compact ? 68 : 75}
-          className="object-cover"
+          className="object-cover object-center"
           onImageError={() => setImageIndex((current) => (current < candidates.length - 1 ? current + 1 : current))}
         />
         <ImageWatermark />

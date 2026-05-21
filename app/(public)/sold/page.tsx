@@ -32,13 +32,13 @@ export default async function SoldVehiclesPage() {
           <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {vehicles.map((vehicle) => (
               <article key={vehicle.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-white shadow-panel">
-                <div className="relative h-48">
+                <div className="relative aspect-[4/3]">
                   <PublicVehicleImage
                     src={getVehicleImage(vehicle)}
                     alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
                     loading="lazy"
                     sizes="(max-width: 639px) 100vw, (max-width: 1023px) 50vw, 25vw"
-                    className="object-cover"
+                    className="object-cover object-center"
                   />
                   <ImageWatermark />
                 </div>

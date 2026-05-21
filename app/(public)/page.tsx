@@ -210,13 +210,13 @@ export default async function HomePage() {
                   key={vehicle.id}
                   className="min-w-[260px] shrink-0 overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-panel"
                 >
-                  <div className="relative aspect-[16/10]">
+                  <div className="relative aspect-[4/3]">
                     <PublicVehicleImage
                       src={getVehicleImage(vehicle)}
                       alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
                       loading="lazy"
                       sizes="260px"
-                      className="object-cover"
+                      className="object-cover object-center"
                     />
                     <ImageWatermark />
                   </div>
