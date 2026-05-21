@@ -48,9 +48,9 @@ function getPlatformTone(platform: keyof VehiclePublicationChecklist, checked: b
     return "border-emerald-200 bg-emerald-50/70 text-emerald-800";
   }
   if (isPriorityPlatform) {
-    return "border-amber-200 bg-amber-50/70 text-amber-800";
+    return "border-[#E6D7BC] bg-[#F7F0E4] text-[#7A6440]";
   }
-  return "border-black/8 bg-shell text-ink";
+  return "border-[#E9E1D4] bg-[#FAF6EF] text-ink/78";
 }
 
 function buildVehicleRecordForChecklist(
@@ -164,11 +164,8 @@ export function ListingPublicationChecklist({
               onChange={(event) => void handleToggle(platform.key, event.target.checked)}
               className="h-4 w-4 rounded border-black/20 text-ink"
             />
-            <label htmlFor={`publication-${vehicle.id}-${platform.key}`} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 text-sm">
+            <label htmlFor={`publication-${vehicle.id}-${platform.key}`} className="min-w-0 cursor-pointer text-sm font-medium">
               <span>{platform.label}</span>
-              <span className="text-[11px] font-semibold">
-                {checklist[platform.key] ? "Published" : PRIORITY_PUBLICATION_PLATFORMS.includes(platform.key) ? "Not published" : "Pending"}
-              </span>
             </label>
           </div>
         ))}
