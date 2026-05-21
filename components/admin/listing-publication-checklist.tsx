@@ -18,6 +18,8 @@ const PUBLICATION_PLATFORMS: Array<{
   { key: "other", label: "Other" }
 ];
 
+const PRIORITY_PUBLICATION_PLATFORMS: Array<keyof VehiclePublicationChecklist> = ["carsales", "xiaohongshu"];
+
 function createActorFromUser(user: ReturnType<typeof useAuth>["appUser"]): VehicleActor | null {
   if (!user) return null;
   return {
@@ -38,6 +40,17 @@ function createEmptyChecklist(): VehiclePublicationChecklist {
     website: false,
     other: false
   };
+}
+
+function getPlatformTone(platform: keyof VehiclePublicationChecklist, checked: boolean) {
+  const isPriorityPlatform = PRIORITY_PUBLICATION_PLATFORMS.includes(platform);
+  if (checked) {
+    return "border-emerald-200 bg-emerald-50/70 text-emerald-800";
+  }
+  if (isPriorityPlatform) {
+    return "border-amber-200 bg-amber-50/70 text-amber-800";
+  }
+  return "border-black/8 bg-shell text-ink";
 }
 
 function buildVehicleRecordForChecklist(
@@ -141,7 +154,7 @@ export function ListingPublicationChecklist({
         {PUBLICATION_PLATFORMS.map((platform) => (
           <div
             key={`${vehicle.id}-${platform.key}`}
-            className="flex min-h-[42px] items-center gap-3 rounded-2xl border border-black/8 bg-shell px-3 py-2 text-sm text-ink"
+            className={`flex min-h-[42px] items-center gap-3 rounded-2xl border px-3 py-2 text-sm transition ${getPlatformTone(platform.key, checklist[platform.key])}`}
           >
             <input
               id={`publication-${vehicle.id}-${platform.key}`}
@@ -151,8 +164,11 @@ export function ListingPublicationChecklist({
               onChange={(event) => void handleToggle(platform.key, event.target.checked)}
               className="h-4 w-4 rounded border-black/20 text-ink"
             />
-            <label htmlFor={`publication-${vehicle.id}-${platform.key}`} className="cursor-pointer">
-              {platform.label}
+            <label htmlFor={`publication-${vehicle.id}-${platform.key}`} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 text-sm">
+              <span>{platform.label}</span>
+              <span className="text-[11px] font-semibold">
+                {checklist[platform.key] ? "Published" : PRIORITY_PUBLICATION_PLATFORMS.includes(platform.key) ? "Not published" : "Pending"}
+              </span>
             </label>
           </div>
         ))}

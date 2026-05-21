@@ -158,6 +158,43 @@ function getVehicleOperationalStatus(record: VehicleRecord, listing: Vehicle | n
   return "Unlinked";
 }
 
+function createEmptyPublicationChecklist() {
+  return {
+    carsales: false,
+    facebookMarketplace: false,
+    xiaohongshu: false,
+    website: false,
+    other: false
+  };
+}
+
+function getPublicationProgress(checklist?: VehicleRecord["publicationChecklist"]) {
+  const normalizedChecklist = checklist ?? createEmptyPublicationChecklist();
+  const entries = Object.entries(normalizedChecklist) as Array<[keyof typeof normalizedChecklist, boolean]>;
+  const publishedCount = entries.filter(([, published]) => published).length;
+  const carsalesPublished = normalizedChecklist.carsales;
+  const xiaohongshuPublished = normalizedChecklist.xiaohongshu;
+  const priorityPending = !carsalesPublished && !xiaohongshuPublished;
+
+  let helper = `${publishedCount} of ${entries.length} platforms published`;
+  if (priorityPending) {
+    helper = "Carsales and Xiaohongshu pending";
+  } else if (!carsalesPublished) {
+    helper = "Carsales pending";
+  } else if (!xiaohongshuPublished) {
+    helper = "Xiaohongshu pending";
+  } else if (publishedCount === entries.length) {
+    helper = "Ready for publishing";
+  }
+
+  return {
+    publishedCount,
+    totalCount: entries.length,
+    helper,
+    priorityPending
+  };
+}
+
 function getStatusTone(status: VehicleOperationalStatus | PublicListingStatus) {
   if (status === "Listed" || status === "Available") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "Under offer") return "border-sky-200 bg-sky-50 text-sky-700";
@@ -1061,6 +1098,7 @@ export function VehicleManagementHub({
                 const logLoading = vehicleLogLoadingByVehicleId[vehicle.id] ?? false;
                 const logError = vehicleLogErrorByVehicleId[vehicle.id] ?? "";
                 const logOpen = openVehicleLogId === vehicle.id;
+                const publicationProgress = getPublicationProgress(linkedRecord?.publicationChecklist);
                 const listedAt = getVehicleListedAt(vehicle);
                 const listingEndDate = vehicle.soldAt || new Date().toISOString();
                 const daysListed = listedAt ? getDaysBetweenIsoDates(listedAt, listingEndDate) : null;
@@ -1089,6 +1127,16 @@ export function VehicleManagementHub({
                         ) : (
                           <span>No contract</span>
                         )}
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded-full border border-black/8 bg-white px-2.5 py-1 font-medium text-ink/68">
+                          {publicationProgress.helper}
+                        </span>
+                        {publicationProgress.priorityPending ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 font-semibold text-amber-800">
+                            Needs publishing
+                          </span>
+                        ) : null}
                       </div>
                     </div>
 
@@ -1141,35 +1189,35 @@ export function VehicleManagementHub({
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 flex flex-wrap gap-2 border-t border-black/6 pt-4 xl:justify-end">
-                      <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                  <div className="mt-4 grid gap-2 border-t border-black/6 pt-4 sm:grid-cols-2 xl:grid-cols-5 xl:gap-3">
+                      <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Edit listing
                       </Link>
-                      <Link href={`/admin/vehicles/${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                      <Link href={`/admin/vehicles/${vehicle.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         View listing
                       </Link>
-                      <button type="button" onClick={() => openVehicleEditorForListing(vehicle, linkedRecord)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                      <button type="button" onClick={() => openVehicleEditorForListing(vehicle, linkedRecord)} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         {linkedCustomer ? "Change owner" : "Assign owner"}
                       </button>
                       {linkedCustomer ? (
-                        <Link href={`/admin/customers?customerId=${linkedCustomer.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        <Link href={`/admin/customers?customerId=${linkedCustomer.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Open customer
                         </Link>
                       ) : null}
                       {latestIntake ? (
-                        <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        <Link href={`/admin/warehouse-intake/${latestIntake.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Open storage contract
                         </Link>
                       ) : linkedRecord ? (
-                        <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        <Link href={`/admin/warehouse-intake/new?customerProfileId=${linkedRecord.customerProfileId || ""}&vehicleRecordId=${linkedRecord.id}&vehicleId=${vehicle.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Start storage contract
                         </Link>
                       ) : (
-                        <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                        <Link href={`/admin/warehouse-intake/new?vehicleId=${vehicle.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                           Start storage contract
                         </Link>
                       )}
-                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Vehicle log
                       </button>
                   </div>
