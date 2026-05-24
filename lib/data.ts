@@ -1059,6 +1059,18 @@ function normalizeAdminAccountingEntryStatus(value: unknown): AdminAccountingEnt
   return value === "unpaid" || value === "partially_paid" ? value : "paid";
 }
 
+function normalizeContactMessageCategory(value: unknown): ContactMessageCategory {
+  return value === "SELLING MY CAR"
+    || value === "BUYING A CAR"
+    || value === "SECURE WAREHOUSE STORAGE"
+    ? value
+    : "GENERAL ENQUIRY";
+}
+
+function normalizeContactMessageStatus(value: unknown): ContactMessageStatus {
+  return value === "CONTACTED" || value === "CLOSED" ? value : "NEW";
+}
+
 export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "id"> {
   return {
     type: "income",
@@ -1622,6 +1634,20 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     updatedByName: typeof data.updatedByName === "string" ? data.updatedByName : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
+  };
+}
+
+function serializeContactMessageDoc(id: string, data: Record<string, unknown>): ContactMessage {
+  return {
+    id,
+    name: typeof data.name === "string" ? data.name : "",
+    email: typeof data.email === "string" ? data.email : "",
+    phone: typeof data.phone === "string" ? data.phone : "",
+    subject: typeof data.subject === "string" ? data.subject : "",
+    message: typeof data.message === "string" ? data.message : "",
+    category: normalizeContactMessageCategory(data.category),
+    status: normalizeContactMessageStatus(data.status),
+    createdAt: serializeDate(data.createdAt)
   };
 }
 
@@ -3488,7 +3514,7 @@ export async function getSellerInspectionRequestsData(ownerUid: string) {
 }
 
 export async function getContactMessagesData() {
-  return getCollection<ContactMessage>("contact_messages", []);
+  return getCollection<ContactMessage>("contact_messages", [], serializeContactMessageDoc);
 }
 
 export async function getContactMessageById(id: string) {
@@ -3498,7 +3524,7 @@ export async function getContactMessageById(id: string) {
 
   const snapshot = await getDoc(doc(db, "contact_messages", id));
   if (!snapshot.exists()) return null;
-  return serializeDoc<ContactMessage>(snapshot.id, snapshot.data());
+  return serializeContactMessageDoc(snapshot.id, snapshot.data());
 }
 
 export async function getVehicleWarehouseQuoteRequest(vehicleId: string, ownerId: string) {
@@ -6738,7 +6764,7 @@ async function findRecentContactMessagesForEmail(email: string) {
   if (!isFirebaseConfigured) return [] as ContactMessage[];
 
   const snapshot = await getDocs(query(collection(db, "contact_messages"), where("email", "==", email)));
-  return snapshot.docs.map((item) => serializeDoc<ContactMessage>(item.id, item.data()));
+  return snapshot.docs.map((item) => serializeContactMessageDoc(item.id, item.data()));
 }
 
 async function findRecentVehiclesForOwner(ownerUid: string) {
@@ -8837,7 +8863,7 @@ export async function updateContactMessageStatus(
         if (!isFirebaseConfigured) return null;
         const snapshot = await getDoc(doc(db, "contact_messages", id));
         if (!snapshot.exists()) return null;
-        return serializeDoc<ContactMessage>(snapshot.id, snapshot.data());
+        return serializeContactMessageDoc(snapshot.id, snapshot.data());
       })()
     );
 
