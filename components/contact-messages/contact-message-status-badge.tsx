@@ -5,7 +5,7 @@ export function ContactMessageStatusBadge({ status }: { status: string }) {
 
   return (
     <span
-      className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${getContactMessageStatusTone(status)}`}
+      className={`inline-flex h-9 items-center rounded-full border px-3 text-xs font-semibold uppercase tracking-[0.18em] ${getContactMessageStatusTone(status)}`}
     >
       {displayStatus}
     </span>

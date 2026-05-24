@@ -46,7 +46,7 @@ export function ContactMessageStatusActions({
   return (
     <details ref={detailsRef} className="relative z-50">
       <summary
-        className="list-none rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium text-ink transition hover:bg-shell [&::-webkit-details-marker]:hidden"
+        className="flex h-11 min-w-[132px] list-none items-center justify-center rounded-full border border-black/10 bg-white px-4 text-sm font-medium text-ink transition hover:bg-shell [&::-webkit-details-marker]:hidden"
       >
         Actions
       </summary>
