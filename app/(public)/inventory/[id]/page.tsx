@@ -154,6 +154,39 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     ["Vehicle ID", getVehicleDisplayReference(vehicle)]
   ].filter(([, value]) => Boolean(value));
   const publicLocation = vehicle.sellerLocationSuburb || vehicle.sellerLocationState || "";
+  const vehicleSummaryCard = (
+    <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
+      <div className="flex flex-wrap gap-2">
+        <ListingBadge vehicle={vehicle} />
+        {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
+      </div>
+      <h1 className="mt-2 font-display text-4xl text-ink">
+        {vehicle.year} {vehicle.make} {vehicle.model}
+      </h1>
+      <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
+      <p className="mt-3 text-sm leading-6 text-ink/52">
+        Private sale
+        <br />
+        CarNest helps organise inspections and enquiries
+        <br />
+        You deal directly with the owner if you proceed
+      </p>
+      <div className="mt-6">
+        <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
+        <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
+      </div>
+      <VehicleReportAccess
+        vehicleId={vehicle.id}
+        reportAvailable={vehicle.vehicleReportAvailable}
+        generatedAt={vehicle.vehicleReportGeneratedAt}
+        conditionRating={vehicle.vehicleConditionRating}
+        compact
+      />
+      <div className="mt-6">
+        <ListingSummary vehicle={vehicle} />
+      </div>
+    </div>
+  );
   const vehicleStructuredData = {
     "@context": "https://schema.org",
     "@type": "Vehicle",
@@ -216,6 +249,9 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             altBase={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant}`.replace(/\s+/g, " ").trim()}
             showMainImageArrows
           />
+          <div className="lg:hidden">
+            {vehicleSummaryCard}
+          </div>
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {summaryFields.map(([label, value]) => (
@@ -291,36 +327,8 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           )}
         </section>
         <aside className="space-y-6">
-          <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-            <div className="flex flex-wrap gap-2">
-              <ListingBadge vehicle={vehicle} />
-              {vehicle.sellerStatus === "UNDER_OFFER" ? <SellerVehicleStatusBadge status={vehicle.sellerStatus} /> : null}
-            </div>
-            <h1 className="mt-2 font-display text-4xl text-ink">
-              {vehicle.year} {vehicle.make} {vehicle.model}
-            </h1>
-            <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
-            <p className="mt-3 text-sm leading-6 text-ink/52">
-              Private sale
-              <br />
-              CarNest helps organise inspections and enquiries
-              <br />
-              You deal directly with the owner if you proceed
-            </p>
-            <div className="mt-6">
-              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
-              <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
-            </div>
-            <VehicleReportAccess
-              vehicleId={vehicle.id}
-              reportAvailable={vehicle.vehicleReportAvailable}
-              generatedAt={vehicle.vehicleReportGeneratedAt}
-              conditionRating={vehicle.vehicleConditionRating}
-              compact
-            />
-            <div className="mt-6">
-              <ListingSummary vehicle={vehicle} />
-            </div>
+          <div className="hidden lg:block">
+            {vehicleSummaryCard}
           </div>
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />

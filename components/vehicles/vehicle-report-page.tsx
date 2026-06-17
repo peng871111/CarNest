@@ -13,7 +13,7 @@ const RATING_GUIDE: Array<[string, string]> = [
   ["4.0", "Some paint or cosmetic repair, wheel rash possible, light interior usage marks, no major wear, complete service history, complete keys, mechanically sound."],
   ["3.5", "Small dents or scratches, some panel repair, wheel rash, visible interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
   ["3.0", "Visible scratches, dents, or unrepaired paint/panel issues, wheel rash, obvious interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
-  ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns."]
+  ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns. Vehicles assessed below a CarNest Condition Rating of 2.5 are not eligible to be advertised on the CarNest platform."]
 ];
 
 const DISCLAIMER_LINES = [
@@ -57,7 +57,8 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
       document.body.removeChild(link);
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We couldn't download the Vehicle Report PDF.");
+      console.error("Vehicle Report PDF download failed", error);
+      setErrorMessage("Vehicle Report temporarily unavailable. Please try again later.");
     } finally {
       setDownloadingPdf(false);
     }
@@ -113,8 +114,8 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
             <p className="mt-2 text-sm text-ink/60">{getVehicleDisplayReference(vehicle)}</p>
           </div>
           <div className="rounded-[22px] border border-black/8 bg-shell px-5 py-4 text-right">
-            <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest rating</p>
-            <p className="mt-2 text-3xl font-semibold text-ink">{vehicle.vehicleConditionRating ? `${vehicle.vehicleConditionRating} / 5` : "Pending"}</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Rating</p>
+            <p className="mt-2 text-3xl font-semibold text-ink">{vehicle.vehicleConditionRating ? `${vehicle.vehicleConditionRating}/5.0` : "Pending"}</p>
           </div>
         </div>
 
@@ -213,15 +214,6 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
         </section>
 
         <section className="mt-10">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">DISCLAIMER</p>
-          <div className="mt-3 space-y-3 text-sm leading-6 text-ink/70">
-            {DISCLAIMER_LINES.map((line) => (
-              <p key={line}>{line}</p>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-10">
           <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest condition rating guide</p>
           <div className="mt-4 space-y-4">
             {RATING_GUIDE.map(([rating, description]) => (
@@ -229,6 +221,15 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
                 <p className="text-sm font-semibold text-ink">{rating}</p>
                 <p className="mt-2 text-sm leading-6 text-ink/68">{description}</p>
               </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">DISCLAIMER</p>
+          <div className="mt-3 space-y-3 text-sm leading-6 text-ink/70">
+            {DISCLAIMER_LINES.map((line) => (
+              <p key={line}>{line}</p>
             ))}
           </div>
         </section>

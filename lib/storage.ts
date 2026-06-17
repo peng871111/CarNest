@@ -401,3 +401,23 @@ export async function fetchVehicleReportBlob(storagePath: string) {
 
   return await getBlob(ref(storage, storagePath));
 }
+
+export async function getVehicleReportDownloadUrl(storagePath: string) {
+  if (!storagePath) {
+    throw new Error("Vehicle report is not available yet.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Vehicle report download is temporarily unavailable. Please try again later.");
+  }
+
+  try {
+    return await getDownloadURL(ref(storage, storagePath));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("storage/retry-limit-exceeded")) {
+      throw new Error("Report is taking too long to load. Please try again or regenerate the report.");
+    }
+    throw error;
+  }
+}

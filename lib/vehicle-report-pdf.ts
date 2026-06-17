@@ -30,6 +30,14 @@ const DISCLAIMER_LINES = [
   "To the maximum extent permitted by law, CarNest accepts no responsibility or liability for any loss, damage, cost, or decision arising directly or indirectly from reliance on this report."
 ] as const;
 
+const REPORT_IMAGE_MAX_WIDTH = 1600;
+const REPORT_IMAGE_MIN_DIMENSION = 900;
+const REPORT_IMAGE_MAX_BYTES = 300 * 1024;
+const REPORT_IMAGE_START_QUALITY = 0.74;
+const REPORT_IMAGE_MIN_QUALITY = 0.56;
+const REPORT_IMAGE_SCALE_STEP = 0.86;
+const REPORT_IMAGE_QUALITY_STEP = 0.05;
+
 let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
 
 const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
@@ -44,6 +52,119 @@ const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
 ];
 
 type EmbeddedPdfImage = Awaited<ReturnType<PDFDocument["embedJpg"]>>;
+
+function loadImageFromObjectUrl(objectUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Unable to decode report image."));
+    image.src = objectUrl;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Unable to encode report image."));
+          return;
+        }
+        resolve(blob);
+      },
+      mimeType,
+      quality
+    );
+  });
+}
+
+async function optimizePdfImageBytes(bytes: Uint8Array) {
+  if (typeof window === "undefined") {
+    return { bytes, mimeType: "image/jpeg" as const };
+  }
+
+  let objectUrl = "";
+  let image: HTMLImageElement | null = null;
+  let canvas: HTMLCanvasElement | null = null;
+
+  try {
+    const sourceBytes = Uint8Array.from(bytes);
+    objectUrl = URL.createObjectURL(new Blob([sourceBytes]));
+    image = await loadImageFromObjectUrl(objectUrl);
+
+    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = longestSide > REPORT_IMAGE_MAX_WIDTH ? REPORT_IMAGE_MAX_WIDTH / longestSide : 1;
+    let width = Math.max(1, Math.round(image.naturalWidth * scale));
+    let height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+    canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Unable to initialize report image canvas.");
+    }
+
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, width, height);
+
+    let quality = REPORT_IMAGE_START_QUALITY;
+    let blob = await canvasToBlob(canvas, "image/jpeg", quality);
+
+    while (blob.size > REPORT_IMAGE_MAX_BYTES) {
+      if (quality > REPORT_IMAGE_MIN_QUALITY) {
+        quality = Math.max(REPORT_IMAGE_MIN_QUALITY, Number((quality - REPORT_IMAGE_QUALITY_STEP).toFixed(2)));
+        blob = await canvasToBlob(canvas, "image/jpeg", quality);
+        continue;
+      }
+
+      const nextWidth = Math.round(canvas.width * REPORT_IMAGE_SCALE_STEP);
+      const nextHeight = Math.round(canvas.height * REPORT_IMAGE_SCALE_STEP);
+      if (Math.max(nextWidth, nextHeight) < REPORT_IMAGE_MIN_DIMENSION) {
+        break;
+      }
+
+      const resizedCanvas = document.createElement("canvas");
+      resizedCanvas.width = nextWidth;
+      resizedCanvas.height = nextHeight;
+      const resizedContext = resizedCanvas.getContext("2d");
+      if (!resizedContext) {
+        throw new Error("Unable to resize report image.");
+      }
+
+      resizedContext.imageSmoothingEnabled = true;
+      resizedContext.imageSmoothingQuality = "high";
+      resizedContext.drawImage(canvas, 0, 0, nextWidth, nextHeight);
+
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
+      context.drawImage(resizedCanvas, 0, 0, nextWidth, nextHeight);
+      quality = REPORT_IMAGE_START_QUALITY;
+      blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    }
+
+    return {
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      mimeType: "image/jpeg" as const
+    };
+  } catch {
+    return { bytes, mimeType: "image/jpeg" as const };
+  } finally {
+    if (canvas) {
+      canvas.width = 0;
+      canvas.height = 0;
+    }
+    if (image) {
+      image.src = "";
+    }
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+}
 
 function normalizePdfText(value: string, supportsUnicode: boolean) {
   const normalized = value.normalize("NFKC");
@@ -327,7 +448,12 @@ export async function generateVehicleReportPdf(
           : (() => {
               throw new Error("Storage byte resolver unavailable.");
             })();
-        const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const optimizedImage = await optimizePdfImageBytes(bytes);
+        const embedded = optimizedImage.mimeType === "image/jpeg"
+          ? await pdfDoc.embedJpg(optimizedImage.bytes)
+          : lowerPath.includes(".png")
+            ? await pdfDoc.embedPng(bytes)
+            : await pdfDoc.embedJpg(bytes);
         const imageRect = getContainedImageRect(embedded, {
           x: x + 6,
           y: frameY + 6,

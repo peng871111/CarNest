@@ -51,17 +51,17 @@ export function VehicleReportAccess({
     <>
       {compact ? (
         <div className="mt-6 border-t border-black/6 pt-6">
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-start">
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest rating</p>
-              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating} ★</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Rating</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating}/5.0</p>
               {generatedAt ? (
                 <p className="mt-2 text-xs text-ink/50">
                   Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
                 </p>
               ) : null}
             </div>
-            <div className="sm:pt-1">
+            <div className="sm:pt-0.5 sm:text-right">
               <button
                 type="button"
                 onClick={() => void handleOpenReport()}

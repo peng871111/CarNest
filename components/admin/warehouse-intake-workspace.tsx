@@ -28,7 +28,7 @@ import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
   fetchAdminWarehouseIntakeFileBlob,
   fetchAdminWarehouseIntakeFileBytes,
-  fetchVehicleReportBlob,
+  getVehicleReportDownloadUrl,
   uploadVehicleReportPdf,
   uploadWarehouseIntakePdf,
   uploadWarehouseIntakePhotos,
@@ -376,6 +376,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [openingVehicleReport, setOpeningVehicleReport] = useState(false);
   const [uploadingLabel, setUploadingLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -1088,12 +1089,19 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     if (!draft.vehicleReportPdfStoragePath) return;
 
     try {
-      const blob = await fetchVehicleReportBlob(draft.vehicleReportPdfStoragePath);
-      const objectUrl = URL.createObjectURL(blob);
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      setOpeningVehicleReport(true);
+      setErrorMessage("");
+      const reportUrl = await getVehicleReportDownloadUrl(draft.vehicleReportPdfStoragePath);
+      window.open(reportUrl, "_blank", "noopener,noreferrer");
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We couldn't open the Vehicle Report PDF.");
+      const message = error instanceof Error ? error.message : "We couldn't open the Vehicle Report PDF.";
+      setErrorMessage(
+        message.includes("storage/retry-limit-exceeded")
+          ? "Report is taking too long to load. Please try again or regenerate the report."
+          : message
+      );
+    } finally {
+      setOpeningVehicleReport(false);
     }
   }
 
@@ -1878,10 +1886,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <button
                   type="button"
                   onClick={() => void handleOpenVehicleReportPdf()}
-                  disabled={!draft.vehicleReportPdfStoragePath}
+                  disabled={!draft.vehicleReportPdfStoragePath || openingVehicleReport}
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Open Vehicle Report PDF
+                  {openingVehicleReport ? "Opening Vehicle Report PDF..." : "Open Vehicle Report PDF"}
                 </button>
               </div>
             </div>
