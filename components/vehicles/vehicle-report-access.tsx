@@ -23,9 +23,10 @@ export function VehicleReportAccess({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [opening, setOpening] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const hasValidReport = Boolean(reportAvailable && conditionRating?.trim());
 
   async function handleOpenReport() {
-    if (!reportAvailable) return;
+    if (!hasValidReport) return;
     if (!appUser) {
       setShowAuthModal(true);
       return;
@@ -42,6 +43,10 @@ export function VehicleReportAccess({
     }
   }
 
+  if (!hasValidReport) {
+    return null;
+  }
+
   return (
     <>
       {compact ? (
@@ -49,7 +54,7 @@ export function VehicleReportAccess({
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:items-start">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest rating</p>
-              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating ? `${conditionRating} / 5` : "Pending"}</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating} ★</p>
               {generatedAt ? (
                 <p className="mt-2 text-xs text-ink/50">
                   Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
@@ -57,23 +62,14 @@ export function VehicleReportAccess({
               ) : null}
             </div>
             <div className="sm:pt-1">
-              {reportAvailable ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleOpenReport()}
-                    disabled={loading || opening}
-                    className="text-sm font-semibold text-ink underline decoration-black/20 underline-offset-4 transition hover:text-bronze hover:decoration-bronze disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loading ? "Checking account..." : opening ? "Opening report..." : "View Vehicle Report"}
-                  </button>
-                  <p className="mt-2 text-xs leading-5 text-ink/52">
-                    Sign in or create a CarNest account to access the verified condition summary.
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-ink/52">Vehicle Report pending</p>
-              )}
+              <button
+                type="button"
+                onClick={() => void handleOpenReport()}
+                disabled={loading || opening}
+                className="text-sm font-semibold text-ink underline decoration-black/20 underline-offset-4 transition hover:text-bronze hover:decoration-bronze disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? "Checking account..." : opening ? "Opening report..." : "View Vehicle Report →"}
+              </button>
             </div>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
