@@ -20,6 +20,16 @@ const RATING_GUIDE: Array<[string, string]> = [
   ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns."]
 ];
 
+const DISCLAIMER_LINES = [
+  "CarNest Vehicle Report is provided as a complimentary buyer reference document and is intended to assist prospective buyers in understanding the vehicle's disclosed condition and presentation.",
+  "This Vehicle Report is provided free of charge by CarNest for informational purposes only.",
+  "The report is intended as a general summary of the vehicle condition based on information supplied and observations recorded at the time of preparation.",
+  "CarNest strongly recommends that all prospective buyers arrange their own independent mechanical inspection and assessment before purchasing any vehicle.",
+  "While reasonable care has been taken in preparing this report, CarNest does not guarantee the completeness, accuracy, or ongoing validity of any information contained within it.",
+  "This report should not be relied upon as a substitute for professional mechanical advice or a pre-purchase inspection.",
+  "To the maximum extent permitted by law, CarNest accepts no responsibility or liability for any loss, damage, cost, or decision arising directly or indirectly from reliance on this report."
+] as const;
+
 let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
 
 const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
@@ -448,11 +458,10 @@ export async function generateVehicleReportPdf(
     await drawPhotoSection("Documentation photos", documentationPhotos, false);
   }
 
-  drawSectionTitle("Buyer reference disclaimer");
-  drawField(
-    "Important",
-    "Information in this report is provided free of charge for buyer reference only. CarNest recommends that any serious buyer arrange an independent inspection with their own qualified mechanic before purchase. This report is not a mechanical warranty, valuation, roadworthy certificate, or legal representation. CarNest accepts no legal liability for decisions made based on this report."
-  );
+  drawSectionTitle("DISCLAIMER");
+  DISCLAIMER_LINES.forEach((line, index) => {
+    drawField(index === 0 ? "Important" : " ", line);
+  });
 
   drawSectionTitle("CarNest condition rating guide");
   RATING_GUIDE.forEach(([rating, description]) => {

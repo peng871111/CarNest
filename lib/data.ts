@@ -1,5 +1,6 @@
 import { Timestamp, addDoc, arrayRemove, arrayUnion, collection, deleteDoc, deleteField, doc, documentId, getDoc, getDocs, limit, orderBy, query, serverTimestamp, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
-import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
+import { getDownloadURL, ref } from "firebase/storage";
+import { auth, db, isFirebaseConfigured, isFirebaseStorageConfigured, storage } from "@/lib/firebase";
 import { findAustralianPostcodeLocation, getAustralianPostcodeLocations, isAustralianPostcode } from "@/lib/australian-postcodes";
 import { verifyDealerLicenceByState } from "@/lib/dealer-licence-verification";
 import { isValidAustralianMobileNumber, isValidEmailAddress } from "@/lib/form-safety";
@@ -803,6 +804,34 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
       || data.vehicleConditionRating === "3.0"
       || data.vehicleConditionRating === "2.5"
         ? data.vehicleConditionRating
+        : undefined,
+    vehicleReportSummary:
+      data.vehicleReportSummary && typeof data.vehicleReportSummary === "object"
+        ? {
+            warrantyStatus: typeof (data.vehicleReportSummary as Record<string, unknown>).warrantyStatus === "string" ? (data.vehicleReportSummary as Record<string, unknown>).warrantyStatus as string : "",
+            numberOfOwners: typeof (data.vehicleReportSummary as Record<string, unknown>).numberOfOwners === "string" ? (data.vehicleReportSummary as Record<string, unknown>).numberOfOwners as string : "",
+            accidentDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).accidentDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).accidentDeclaration as string : "",
+            financeOwingDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).financeOwingDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).financeOwingDeclaration as string : "",
+            odometerIssueDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).odometerIssueDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).odometerIssueDeclaration as string : "",
+            exteriorCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).exteriorCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).exteriorCondition as string : "",
+            panelRepairNotes: typeof (data.vehicleReportSummary as Record<string, unknown>).panelRepairNotes === "string" ? (data.vehicleReportSummary as Record<string, unknown>).panelRepairNotes as string : "",
+            wheelCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).wheelCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).wheelCondition as string : "",
+            interiorCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).interiorCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).interiorCondition as string : "",
+            mechanicalCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).mechanicalCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).mechanicalCondition as string : "",
+            serviceRecordCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).serviceRecordCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).serviceRecordCondition as string : "",
+            keyCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).keyCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).keyCondition as string : "",
+            rwcCooperation: typeof (data.vehicleReportSummary as Record<string, unknown>).rwcCooperation === "string" ? (data.vehicleReportSummary as Record<string, unknown>).rwcCooperation as string : "",
+            damageConditionNotes: typeof (data.vehicleReportSummary as Record<string, unknown>).damageConditionNotes === "string" ? (data.vehicleReportSummary as Record<string, unknown>).damageConditionNotes as string : "",
+            damageImages: Array.isArray((data.vehicleReportSummary as Record<string, unknown>).damageImages)
+              ? ((data.vehicleReportSummary as Record<string, unknown>).damageImages as Array<Record<string, unknown>>)
+                  .filter((item) => typeof item?.url === "string" && item.url)
+                  .map((item) => ({
+                    url: item.url as string,
+                    label: typeof item.label === "string" ? item.label : "Damage image",
+                    note: typeof item.note === "string" ? item.note : ""
+                  }))
+              : []
+          }
         : undefined,
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     viewCount: Number(data.viewCount ?? 0),
@@ -5029,16 +5058,56 @@ function buildWarehouseIntakeWritePayload(
   };
 }
 
+async function resolveVehicleReportDamageImages(input: Pick<WarehouseIntakeRecord, "photos">) {
+  if (!isFirebaseStorageConfigured) return [];
+
+  const damagePhotos = input.photos.filter((photo) => photo.category === "damagePhotos" && photo.storagePath);
+  const resolved = await Promise.all(
+    damagePhotos.map(async (photo) => {
+      try {
+        const url = await getDownloadURL(ref(storage, photo.storagePath));
+        return {
+          url,
+          label: photo.label || "Damage image",
+          note: photo.note || ""
+        };
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return resolved.filter((item): item is { url: string; label: string; note: string } => Boolean(item));
+}
+
+function hasVehicleReportSummary(
+  input: Pick<WarehouseIntakeRecord, "vehicleReport">
+) {
+  return Boolean(
+    input.vehicleReport.conditionRating
+    || input.vehicleReport.exteriorCondition.trim()
+    || input.vehicleReport.panelRepairNotes.trim()
+    || input.vehicleReport.wheelCondition.trim()
+    || input.vehicleReport.interiorCondition.trim()
+    || input.vehicleReport.mechanicalCondition.trim()
+    || input.vehicleReport.serviceRecordCondition.trim()
+    || input.vehicleReport.keyCondition.trim()
+    || input.vehicleReport.rwcCooperation
+    || input.vehicleReport.damageConditionNotes.trim()
+  );
+}
+
 async function syncVehicleReportMetadataToPublicListing(
   vehicleId: string,
   input: Pick<
     WarehouseIntakeRecord,
-    "vehicleReport" | "vehicleReportPdfStoragePath" | "vehicleReportPdfFileName" | "vehicleReportGeneratedAt"
+    "vehicleDetails" | "declarations" | "vehicleReport" | "photos" | "vehicleReportPdfStoragePath" | "vehicleReportPdfFileName" | "vehicleReportGeneratedAt"
   >
 ) {
   if (!vehicleId || !isFirebaseConfigured) return;
 
-  const hasReport = Boolean(input.vehicleReportPdfStoragePath?.trim());
+  const hasReport = hasVehicleReportSummary(input);
+  const damageImages = hasReport ? await resolveVehicleReportDamageImages(input) : [];
 
   await setDoc(
     doc(db, "vehicles", vehicleId),
@@ -5048,6 +5117,25 @@ async function syncVehicleReportMetadataToPublicListing(
       vehicleReportFileName: hasReport ? (input.vehicleReportPdfFileName?.trim() || "") : deleteField(),
       vehicleReportGeneratedAt: hasReport ? (input.vehicleReportGeneratedAt || new Date().toISOString()) : deleteField(),
       vehicleConditionRating: hasReport ? (input.vehicleReport.conditionRating || "") : deleteField(),
+      vehicleReportSummary: hasReport
+        ? {
+            warrantyStatus: input.vehicleDetails.warrantyStatus || "",
+            numberOfOwners: input.vehicleDetails.numberOfOwners || "",
+            accidentDeclaration: input.vehicleDetails.accidentHistory || input.declarations.writtenOffHistory || "",
+            financeOwingDeclaration: input.declarations.financeOwing || "",
+            odometerIssueDeclaration: input.declarations.odometerDiscrepancyKnown || "",
+            exteriorCondition: input.vehicleReport.exteriorCondition || "",
+            panelRepairNotes: input.vehicleReport.panelRepairNotes || "",
+            wheelCondition: input.vehicleReport.wheelCondition || "",
+            interiorCondition: input.vehicleReport.interiorCondition || "",
+            mechanicalCondition: input.vehicleReport.mechanicalCondition || "",
+            serviceRecordCondition: input.vehicleReport.serviceRecordCondition || "",
+            keyCondition: input.vehicleReport.keyCondition || "",
+            rwcCooperation: input.vehicleReport.rwcCooperation || "",
+            damageConditionNotes: input.vehicleReport.damageConditionNotes || "",
+            damageImages
+          }
+        : deleteField(),
       updatedAt: serverTimestamp()
     }),
     { merge: true }

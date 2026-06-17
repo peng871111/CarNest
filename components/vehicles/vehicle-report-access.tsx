@@ -1,32 +1,31 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthGateModal } from "@/components/auth/auth-gate-modal";
 import { useAuth } from "@/lib/auth";
-import { fetchVehicleReportBlob } from "@/lib/storage";
 
 export function VehicleReportAccess({
   vehicleId,
-  storagePath,
-  fileName,
+  reportAvailable,
   generatedAt,
   conditionRating,
   compact = false
 }: {
   vehicleId: string;
-  storagePath?: string;
-  fileName?: string;
+  reportAvailable?: boolean;
   generatedAt?: string;
   conditionRating?: string;
   compact?: boolean;
 }) {
+  const router = useRouter();
   const { appUser, loading } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [opening, setOpening] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   async function handleOpenReport() {
-    if (!storagePath) return;
+    if (!reportAvailable) return;
     if (!appUser) {
       setShowAuthModal(true);
       return;
@@ -35,18 +34,7 @@ export function VehicleReportAccess({
     try {
       setOpening(true);
       setErrorMessage("");
-      const blob = await fetchVehicleReportBlob(storagePath!);
-      const objectUrl = URL.createObjectURL(blob);
-      const newWindow = window.open(objectUrl, "_blank", "noopener,noreferrer");
-      if (!newWindow) {
-        const link = document.createElement("a");
-        link.href = objectUrl;
-        link.download = fileName || "carnest-vehicle-report.pdf";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      }
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      router.push(`/vehicle-report/${vehicleId}`);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't open the CarNest Vehicle Report.");
     } finally {
@@ -69,7 +57,7 @@ export function VehicleReportAccess({
               ) : null}
             </div>
             <div className="sm:pt-1">
-              {storagePath ? (
+              {reportAvailable ? (
                 <>
                   <button
                     type="button"
@@ -113,7 +101,7 @@ export function VehicleReportAccess({
             <button
               type="button"
               onClick={() => void handleOpenReport()}
-              disabled={loading || opening || !storagePath}
+              disabled={loading || opening || !reportAvailable}
               className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? "Checking account..." : opening ? "Opening report..." : "Open Vehicle Report"}

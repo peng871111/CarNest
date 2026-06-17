@@ -209,6 +209,7 @@ export interface Vehicle {
   vehicleReportFileName?: string;
   vehicleReportGeneratedAt?: string;
   vehicleConditionRating?: VehicleConditionRating;
+  vehicleReportSummary?: VehiclePublicReportSummary;
   coverImage?: string;
   coverImageUrl?: string;
   imageAssets?: VehicleImageAsset[];
@@ -227,6 +228,30 @@ export interface Vehicle {
   soldAt?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface VehicleReportImageSummary {
+  url: string;
+  label: string;
+  note?: string;
+}
+
+export interface VehiclePublicReportSummary {
+  warrantyStatus?: string;
+  numberOfOwners?: string;
+  accidentDeclaration?: string;
+  financeOwingDeclaration?: string;
+  odometerIssueDeclaration?: string;
+  exteriorCondition?: string;
+  panelRepairNotes?: string;
+  wheelCondition?: string;
+  interiorCondition?: string;
+  mechanicalCondition?: string;
+  serviceRecordCondition?: string;
+  keyCondition?: string;
+  rwcCooperation?: string;
+  damageConditionNotes?: string;
+  damageImages?: VehicleReportImageSummary[];
 }
 
 export interface WarehouseIntakeFileRecord {

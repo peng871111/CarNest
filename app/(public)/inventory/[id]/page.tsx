@@ -313,8 +313,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
             </div>
             <VehicleReportAccess
               vehicleId={vehicle.id}
-              storagePath={vehicle.vehicleReportStoragePath}
-              fileName={vehicle.vehicleReportFileName}
+              reportAvailable={vehicle.vehicleReportAvailable}
               generatedAt={vehicle.vehicleReportGeneratedAt}
               conditionRating={vehicle.vehicleConditionRating}
               compact
