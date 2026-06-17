@@ -16,6 +16,8 @@ import {
 } from "@/lib/data";
 import {
   CARNEST_CONCIERGE_AGREEMENT_COPY,
+  VEHICLE_REPORT_RATING_OPTIONS,
+  VEHICLE_REPORT_RWC_COOPERATION_OPTIONS,
   WAREHOUSE_CONTACT_METHOD_OPTIONS,
   WAREHOUSE_DECLARATION_OPTIONS,
   WAREHOUSE_IDENTIFICATION_OPTIONS,
@@ -26,12 +28,15 @@ import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
   fetchAdminWarehouseIntakeFileBlob,
   fetchAdminWarehouseIntakeFileBytes,
+  fetchVehicleReportBlob,
+  uploadVehicleReportPdf,
   uploadWarehouseIntakePdf,
   uploadWarehouseIntakePhotos,
   uploadWarehouseIntakeSignature,
   uploadWarehouseIntakeSupportingFile
 } from "@/lib/storage";
 import { generateWarehouseIntakePdf } from "@/lib/warehouse-intake-pdf";
+import { generateVehicleReportPdf } from "@/lib/vehicle-report-pdf";
 import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
@@ -44,6 +49,8 @@ import {
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
   WarehouseIntakeRecord,
+  VehicleConditionRating,
+  VehicleReportRwcCooperation,
   WarehouseServiceFeeItem
 } from "@/types";
 
@@ -61,6 +68,10 @@ const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["cat
   { value: "sundry", label: "Sundry" },
   { value: "other", label: "Other" }
 ];
+
+const VEHICLE_FUEL_TYPE_OPTIONS = ["Petrol", "Diesel", "Hybrid", "Plug-in Hybrid", "Full Electric"] as const;
+const VEHICLE_TRANSMISSION_OPTIONS = ["AT", "CVT", "MT", "DCT"] as const;
+const VEHICLE_DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD"] as const;
 
 function toDraft(record: WarehouseIntakeRecord): Omit<WarehouseIntakeRecord, "id"> {
   const { id: _id, ...draft } = record;
@@ -166,9 +177,12 @@ function applyVehicleRecordToDraft(
         numberOfKeys: "",
         fuelType: "",
         transmission: "",
+        drivetrain: "",
         askingPrice: "",
         reservePrice: "",
         serviceHistory: "",
+        warrantyStatus: "",
+        numberOfOwners: "",
         accidentHistory: "",
         ownershipProof: null,
         notes: ""
@@ -199,9 +213,12 @@ function applyVehicleRecordToDraft(
       numberOfKeys: record.numberOfKeys,
       fuelType: record.fuelType,
       transmission: record.transmission,
+      drivetrain: draft.vehicleDetails.drivetrain,
       askingPrice: record.askingPrice,
       reservePrice: record.reservePrice,
       serviceHistory: record.serviceHistory,
+      warrantyStatus: draft.vehicleDetails.warrantyStatus,
+      numberOfOwners: draft.vehicleDetails.numberOfOwners,
       accidentHistory: record.accidentHistory,
       ownershipProof: record.ownershipProof ?? null,
       notes: record.notes
@@ -238,6 +255,7 @@ function mergeVehicleIntoDraft(draft: Omit<WarehouseIntakeRecord, "id">, vehicle
       numberOfKeys: vehicle.keyCount || draft.vehicleDetails.numberOfKeys,
       fuelType: vehicle.fuelType || draft.vehicleDetails.fuelType,
       transmission: vehicle.transmission || draft.vehicleDetails.transmission,
+      drivetrain: vehicle.drivetrain || draft.vehicleDetails.drivetrain,
       askingPrice: vehicle.price ? String(vehicle.price) : draft.vehicleDetails.askingPrice,
       serviceHistory: vehicle.serviceHistory || draft.vehicleDetails.serviceHistory,
       notes: draft.vehicleDetails.notes || vehicle.description || ""
@@ -403,6 +421,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       activeAt: draft.activeEditorAt
     };
   }, [actor, draft.activeEditorAt, draft.activeEditorName, draft.activeEditorUid]);
+  const listingEligibilityWarning = draft.vehicleReport.conditionRating === "2.5"
+    ? "Vehicles rated 2.5 should not be accepted for public platform listing."
+    : "";
 
   async function getAdminIdToken() {
     const idToken = await firebaseUser?.getIdToken();
@@ -648,6 +669,19 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }));
   }
 
+  function updateVehicleReportField<K extends keyof WarehouseIntakeRecord["vehicleReport"]>(
+    key: K,
+    value: WarehouseIntakeRecord["vehicleReport"][K]
+  ) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        [key]: value
+      }
+    }));
+  }
+
   function addServiceItem() {
     setDraft((current) => ({
       ...current,
@@ -818,6 +852,20 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     } finally {
       setUploadingLabel("");
     }
+  }
+
+  function updatePhotoNote(photoId: string, note: string) {
+    setDraft((current) => ({
+      ...current,
+      photos: current.photos.map((photo) => (
+        photo.id === photoId
+          ? {
+              ...photo,
+              note
+            }
+          : photo
+      ))
+    }));
   }
 
   function validateFinalDraft() {
@@ -993,6 +1041,62 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     });
   }
 
+  async function handleGenerateVehicleReportPdf() {
+    if (!recordId) {
+      setErrorMessage("Save the storage contract draft before generating the Vehicle Report PDF.");
+      return;
+    }
+
+    if (!draft.vehicleId) {
+      setErrorMessage("Link this storage contract to a public listing before generating the Vehicle Report PDF.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      setNotice("");
+
+      const previewRecord = {
+        id: recordId,
+        ...draft,
+        photoCount: draft.photos.length
+      } satisfies WarehouseIntakeRecord;
+      const idToken = await getAdminIdToken();
+      const pdfBytes = await generateVehicleReportPdf(previewRecord, {
+        resolveStorageBytes: async (storagePath) => await fetchAdminWarehouseIntakeFileBytes(storagePath, idToken)
+      });
+      const pdfFileName = `${(draft.vehicleReference || draft.vehicleId || recordId).replace(/\s+/g, "-").toLowerCase()}-vehicle-report.pdf`;
+      const vehicleReportPdfStoragePath = await uploadVehicleReportPdf(pdfBytes, draft.vehicleId, pdfFileName);
+
+      const nextDraft = {
+        ...draft,
+        vehicleReportPdfStoragePath,
+        vehicleReportPdfFileName: pdfFileName,
+        vehicleReportGeneratedAt: new Date().toISOString()
+      };
+      setDraft(nextDraft);
+      await persistDraft(nextDraft, "Vehicle Report PDF generated.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't generate the Vehicle Report PDF.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleOpenVehicleReportPdf() {
+    if (!draft.vehicleReportPdfStoragePath) return;
+
+    try {
+      const blob = await fetchVehicleReportBlob(draft.vehicleReportPdfStoragePath);
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't open the Vehicle Report PDF.");
+    }
+  }
+
   async function handleNextStep() {
     if (currentStep === 4) {
       try {
@@ -1028,13 +1132,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest storage contract</p>
           <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone storage contract"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">
-            Complete reusable customer onboarding, private vehicle record setup, intake-event documentation, digital agreement, signature, PDF, print, and customer email workflow from one iPad-friendly workspace.
+            Capture owner details, vehicle details, structured condition notes, storage terms, signatures, and buyer-facing Vehicle Report files from one iPad-friendly workflow.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
           {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
           {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
+          {draft.vehicleReportPdfStoragePath ? <StatusPill label="Vehicle Report ready" tone="success" /> : <StatusPill label="Vehicle Report pending" />}
         </div>
       </div>
 
@@ -1075,9 +1180,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         <div className="space-y-6">
           {currentStep === 0 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">1. Customer profile</h3>
+              <h3 className="text-xl font-semibold text-ink">1. Owner information</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Select an existing customer profile for a returning warehouse-managed customer, or continue with a new reusable customer profile.
+                Select an existing customer profile for a returning owner, or continue with a new reusable customer profile. Identity and verification details remain admin-only.
               </p>
               <div className="mt-5 space-y-2">
                 <FieldLabel>Existing customer</FieldLabel>
@@ -1203,9 +1308,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
           {currentStep === 1 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">2. Vehicle record</h3>
+              <h3 className="text-xl font-semibold text-ink">2. Vehicle information</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Select an existing private vehicle record for this customer, or capture a new private vehicle record that can later be linked to an optional public listing.
+                Select an existing private vehicle record for this owner, or capture the full vehicle information used by both the storage contract and buyer-facing Vehicle Report.
               </p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
@@ -1238,17 +1343,17 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   ["model", "Model"],
                   ["variant", "Variant"],
                   ["year", "Year"],
-                  ["registrationPlate", "Registration plate"],
+                  ["registrationPlate", "Rego"],
                   ["vin", "VIN"],
                   ["colour", "Colour"],
                   ["odometer", "Odometer"],
-                  ["registrationExpiry", "Registration expiry"],
+                  ["registrationExpiry", "Rego expiry"],
                   ["numberOfKeys", "Number of keys"],
-                  ["fuelType", "Fuel type"],
-                  ["transmission", "Transmission"],
                   ["askingPrice", "Asking price"],
                   ["reservePrice", "Reserve price"],
                   ["serviceHistory", "Service history"],
+                  ["warrantyStatus", "Warranty status"],
+                  ["numberOfOwners", "Number of owners"],
                   ["accidentHistory", "Accident history"]
                 ].map(([key, label]) => (
                   <div key={key} className="space-y-2">
@@ -1259,6 +1364,34 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     />
                   </div>
                 ))}
+
+                <div className="space-y-2">
+                  <FieldLabel>Fuel type</FieldLabel>
+                  <SelectInput value={draft.vehicleDetails.fuelType} onChange={(event) => updateVehicleField("fuelType", event.target.value)}>
+                    <option value="">Select fuel type</option>
+                    {VEHICLE_FUEL_TYPE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </SelectInput>
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Transmission</FieldLabel>
+                  <SelectInput value={draft.vehicleDetails.transmission} onChange={(event) => updateVehicleField("transmission", event.target.value)}>
+                    <option value="">Select transmission</option>
+                    {VEHICLE_TRANSMISSION_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </SelectInput>
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Drivetrain</FieldLabel>
+                  <SelectInput value={draft.vehicleDetails.drivetrain} onChange={(event) => updateVehicleField("drivetrain", event.target.value)}>
+                    <option value="">Select drivetrain</option>
+                    {VEHICLE_DRIVETRAIN_OPTIONS.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </SelectInput>
+                </div>
 
                 <div className="space-y-2">
                   <FieldLabel>Ownership proof upload</FieldLabel>
@@ -1342,23 +1475,107 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
           {currentStep === 2 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">3. Intake documentation</h3>
+              <h3 className="text-xl font-semibold text-ink">3. Vehicle condition</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Capture evidence only. Do not rate the vehicle subjectively. Document defects, wheel rash, interior marks, odometer, VIN, and the general stored state through notes and photos.
+                Capture the structured condition details that feed the CarNest Vehicle Report. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
               </p>
-              <p className="mt-2 text-sm leading-6 text-ink/56">
-                If some documentation is not available yet, save the draft and continue. Missing photos can remain pending until the vehicle or owner is ready.
-              </p>
-              <div className="mt-5 rounded-[24px] border border-black/5 bg-shell p-4">
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <FieldLabel>Visible defects / condition comments</FieldLabel>
+                  <FieldLabel>CarNest condition rating</FieldLabel>
+                  <SelectInput
+                    value={draft.vehicleReport.conditionRating}
+                    onChange={(event) => updateVehicleReportField("conditionRating", event.target.value as VehicleConditionRating | "")}
+                  >
+                    <option value="">Select rating</option>
+                    {VEHICLE_REPORT_RATING_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </SelectInput>
+                  <FieldNote>Vehicles rated 2.5 or below should not be accepted for public platform listing.</FieldNote>
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>RWC cooperation</FieldLabel>
+                  <SelectInput
+                    value={draft.vehicleReport.rwcCooperation}
+                    onChange={(event) => updateVehicleReportField("rwcCooperation", event.target.value as VehicleReportRwcCooperation | "")}
+                  >
+                    <option value="">Select RWC position</option>
+                    {VEHICLE_REPORT_RWC_COOPERATION_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </SelectInput>
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Exterior paint / body condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.exteriorCondition}
+                    onChange={(event) => updateVehicleReportField("exteriorCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Panel repair / repaint notes</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.panelRepairNotes}
+                    onChange={(event) => updateVehicleReportField("panelRepairNotes", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Wheel condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.wheelCondition}
+                    onChange={(event) => updateVehicleReportField("wheelCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Interior condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.interiorCondition}
+                    onChange={(event) => updateVehicleReportField("interiorCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Mechanical condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.mechanicalCondition}
+                    onChange={(event) => updateVehicleReportField("mechanicalCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Service record condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.serviceRecordCondition}
+                    onChange={(event) => updateVehicleReportField("serviceRecordCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <FieldLabel>Key condition</FieldLabel>
+                  <TextAreaInput
+                    className="min-h-[96px]"
+                    value={draft.vehicleReport.keyCondition}
+                    onChange={(event) => updateVehicleReportField("keyCondition", event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel>Damage / condition notes</FieldLabel>
                   <TextAreaInput
                     className="min-h-[112px]"
-                    placeholder="Record scratches, dents, wheel rash, interior marks, transport notes, or any condition comments that staff should reference with the photo evidence."
-                    value={draft.conditionReport.exterior.visibleDefects.notes}
-                    onChange={(event) => updateConditionItem("exterior", "visibleDefects", { notes: event.target.value, documented: Boolean(event.target.value.trim()) })}
+                    placeholder="Record scratches, dents, wheel rash, interior marks, transport notes, or anything the buyer-facing report should explain."
+                    value={draft.vehicleReport.damageConditionNotes}
+                    onChange={(event) => {
+                      updateVehicleReportField("damageConditionNotes", event.target.value);
+                      updateConditionItem("exterior", "visibleDefects", {
+                        notes: event.target.value,
+                        documented: Boolean(event.target.value.trim())
+                      });
+                    }}
                   />
-                  <FieldNote>Use uploaded photos as the primary condition record. Add notes only where extra context helps staff or the owner later.</FieldNote>
+                  <FieldNote>This note is included in the buyer-facing Vehicle Report.</FieldNote>
                 </div>
               </div>
 
@@ -1379,12 +1596,21 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {sectionPhotos.map((photo) => (
-                          <WarehouseIntakeSecureImage
-                            key={photo.id}
-                            storagePath={photo.storagePath}
-                            fileName={photo.name}
-                            alt={photo.label}
-                          />
+                          <div key={photo.id} className="space-y-2">
+                            <WarehouseIntakeSecureImage
+                              storagePath={photo.storagePath}
+                              fileName={photo.name}
+                              alt={photo.label}
+                            />
+                            {section.key === "damagePhotos" ? (
+                              <TextAreaInput
+                                className="min-h-[84px]"
+                                value={photo.note || ""}
+                                onChange={(event) => updatePhotoNote(photo.id, event.target.value)}
+                                placeholder="Damage label, location, or buyer-facing note"
+                              />
+                            ) : null}
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1486,7 +1712,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
           {currentStep === 3 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">4. Owner declaration and agreement</h3>
+              <h3 className="text-xl font-semibold text-ink">4. CarNest platform terms</h3>
               <div className="mt-5 rounded-[24px] border border-black/5 bg-shell p-5">
                 <p className="text-sm leading-7 text-ink/72">
                   Customer: <strong className="text-ink">{draft.ownerDetails.fullName || "Pending"}</strong>
@@ -1535,7 +1761,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
           {currentStep === 4 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">5. Owner declaration and signature</h3>
+              <h3 className="text-xl font-semibold text-ink">5. Signature</h3>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <FieldLabel>Signer name</FieldLabel>
@@ -1576,7 +1802,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
           {currentStep === 5 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">6. Complete, print, and email</h3>
+              <h3 className="text-xl font-semibold text-ink">6. Complete, report, and email</h3>
               <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">Customer profile</p>
@@ -1598,7 +1824,16 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
                   <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
                 </div>
+                <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Vehicle Report</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.vehicleReportPdfStoragePath ? "Available for signed-in buyers" : "Generate after condition details are complete"}</p>
+                </div>
               </div>
+              {listingEligibilityWarning ? (
+                <div className="mt-5 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {listingEligibilityWarning}
+                </div>
+              ) : null}
               <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   type="button"
@@ -1631,6 +1866,22 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Email PDF to customer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateVehicleReportPdf()}
+                  disabled={saving || !draft.vehicleId}
+                  className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Generate Vehicle Report PDF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleOpenVehicleReportPdf()}
+                  disabled={!draft.vehicleReportPdfStoragePath}
+                  className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Open Vehicle Report PDF
                 </button>
               </div>
             </div>
@@ -1670,9 +1921,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
         <aside className="space-y-4">
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Relationship tree</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Workflow summary</p>
             <p className="mt-2 text-sm leading-6 text-ink/58">
-              This onboarding flow creates a private customer profile, a persistent internal vehicle record, a warehouse intake event, and optionally links a public listing.
+              This workflow keeps the private storage contract separate from the buyer-facing Vehicle Report while reusing the same captured condition evidence.
             </p>
             <div className="mt-4 space-y-3 text-sm text-ink/68">
               <p><span className="font-semibold text-ink">Customer profile:</span> {draft.ownerDetails.fullName || draft.ownerDetails.email || "Pending onboarding"}</p>
@@ -1685,8 +1936,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST` : "None yet"}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
+              <p><span className="font-semibold text-ink">Vehicle rating:</span> {draft.vehicleReport.conditionRating || "Pending"}</p>
+              <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Vehicle Report:</span> {draft.vehicleReportPdfStoragePath ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
             {draft.vehicleId ? (

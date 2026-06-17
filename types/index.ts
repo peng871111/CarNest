@@ -66,6 +66,12 @@ export type VehicleRecordStatus =
   | "withdrawn";
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
 export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
+export type VehicleConditionRating = "5.0" | "4.5" | "4.0" | "3.5" | "3.0" | "2.5";
+export type VehicleReportRwcCooperation =
+  | "seller_includes_rwc"
+  | "seller_repairs_for_rwc"
+  | "seller_coordinates_with_carnest"
+  | "seller_does_not_include_rwc";
 export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing" | "user_access";
 export type AdminAuditActionType =
   | "created"
@@ -198,6 +204,11 @@ export interface Vehicle {
   serviceHistory: string;
   keyCount: string;
   displayReference?: string;
+  vehicleReportAvailable?: boolean;
+  vehicleReportStoragePath?: string;
+  vehicleReportFileName?: string;
+  vehicleReportGeneratedAt?: string;
+  vehicleConditionRating?: VehicleConditionRating;
   coverImage?: string;
   coverImageUrl?: string;
   imageAssets?: VehicleImageAsset[];
@@ -273,12 +284,28 @@ export interface WarehouseIntakeVehicleDetails {
   numberOfKeys: string;
   fuelType: string;
   transmission: string;
+  drivetrain: string;
   askingPrice: string;
   reservePrice: string;
   serviceHistory: string;
+  warrantyStatus: string;
+  numberOfOwners: string;
   accidentHistory: string;
   ownershipProof?: WarehouseIntakeFileRecord | null;
   notes: string;
+}
+
+export interface WarehouseVehicleReportDetails {
+  conditionRating: VehicleConditionRating | "";
+  exteriorCondition: string;
+  panelRepairNotes: string;
+  wheelCondition: string;
+  interiorCondition: string;
+  mechanicalCondition: string;
+  serviceRecordCondition: string;
+  keyCondition: string;
+  rwcCooperation: VehicleReportRwcCooperation | "";
+  damageConditionNotes: string;
 }
 
 export interface WarehouseIntakeDeclarations {
@@ -512,6 +539,7 @@ export interface WarehouseIntakeRecord {
   vehicleDetails: WarehouseIntakeVehicleDetails;
   declarations: WarehouseIntakeDeclarations;
   conditionReport: WarehouseIntakeConditionReport;
+  vehicleReport: WarehouseVehicleReportDetails;
   photos: WarehouseIntakePhotoRecord[];
   serviceItems: WarehouseServiceFeeItem[];
   intakeDate?: string;
@@ -530,6 +558,9 @@ export interface WarehouseIntakeRecord {
   signedPdfStoragePath?: string;
   signedPdfFileName?: string;
   pdfGeneratedAt?: string;
+  vehicleReportPdfStoragePath?: string;
+  vehicleReportPdfFileName?: string;
+  vehicleReportGeneratedAt?: string;
   completedAt?: string;
   emailSentAt?: string;
   photoCount?: number;

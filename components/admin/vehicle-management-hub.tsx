@@ -1127,6 +1127,7 @@ export function VehicleManagementHub({
                         ) : (
                           <span>No contract</span>
                         )}
+                        <span>{vehicle.vehicleReportAvailable ? "Vehicle Report ready" : "Vehicle Report pending"}</span>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                         <span className="rounded-full border border-black/8 bg-white px-2.5 py-1 font-medium text-ink/68">

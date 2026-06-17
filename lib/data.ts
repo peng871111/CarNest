@@ -791,6 +791,19 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
         : data.customerName === null
           ? null
           : "",
+    vehicleReportAvailable: data.vehicleReportAvailable === true || typeof data.vehicleReportStoragePath === "string",
+    vehicleReportStoragePath: typeof data.vehicleReportStoragePath === "string" ? data.vehicleReportStoragePath : "",
+    vehicleReportFileName: typeof data.vehicleReportFileName === "string" ? data.vehicleReportFileName : "",
+    vehicleReportGeneratedAt: serializeDate(data.vehicleReportGeneratedAt),
+    vehicleConditionRating:
+      data.vehicleConditionRating === "5.0"
+      || data.vehicleConditionRating === "4.5"
+      || data.vehicleConditionRating === "4.0"
+      || data.vehicleConditionRating === "3.5"
+      || data.vehicleConditionRating === "3.0"
+      || data.vehicleConditionRating === "2.5"
+        ? data.vehicleConditionRating
+        : undefined,
     manualReviewReason: data.manualReviewReason === "possible_unlicensed_trader" ? "possible_unlicensed_trader" : undefined,
     viewCount: Number(data.viewCount ?? 0),
     uniqueViewCount: Number(data.uniqueViewCount ?? 0),
@@ -946,13 +959,31 @@ function createEmptyWarehouseVehicleDetails(): WarehouseIntakeVehicleDetails {
     numberOfKeys: "",
     fuelType: "",
     transmission: "",
+    drivetrain: "",
     askingPrice: "",
     reservePrice: "",
     serviceHistory: "",
+    warrantyStatus: "",
+    numberOfOwners: "",
     accidentHistory: "",
     ownershipProof: null,
     notes: ""
   };
+}
+
+function createEmptyWarehouseVehicleReport() {
+  return {
+    conditionRating: "",
+    exteriorCondition: "",
+    panelRepairNotes: "",
+    wheelCondition: "",
+    interiorCondition: "",
+    mechanicalCondition: "",
+    serviceRecordCondition: "",
+    keyCondition: "",
+    rwcCooperation: "",
+    damageConditionNotes: ""
+  } as WarehouseIntakeRecord["vehicleReport"];
 }
 
 export function createEmptyWarehouseServiceFeeItem(overrides?: Partial<WarehouseServiceFeeItem>): WarehouseServiceFeeItem {
@@ -1208,10 +1239,14 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
       odometer: vehicle?.mileage ? String(vehicle.mileage) : "",
       registrationExpiry: vehicle?.regoExpiry ?? "",
       numberOfKeys: vehicle?.keyCount ?? "",
+      fuelType: vehicle?.fuelType ?? "",
+      transmission: vehicle?.transmission ?? "",
+      drivetrain: vehicle?.drivetrain ?? "",
       serviceHistory: vehicle?.serviceHistory ?? ""
     },
     declarations: createEmptyWarehouseDeclarations(),
     conditionReport: createEmptyWarehouseConditionReport(),
+    vehicleReport: createEmptyWarehouseVehicleReport(),
     photos: [],
     serviceItems: [],
     intakeDate: "",
@@ -1230,6 +1265,9 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     signedPdfStoragePath: "",
     signedPdfFileName: "",
     pdfGeneratedAt: "",
+    vehicleReportPdfStoragePath: "",
+    vehicleReportPdfFileName: "",
+    vehicleReportGeneratedAt: "",
     completedAt: "",
     emailSentAt: "",
     photoCount: 0,
@@ -1253,6 +1291,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
   const agreementInput = data.agreement && typeof data.agreement === "object" ? (data.agreement as Record<string, unknown>) : {};
   const signatureInput = data.signature && typeof data.signature === "object" ? (data.signature as Record<string, unknown>) : {};
   const conditionInput = data.conditionReport && typeof data.conditionReport === "object" ? (data.conditionReport as Record<string, unknown>) : {};
+  const vehicleReportInput = data.vehicleReport && typeof data.vehicleReport === "object" ? (data.vehicleReport as Record<string, unknown>) : {};
   const photos = Array.isArray(data.photos)
     ? (data.photos as Array<Record<string, unknown>>)
         .map((item, index) => ({
@@ -1343,9 +1382,12 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       numberOfKeys: typeof vehicleInput.numberOfKeys === "string" ? vehicleInput.numberOfKeys : "",
       fuelType: typeof vehicleInput.fuelType === "string" ? vehicleInput.fuelType : "",
       transmission: typeof vehicleInput.transmission === "string" ? vehicleInput.transmission : "",
+      drivetrain: typeof vehicleInput.drivetrain === "string" ? vehicleInput.drivetrain : "",
       askingPrice: typeof vehicleInput.askingPrice === "string" ? vehicleInput.askingPrice : "",
       reservePrice: typeof vehicleInput.reservePrice === "string" ? vehicleInput.reservePrice : "",
       serviceHistory: typeof vehicleInput.serviceHistory === "string" ? vehicleInput.serviceHistory : "",
+      warrantyStatus: typeof vehicleInput.warrantyStatus === "string" ? vehicleInput.warrantyStatus : "",
+      numberOfOwners: typeof vehicleInput.numberOfOwners === "string" ? vehicleInput.numberOfOwners : "",
       accidentHistory: typeof vehicleInput.accidentHistory === "string" ? vehicleInput.accidentHistory : "",
       ownershipProof: serializeWarehouseFileRecord(
         vehicleInput.ownershipProof ?? ownerInput.ownershipVerification
@@ -1368,6 +1410,33 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       exterior: serializeWarehouseConditionSection(conditionInput.exterior, WAREHOUSE_EXTERIOR_KEYS),
       interior: serializeWarehouseConditionSection(conditionInput.interior, WAREHOUSE_INTERIOR_KEYS),
       mechanical: serializeWarehouseConditionSection(conditionInput.mechanical, WAREHOUSE_MECHANICAL_KEYS)
+    },
+    vehicleReport: {
+      ...createEmptyWarehouseVehicleReport(),
+      conditionRating:
+        vehicleReportInput.conditionRating === "5.0"
+        || vehicleReportInput.conditionRating === "4.5"
+        || vehicleReportInput.conditionRating === "4.0"
+        || vehicleReportInput.conditionRating === "3.5"
+        || vehicleReportInput.conditionRating === "3.0"
+        || vehicleReportInput.conditionRating === "2.5"
+          ? vehicleReportInput.conditionRating
+          : "",
+      exteriorCondition: typeof vehicleReportInput.exteriorCondition === "string" ? vehicleReportInput.exteriorCondition : "",
+      panelRepairNotes: typeof vehicleReportInput.panelRepairNotes === "string" ? vehicleReportInput.panelRepairNotes : "",
+      wheelCondition: typeof vehicleReportInput.wheelCondition === "string" ? vehicleReportInput.wheelCondition : "",
+      interiorCondition: typeof vehicleReportInput.interiorCondition === "string" ? vehicleReportInput.interiorCondition : "",
+      mechanicalCondition: typeof vehicleReportInput.mechanicalCondition === "string" ? vehicleReportInput.mechanicalCondition : "",
+      serviceRecordCondition: typeof vehicleReportInput.serviceRecordCondition === "string" ? vehicleReportInput.serviceRecordCondition : "",
+      keyCondition: typeof vehicleReportInput.keyCondition === "string" ? vehicleReportInput.keyCondition : "",
+      rwcCooperation:
+        vehicleReportInput.rwcCooperation === "seller_includes_rwc"
+        || vehicleReportInput.rwcCooperation === "seller_repairs_for_rwc"
+        || vehicleReportInput.rwcCooperation === "seller_coordinates_with_carnest"
+        || vehicleReportInput.rwcCooperation === "seller_does_not_include_rwc"
+          ? vehicleReportInput.rwcCooperation
+          : "",
+      damageConditionNotes: typeof vehicleReportInput.damageConditionNotes === "string" ? vehicleReportInput.damageConditionNotes : ""
     },
     photos,
     serviceItems,
@@ -1415,6 +1484,11 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
     ),
     signedPdfFileName: typeof data.signedPdfFileName === "string" ? data.signedPdfFileName : "",
     pdfGeneratedAt: serializeDate(data.pdfGeneratedAt),
+    vehicleReportPdfStoragePath: extractFirebaseStoragePath(
+      typeof data.vehicleReportPdfStoragePath === "string" ? data.vehicleReportPdfStoragePath : ""
+    ),
+    vehicleReportPdfFileName: typeof data.vehicleReportPdfFileName === "string" ? data.vehicleReportPdfFileName : "",
+    vehicleReportGeneratedAt: serializeDate(data.vehicleReportGeneratedAt),
     completedAt: serializeDate(data.completedAt),
     emailSentAt: serializeDate(data.emailSentAt),
     photoCount: Number(data.photoCount ?? photos.length),
@@ -4887,6 +4961,26 @@ function buildWarehouseIntakeWritePayload(
       interior: serializeWarehouseConditionSection(input.conditionReport?.interior, WAREHOUSE_INTERIOR_KEYS),
       mechanical: serializeWarehouseConditionSection(input.conditionReport?.mechanical, WAREHOUSE_MECHANICAL_KEYS)
     } satisfies WarehouseIntakeConditionReport,
+    vehicleReport: {
+      ...base.vehicleReport,
+      ...input.vehicleReport,
+      conditionRating:
+        input.vehicleReport?.conditionRating === "5.0"
+        || input.vehicleReport?.conditionRating === "4.5"
+        || input.vehicleReport?.conditionRating === "4.0"
+        || input.vehicleReport?.conditionRating === "3.5"
+        || input.vehicleReport?.conditionRating === "3.0"
+        || input.vehicleReport?.conditionRating === "2.5"
+          ? input.vehicleReport.conditionRating
+          : "",
+      rwcCooperation:
+        input.vehicleReport?.rwcCooperation === "seller_includes_rwc"
+        || input.vehicleReport?.rwcCooperation === "seller_repairs_for_rwc"
+        || input.vehicleReport?.rwcCooperation === "seller_coordinates_with_carnest"
+        || input.vehicleReport?.rwcCooperation === "seller_does_not_include_rwc"
+          ? input.vehicleReport.rwcCooperation
+          : ""
+    } satisfies WarehouseIntakeRecord["vehicleReport"],
     photos,
     serviceItems,
     intakeDate,
@@ -4918,6 +5012,9 @@ function buildWarehouseIntakeWritePayload(
     signedPdfStoragePath: input.signedPdfStoragePath || "",
     signedPdfFileName: input.signedPdfFileName || "",
     pdfGeneratedAt: input.pdfGeneratedAt || "",
+    vehicleReportPdfStoragePath: input.vehicleReportPdfStoragePath || "",
+    vehicleReportPdfFileName: input.vehicleReportPdfFileName || "",
+    vehicleReportGeneratedAt: input.vehicleReportGeneratedAt || "",
     completedAt: input.completedAt || "",
     emailSentAt: input.emailSentAt || "",
     photoCount: photos.length,
@@ -4930,6 +5027,31 @@ function buildWarehouseIntakeWritePayload(
     activeEditorAt: new Date().toISOString(),
     createdByUid: input.createdByUid || actor.id
   };
+}
+
+async function syncVehicleReportMetadataToPublicListing(
+  vehicleId: string,
+  input: Pick<
+    WarehouseIntakeRecord,
+    "vehicleReport" | "vehicleReportPdfStoragePath" | "vehicleReportPdfFileName" | "vehicleReportGeneratedAt"
+  >
+) {
+  if (!vehicleId || !isFirebaseConfigured) return;
+
+  const hasReport = Boolean(input.vehicleReportPdfStoragePath?.trim());
+
+  await setDoc(
+    doc(db, "vehicles", vehicleId),
+    sanitizeFirestoreWriteData({
+      vehicleReportAvailable: hasReport,
+      vehicleReportStoragePath: hasReport ? input.vehicleReportPdfStoragePath?.trim() : deleteField(),
+      vehicleReportFileName: hasReport ? (input.vehicleReportPdfFileName?.trim() || "") : deleteField(),
+      vehicleReportGeneratedAt: hasReport ? (input.vehicleReportGeneratedAt || new Date().toISOString()) : deleteField(),
+      vehicleConditionRating: hasReport ? (input.vehicleReport.conditionRating || "") : deleteField(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
 }
 
 export async function saveWarehouseIntake(
@@ -5036,6 +5158,7 @@ export async function saveWarehouseIntake(
     );
 
     await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+    await syncVehicleReportMetadataToPublicListing(payload.vehicleId, payload).catch(() => undefined);
     await writeAdminOperationalEvent({
       actor,
       recordType: "warehouse_intake",
@@ -5084,6 +5207,7 @@ export async function saveWarehouseIntake(
   );
 
   await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+  await syncVehicleReportMetadataToPublicListing(payload.vehicleId, payload).catch(() => undefined);
   await writeAdminOperationalEvent({
     actor,
     recordType: "warehouse_intake",

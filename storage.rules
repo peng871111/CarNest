@@ -29,5 +29,10 @@ service firebase.storage {
     match /warehouse-intakes/{intakeId}/{allPaths=**} {
       allow read, write: if isAdmin();
     }
+
+    match /vehicle-reports/{vehicleId}/{allPaths=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
   }
 }

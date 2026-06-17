@@ -320,6 +320,33 @@ export async function uploadWarehouseIntakePdf(pdfBytes: Uint8Array, intakeId: s
   return storageRef.fullPath;
 }
 
+export async function uploadVehicleReportPdf(pdfBytes: Uint8Array, vehicleId: string, fileName: string) {
+  if (!pdfBytes.length) {
+    throw new Error("Generate the report PDF before uploading.");
+  }
+
+  if (!vehicleId) {
+    throw new Error("A linked public listing is required before uploading the vehicle report PDF.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("PDF upload is temporarily unavailable. Please try again later.");
+  }
+
+  const sanitizedName = sanitizeStorageName(fileName || `carnest-vehicle-report-${vehicleId}.pdf`);
+  const normalizedPdfBytes = new Uint8Array(pdfBytes);
+  const pdfBlob = new Blob([normalizedPdfBytes], {
+    type: "application/pdf"
+  });
+  const pdfFile = new File([pdfBlob], sanitizedName, { type: "application/pdf" });
+  const storageRef = ref(storage, `vehicle-reports/${vehicleId}/${pdfFile.name}`);
+  await uploadBytes(storageRef, pdfFile, {
+    contentType: "application/pdf"
+  });
+
+  return storageRef.fullPath;
+}
+
 export async function readWarehouseIntakeStorageBlob(storagePath: string) {
   if (!storagePath) {
     throw new Error("Storage path is required.");
@@ -361,4 +388,16 @@ export async function fetchAdminWarehouseIntakeFileBlob(storagePath: string, idT
 export async function fetchAdminWarehouseIntakeFileBytes(storagePath: string, idToken: string) {
   const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
   return new Uint8Array(await blob.arrayBuffer());
+}
+
+export async function fetchVehicleReportBlob(storagePath: string) {
+  if (!storagePath) {
+    throw new Error("Vehicle report is not available yet.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Vehicle report download is temporarily unavailable. Please try again later.");
+  }
+
+  return await getBlob(ref(storage, storagePath));
 }

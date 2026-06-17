@@ -14,6 +14,7 @@ import { FinanceCalculator } from "@/components/vehicles/finance-calculator";
 import { MobileVehicleQuickActions } from "@/components/vehicles/mobile-vehicle-quick-actions";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
+import { VehicleReportAccess } from "@/components/vehicles/vehicle-report-access";
 import { SaveVehicleButton } from "@/components/vehicles/save-vehicle-button";
 import { TakeActionPanel } from "@/components/vehicles/take-action-panel";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
@@ -236,6 +237,13 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               ))}
             </div>
           </div>
+          <VehicleReportAccess
+            vehicleId={vehicle.id}
+            storagePath={vehicle.vehicleReportStoragePath}
+            fileName={vehicle.vehicleReportFileName}
+            generatedAt={vehicle.vehicleReportGeneratedAt}
+            conditionRating={vehicle.vehicleConditionRating}
+          />
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller and management status</p>
             <div className="mt-4 flex flex-wrap gap-2">

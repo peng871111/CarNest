@@ -1,10 +1,26 @@
 export const WAREHOUSE_INTAKE_STEPS = [
-  "Customer profile",
-  "Vehicle record",
-  "Documentation",
-  "Agreement",
+  "Owner information",
+  "Vehicle information",
+  "Vehicle condition",
+  "CarNest platform terms",
   "Signature",
   "Complete"
+] as const;
+
+export const VEHICLE_REPORT_RATING_OPTIONS = [
+  { value: "5.0", label: "5.0" },
+  { value: "4.5", label: "4.5" },
+  { value: "4.0", label: "4.0" },
+  { value: "3.5", label: "3.5" },
+  { value: "3.0", label: "3.0" },
+  { value: "2.5", label: "2.5" }
+] as const;
+
+export const VEHICLE_REPORT_RWC_COOPERATION_OPTIONS = [
+  { value: "seller_includes_rwc", label: "Seller includes RWC" },
+  { value: "seller_repairs_for_rwc", label: "Seller willing to repair personally to meet RWC" },
+  { value: "seller_coordinates_with_carnest", label: "Seller willing to coordinate with CarNest for required repair / maintenance" },
+  { value: "seller_does_not_include_rwc", label: "Seller does not include RWC" }
 ] as const;
 
 export const WAREHOUSE_DECLARATION_OPTIONS = [
