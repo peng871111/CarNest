@@ -237,13 +237,6 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               ))}
             </div>
           </div>
-          <VehicleReportAccess
-            vehicleId={vehicle.id}
-            storagePath={vehicle.vehicleReportStoragePath}
-            fileName={vehicle.vehicleReportFileName}
-            generatedAt={vehicle.vehicleReportGeneratedAt}
-            conditionRating={vehicle.vehicleConditionRating}
-          />
           <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
             <p className="text-xs uppercase tracking-[0.25em] text-bronze">Seller and management status</p>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -318,9 +311,17 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
               <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Asking price</p>
               <p className="mt-2 text-3xl font-semibold text-ink">{formatCurrency(vehicle.price)}</p>
             </div>
-          <div className="mt-6">
-            <ListingSummary vehicle={vehicle} />
-          </div>
+            <VehicleReportAccess
+              vehicleId={vehicle.id}
+              storagePath={vehicle.vehicleReportStoragePath}
+              fileName={vehicle.vehicleReportFileName}
+              generatedAt={vehicle.vehicleReportGeneratedAt}
+              conditionRating={vehicle.vehicleConditionRating}
+              compact
+            />
+            <div className="mt-6">
+              <ListingSummary vehicle={vehicle} />
+            </div>
           </div>
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
