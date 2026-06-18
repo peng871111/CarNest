@@ -152,7 +152,7 @@ export default async function HomePage() {
                   ))}
                 </div>
                 <p className="relative z-10 max-w-3xl text-sm leading-7 text-white">
-                  we simply help arrange the viewing. You deal directly with the owner if you proceed.
+                  we help arrange the inspection. You deal directly with the owner if you proceed.
                 </p>
               </div>
             </div>

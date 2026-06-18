@@ -1,11 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { fetchVehicleReportBlob } from "@/lib/storage";
 import { Vehicle } from "@/types";
-import { formatCalendarDate, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 
 const RATING_GUIDE: Array<[string, string]> = [
   ["5.0", "Original paint and panels, no exterior damage, no noticeable interior wear, complete service history, complete keys, mechanically sound, still under warranty."],
@@ -13,12 +11,12 @@ const RATING_GUIDE: Array<[string, string]> = [
   ["4.0", "Some paint or cosmetic repair, wheel rash possible, light interior usage marks, no major wear, complete service history, complete keys, mechanically sound."],
   ["3.5", "Small dents or scratches, some panel repair, wheel rash, visible interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
   ["3.0", "Visible scratches, dents, or unrepaired paint/panel issues, wheel rash, obvious interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
-  ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns. Vehicles assessed below a CarNest Condition Rating of 2.5 are not eligible to be advertised on the CarNest platform."]
+  ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns. Vehicles rated below 2.5 are not accepted for advertising on the CarNest platform."]
 ];
 
 const DISCLAIMER_LINES = [
-  "CarNest Vehicle Report is provided as a complimentary buyer reference document and is intended to assist prospective buyers in understanding the vehicle's disclosed condition and presentation.",
-  "This Vehicle Report is provided free of charge by CarNest for informational purposes only.",
+  "CarNest Condition Overview is provided as a complimentary buyer reference document and is intended to assist prospective buyers in understanding the vehicle's disclosed condition and presentation.",
+  "This Condition Overview is provided free of charge by CarNest for informational purposes only.",
   "The report is intended as a general summary of the vehicle condition based on information supplied and observations recorded at the time of preparation.",
   "CarNest strongly recommends that all prospective buyers arrange their own independent mechanical inspection and assessment before purchasing any vehicle.",
   "While reasonable care has been taken in preparing this report, CarNest does not guarantee the completeness, accuracy, or ongoing validity of any information contained within it.",
@@ -38,31 +36,6 @@ function DetailItem({ label, value }: { label: string; value?: string | number |
 
 export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
   const { appUser, loading } = useAuth();
-  const [downloadingPdf, setDownloadingPdf] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-
-  async function handleDownloadPdf() {
-    if (!vehicle.vehicleReportStoragePath) return;
-
-    try {
-      setDownloadingPdf(true);
-      setErrorMessage("");
-      const blob = await fetchVehicleReportBlob(vehicle.vehicleReportStoragePath);
-      const objectUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = vehicle.vehicleReportFileName || `${getVehicleDisplayReference(vehicle)}-vehicle-report.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-    } catch (error) {
-      console.error("Vehicle Report PDF download failed", error);
-      setErrorMessage("Vehicle Report temporarily unavailable. Please try again later.");
-    } finally {
-      setDownloadingPdf(false);
-    }
-  }
 
   if (loading) {
     return (
@@ -78,10 +51,10 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
     return (
       <main className="mx-auto max-w-4xl px-6 py-16">
         <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Vehicle Report</p>
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
           <h1 className="mt-3 text-3xl font-semibold text-ink">Sign in to view the verified condition summary</h1>
           <p className="mt-4 text-sm leading-6 text-ink/65">
-            Create a CarNest account or sign in to view the buyer-facing Vehicle Report for this listing.
+            Create a CarNest account or sign in to view the buyer-facing Condition Overview for this listing.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
@@ -107,36 +80,17 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
       <div className="rounded-[30px] border border-black/5 bg-white p-6 shadow-panel sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Vehicle Report</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
             <h1 className="mt-2 text-3xl font-semibold text-ink">
               {[vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").trim()}
             </h1>
             <p className="mt-2 text-sm text-ink/60">{getVehicleDisplayReference(vehicle)}</p>
           </div>
           <div className="rounded-[22px] border border-black/8 bg-shell px-5 py-4 text-right">
-            <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Rating</p>
-            <p className="mt-2 text-3xl font-semibold text-ink">{vehicle.vehicleConditionRating ? `${vehicle.vehicleConditionRating}/5.0` : "Pending"}</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Condition</p>
+            <p className="mt-2 text-3xl font-semibold text-ink">{vehicle.vehicleConditionRating ? `${vehicle.vehicleConditionRating} / 5.0` : "Pending"}</p>
           </div>
         </div>
-
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          {vehicle.vehicleReportStoragePath ? (
-            <button
-              type="button"
-              onClick={() => void handleDownloadPdf()}
-              disabled={downloadingPdf}
-              className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {downloadingPdf ? "Downloading PDF..." : "Download PDF"}
-            </button>
-          ) : (
-            <p className="text-sm text-ink/52">PDF pending</p>
-          )}
-          {vehicle.vehicleReportGeneratedAt ? (
-            <p className="text-xs text-ink/50">Updated {formatCalendarDate(vehicle.vehicleReportGeneratedAt)}</p>
-          ) : null}
-        </div>
-        {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
 
         <section className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <DetailItem label="Asking price" value={formatCurrency(vehicle.price)} />

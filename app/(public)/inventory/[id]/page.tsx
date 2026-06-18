@@ -167,7 +167,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
       <p className="mt-3 text-sm leading-6 text-ink/52">
         Private sale
         <br />
-        CarNest helps organise inspections and enquiries
+        CarNest helps arrange the inspection and enquiries
         <br />
         You deal directly with the owner if you proceed
       </p>
@@ -333,7 +333,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <SaveVehicleButton vehicleId={vehicle.id} />
           <TakeActionPanel vehicle={vehicle} />
           <p className="px-2 text-xs leading-5 text-ink/50">
-            No pressure — we simply help arrange the viewing
+            No pressure — we help arrange the inspection
           </p>
           <FinanceCalculator defaultVehiclePrice={vehicle.price} />
         </aside>

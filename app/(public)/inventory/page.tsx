@@ -62,7 +62,7 @@ export default async function InventoryPage() {
         <p className="mt-4 max-w-2xl text-ink/65">
           All vehicles are privately owned.
           <br />
-          CarNest helps organise inspections and connect you directly with the owner.
+          We help arrange the inspection. You deal directly with the owner if you proceed.
         </p>
       </div>
       {error ? (

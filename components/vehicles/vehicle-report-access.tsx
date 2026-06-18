@@ -37,7 +37,8 @@ export function VehicleReportAccess({
       setErrorMessage("");
       router.push(`/vehicle-report/${vehicleId}`);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We couldn't open the CarNest Vehicle Report.");
+      console.error("Condition Overview open failed", error);
+      setErrorMessage("Condition Overview temporarily unavailable. Please try again later.");
     } finally {
       setOpening(false);
     }
@@ -53,8 +54,8 @@ export function VehicleReportAccess({
         <div className="mt-6 border-t border-black/6 pt-6">
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Rating</p>
-              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating}/5.0</p>
+              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Condition</p>
+              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating} / 5.0</p>
               {generatedAt ? (
                 <p className="mt-2 text-xs text-ink/50">
                   Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
@@ -68,7 +69,7 @@ export function VehicleReportAccess({
                 disabled={loading || opening}
                 className="text-sm font-semibold text-ink underline decoration-black/20 underline-offset-4 transition hover:text-bronze hover:decoration-bronze disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Checking account..." : opening ? "Opening report..." : "View Vehicle Report →"}
+                {loading ? "Checking account..." : opening ? "Opening overview..." : "View Condition Overview →"}
               </button>
             </div>
           </div>
@@ -76,11 +77,8 @@ export function VehicleReportAccess({
         </div>
       ) : (
         <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Vehicle Report</p>
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
           <h2 className="mt-2 text-2xl font-semibold text-ink">View verified vehicle condition summary</h2>
-          <p className="mt-3 text-sm leading-6 text-ink/65">
-            Open the buyer-facing CarNest Vehicle Report for documented condition details, declarations, and supporting damage images.
-          </p>
           <div className="mt-4 flex flex-wrap gap-2 text-xs text-ink/55">
             {conditionRating ? (
               <span className="rounded-full border border-black/8 bg-shell px-3 py-1.5 font-medium text-ink/72">
@@ -100,11 +98,8 @@ export function VehicleReportAccess({
               disabled={loading || opening || !reportAvailable}
               className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Checking account..." : opening ? "Opening report..." : "Open Vehicle Report"}
+              {loading ? "Checking account..." : opening ? "Opening overview..." : "Open Condition Overview"}
             </button>
-            <p className="text-xs leading-5 text-ink/52">
-              Sign in or create a CarNest account to access this report.
-            </p>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
         </div>

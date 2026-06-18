@@ -26,17 +26,14 @@ import {
 } from "@/lib/warehouse-intake-config";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
-  fetchAdminWarehouseIntakeFileBlob,
   fetchAdminWarehouseIntakeFileBytes,
-  getVehicleReportDownloadUrl,
-  uploadVehicleReportPdf,
+  fetchAdminWarehouseIntakeFileBlob,
   uploadWarehouseIntakePdf,
   uploadWarehouseIntakePhotos,
   uploadWarehouseIntakeSignature,
   uploadWarehouseIntakeSupportingFile
 } from "@/lib/storage";
 import { generateWarehouseIntakePdf } from "@/lib/warehouse-intake-pdf";
-import { generateVehicleReportPdf } from "@/lib/vehicle-report-pdf";
 import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
@@ -376,7 +373,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [openingVehicleReport, setOpeningVehicleReport] = useState(false);
   const [uploadingLabel, setUploadingLabel] = useState("");
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -1042,69 +1038,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     });
   }
 
-  async function handleGenerateVehicleReportPdf() {
-    if (!recordId) {
-      setErrorMessage("Save the storage contract draft before generating the Vehicle Report PDF.");
-      return;
-    }
-
-    if (!draft.vehicleId) {
-      setErrorMessage("Link this storage contract to a public listing before generating the Vehicle Report PDF.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setErrorMessage("");
-      setNotice("");
-
-      const previewRecord = {
-        id: recordId,
-        ...draft,
-        photoCount: draft.photos.length
-      } satisfies WarehouseIntakeRecord;
-      const idToken = await getAdminIdToken();
-      const pdfBytes = await generateVehicleReportPdf(previewRecord, {
-        resolveStorageBytes: async (storagePath) => await fetchAdminWarehouseIntakeFileBytes(storagePath, idToken)
-      });
-      const pdfFileName = `${(draft.vehicleReference || draft.vehicleId || recordId).replace(/\s+/g, "-").toLowerCase()}-vehicle-report.pdf`;
-      const vehicleReportPdfStoragePath = await uploadVehicleReportPdf(pdfBytes, draft.vehicleId, pdfFileName);
-
-      const nextDraft = {
-        ...draft,
-        vehicleReportPdfStoragePath,
-        vehicleReportPdfFileName: pdfFileName,
-        vehicleReportGeneratedAt: new Date().toISOString()
-      };
-      setDraft(nextDraft);
-      await persistDraft(nextDraft, "Vehicle Report PDF generated.");
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "We couldn't generate the Vehicle Report PDF.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleOpenVehicleReportPdf() {
-    if (!draft.vehicleReportPdfStoragePath) return;
-
-    try {
-      setOpeningVehicleReport(true);
-      setErrorMessage("");
-      const reportUrl = await getVehicleReportDownloadUrl(draft.vehicleReportPdfStoragePath);
-      window.open(reportUrl, "_blank", "noopener,noreferrer");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "We couldn't open the Vehicle Report PDF.";
-      setErrorMessage(
-        message.includes("storage/retry-limit-exceeded")
-          ? "Report is taking too long to load. Please try again or regenerate the report."
-          : message
-      );
-    } finally {
-      setOpeningVehicleReport(false);
-    }
-  }
-
   async function handleNextStep() {
     if (currentStep === 4) {
       try {
@@ -1140,14 +1073,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest storage contract</p>
           <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone storage contract"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">
-            Capture owner details, vehicle details, structured condition notes, storage terms, signatures, and buyer-facing Vehicle Report files from one iPad-friendly workflow.
+            Capture owner details, vehicle details, structured condition notes, storage terms, signatures, and the buyer-facing Condition Overview from one iPad-friendly workflow.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
           {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
           {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
-          {draft.vehicleReportPdfStoragePath ? <StatusPill label="Vehicle Report ready" tone="success" /> : <StatusPill label="Vehicle Report pending" />}
+          {draft.vehicleId && draft.vehicleReport.conditionRating ? <StatusPill label="Condition Overview ready" tone="success" /> : <StatusPill label="Condition Overview pending" />}
         </div>
       </div>
 
@@ -1318,7 +1251,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
               <h3 className="text-xl font-semibold text-ink">2. Vehicle information</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Select an existing private vehicle record for this owner, or capture the full vehicle information used by both the storage contract and buyer-facing Vehicle Report.
+                Select an existing private vehicle record for this owner, or capture the full vehicle information used by both the storage contract and buyer-facing Condition Overview.
               </p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
@@ -1485,7 +1418,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
               <h3 className="text-xl font-semibold text-ink">3. Vehicle condition</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Capture the structured condition details that feed the CarNest Vehicle Report. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
+                Capture the structured condition details that feed the CarNest Condition Overview. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
               </p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
@@ -1583,7 +1516,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       });
                     }}
                   />
-                  <FieldNote>This note is included in the buyer-facing Vehicle Report.</FieldNote>
+                  <FieldNote>This note is included in the buyer-facing Condition Overview.</FieldNote>
                 </div>
               </div>
 
@@ -1833,8 +1766,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Vehicle Report</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.vehicleReportPdfStoragePath ? "Available for signed-in buyers" : "Generate after condition details are complete"}</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Overview</p>
+                  <p className="mt-2 text-sm text-ink/72">{draft.vehicleId && draft.vehicleReport.conditionRating ? "Available for signed-in buyers" : "Visible after condition details and rating are complete"}</p>
                 </div>
               </div>
               {listingEligibilityWarning ? (
@@ -1874,22 +1807,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Email PDF to customer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleGenerateVehicleReportPdf()}
-                  disabled={saving || !draft.vehicleId}
-                  className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Generate Vehicle Report PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleOpenVehicleReportPdf()}
-                  disabled={!draft.vehicleReportPdfStoragePath || openingVehicleReport}
-                  className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {openingVehicleReport ? "Opening Vehicle Report PDF..." : "Open Vehicle Report PDF"}
                 </button>
               </div>
             </div>
@@ -1931,7 +1848,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">Workflow summary</p>
             <p className="mt-2 text-sm leading-6 text-ink/58">
-              This workflow keeps the private storage contract separate from the buyer-facing Vehicle Report while reusing the same captured condition evidence.
+              This workflow keeps the private storage contract separate from the buyer-facing Condition Overview while reusing the same captured condition evidence.
             </p>
             <div className="mt-4 space-y-3 text-sm text-ink/68">
               <p><span className="font-semibold text-ink">Customer profile:</span> {draft.ownerDetails.fullName || draft.ownerDetails.email || "Pending onboarding"}</p>
@@ -1948,7 +1865,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
-              <p><span className="font-semibold text-ink">Vehicle Report:</span> {draft.vehicleReportPdfStoragePath ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Condition Overview:</span> {draft.vehicleId && draft.vehicleReport.conditionRating ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
             {draft.vehicleId ? (
