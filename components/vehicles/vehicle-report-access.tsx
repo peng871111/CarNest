@@ -47,8 +47,8 @@ export function VehicleReportAccess({
       setErrorMessage("");
       router.push(`/vehicle-report/${vehicleId}`);
     } catch (error) {
-      console.error("Condition Overview open failed", error);
-      setErrorMessage("Condition Overview temporarily unavailable. Please try again later.");
+      console.error("Condition Summary open failed", error);
+      setErrorMessage("Condition Summary temporarily unavailable. Please try again later.");
     } finally {
       setOpening(false);
     }
@@ -86,7 +86,7 @@ export function VehicleReportAccess({
                 disabled={loading || opening}
                 className="text-sm font-semibold text-ink underline decoration-black/20 underline-offset-4 transition hover:text-bronze hover:decoration-bronze disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Checking account..." : opening ? "Opening overview..." : "View Condition Overview →"}
+                {loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary →"}
               </button>
             </div>
           </div>
@@ -94,7 +94,7 @@ export function VehicleReportAccess({
         </div>
       ) : (
         <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Summary</p>
           <h2 className="mt-2 text-2xl font-semibold text-ink">View verified vehicle condition summary</h2>
           <div className="mt-4 space-y-2 text-sm text-ink/70">
             {categoryEntries.map(([key, score]) => (
@@ -116,7 +116,7 @@ export function VehicleReportAccess({
               disabled={loading || opening || !reportAvailable}
               className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Checking account..." : opening ? "Opening overview..." : "Open Condition Overview"}
+              {loading ? "Checking account..." : opening ? "Opening summary..." : "Open Condition Summary"}
             </button>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}

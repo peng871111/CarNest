@@ -7,18 +7,9 @@ import { VEHICLE_CONDITION_CATEGORY_HELPERS, VEHICLE_CONDITION_CATEGORY_LABELS }
 import { Vehicle } from "@/types";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 
-const RATING_GUIDE: Array<[string, string]> = [
-  ["5.0", "Original paint and panels, no exterior damage, no noticeable interior wear, complete service history, complete keys, mechanically sound, still under warranty."],
-  ["4.5", "Original paint and panels, minor stone chips / small wheel rash / very small marks only, light normal interior usage, complete service history, complete keys, mechanically sound."],
-  ["4.0", "Some paint or cosmetic repair, wheel rash possible, light interior usage marks, no major wear, complete service history, complete keys, mechanically sound."],
-  ["3.5", "Small dents or scratches, some panel repair, wheel rash, visible interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
-  ["3.0", "Visible scratches, dents, or unrepaired paint/panel issues, wheel rash, obvious interior usage marks, service history may be incomplete, keys may be incomplete, mechanically sound."],
-  ["2.5", "Noticeable exterior paint/panel damage, unrepaired dents/scratches, wheel damage, interior wear, incomplete service history, incomplete keys, possible mechanical concerns. Vehicles rated below 2.5 are not accepted for advertising on the CarNest platform."]
-];
-
 const DISCLAIMER_LINES = [
-  "CarNest Condition Overview is provided as a complimentary buyer reference document and is intended to assist prospective buyers in understanding the vehicle's disclosed condition and presentation.",
-  "This Condition Overview is provided free of charge by CarNest for informational purposes only.",
+  "CarNest Condition Summary is provided as a complimentary buyer reference document and is intended to assist prospective buyers in understanding the vehicle's disclosed condition and presentation.",
+  "This Condition Summary is provided free of charge by CarNest for informational purposes only.",
   "The report is intended as a general summary of the vehicle condition based on information supplied and observations recorded at the time of preparation.",
   "CarNest strongly recommends that all prospective buyers arrange their own independent mechanical inspection and assessment before purchasing any vehicle.",
   "While reasonable care has been taken in preparing this report, CarNest does not guarantee the completeness, accuracy, or ongoing validity of any information contained within it.",
@@ -78,10 +69,10 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
     return (
       <main className="mx-auto max-w-4xl px-6 py-16">
         <div className="rounded-[28px] border border-black/5 bg-white p-8 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Summary</p>
           <h1 className="mt-3 text-3xl font-semibold text-ink">Sign in to view the verified condition summary</h1>
           <p className="mt-4 text-sm leading-6 text-ink/65">
-            Create a CarNest account or sign in to view the buyer-facing Condition Overview for this listing.
+            Create a CarNest account or sign in to view the buyer-facing Condition Summary for this listing.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
@@ -107,7 +98,7 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
       <div className="rounded-[30px] border border-black/5 bg-white p-6 shadow-panel sm:p-8">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Summary</p>
             <h1 className="mt-2 text-3xl font-semibold text-ink">
               {[vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").trim()}
             </h1>
@@ -239,18 +230,6 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
               ))}
             </div>
           ) : null}
-        </section>
-
-        <section className="mt-10">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest condition rating guide</p>
-          <div className="mt-4 space-y-4">
-            {RATING_GUIDE.map(([rating, description]) => (
-              <div key={rating} className="rounded-[18px] border border-black/6 bg-shell px-4 py-4">
-                <p className="text-sm font-semibold text-ink">{rating}</p>
-                <p className="mt-2 text-sm leading-6 text-ink/68">{description}</p>
-              </div>
-            ))}
-          </div>
         </section>
 
         <section className="mt-10">

@@ -24,9 +24,6 @@ import {
   WAREHOUSE_PHOTO_SECTIONS
 } from "@/lib/warehouse-intake-config";
 import {
-  VEHICLE_BODY_PANEL_CONDITION_OPTIONS,
-  VEHICLE_BODY_PANEL_LABELS,
-  VEHICLE_BODY_PANEL_ORDER,
   VEHICLE_CONDITION_CATEGORY_HELPERS,
   VEHICLE_CONDITION_CATEGORY_LABELS,
   VEHICLE_CONDITION_SCORE_SELECT_OPTIONS
@@ -44,6 +41,7 @@ import { generateWarehouseIntakePdf } from "@/lib/warehouse-intake-pdf";
 import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
+import { VehicleConditionBodyMap } from "@/components/vehicles/vehicle-condition-body-map";
 import {
   CustomerProfile,
   Vehicle,
@@ -1126,14 +1124,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest storage contract</p>
           <h2 className="mt-2 font-display text-3xl text-ink">{draft.vehicleTitle || "Standalone storage contract"}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/65">
-            Capture owner details, vehicle details, structured condition notes, storage terms, signatures, and the buyer-facing Condition Overview from one iPad-friendly workflow.
+            Capture owner details, vehicle details, structured condition notes, storage terms, signatures, and the buyer-facing CarNest Condition Summary from one iPad-friendly workflow.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
           {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
           {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
-          {conditionOverviewReady ? <StatusPill label="Condition Overview ready" tone="success" /> : <StatusPill label="Condition Overview pending" />}
+          {conditionOverviewReady ? <StatusPill label="Condition Summary ready" tone="success" /> : <StatusPill label="Condition Summary pending" />}
         </div>
       </div>
 
@@ -1304,7 +1302,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
               <h3 className="text-xl font-semibold text-ink">2. Vehicle information</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Select an existing private vehicle record for this owner, or capture the full vehicle information used by both the storage contract and buyer-facing Condition Overview.
+                Select an existing private vehicle record for this owner, or capture the full vehicle information used by both the storage contract and buyer-facing CarNest Condition Summary.
               </p>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2 md:col-span-2">
@@ -1471,7 +1469,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
               <h3 className="text-xl font-semibold text-ink">3. Vehicle condition</h3>
               <p className="mt-3 text-sm leading-6 text-ink/62">
-                Capture the structured condition details that feed the CarNest Condition Overview. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
+                Capture the structured condition details that feed the CarNest Condition Summary. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
               </p>
               <div className="mt-5 space-y-5">
                 {(
@@ -1551,23 +1549,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-ink">Exterior body map</p>
-                      <FieldNote>Mark each panel to generate the buyer-facing body map automatically.</FieldNote>
+                      <FieldNote>Mark each panel to generate the buyer-facing top-down body map automatically.</FieldNote>
                     </div>
                   </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                    {VEHICLE_BODY_PANEL_ORDER.map((panelKey) => (
-                      <div key={panelKey} className="space-y-2">
-                        <FieldLabel>{VEHICLE_BODY_PANEL_LABELS[panelKey]}</FieldLabel>
-                        <SelectInput
-                          value={draft.vehicleReport.bodyMap[panelKey]}
-                          onChange={(event) => updateBodyPanel(panelKey, event.target.value as VehicleBodyPanelCondition)}
-                        >
-                          {VEHICLE_BODY_PANEL_CONDITION_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </SelectInput>
-                      </div>
-                    ))}
+                  <div className="mt-4">
+                    <VehicleConditionBodyMap
+                      bodyMap={draft.vehicleReport.bodyMap}
+                      editable
+                      onPanelChange={updateBodyPanel}
+                    />
                   </div>
                 </div>
 
@@ -1585,7 +1575,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       });
                     }}
                   />
-                  <FieldNote>This note is included in the buyer-facing Condition Overview.</FieldNote>
+                  <FieldNote>This note is included in the buyer-facing CarNest Condition Summary.</FieldNote>
                 </div>
               </div>
 
@@ -1835,7 +1825,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Overview</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Summary</p>
                   <p className="mt-2 text-sm text-ink/72">{conditionOverviewReady ? "Available for signed-in buyers" : "Visible after all four condition categories are scored"}</p>
                 </div>
               </div>
@@ -1917,7 +1907,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">Workflow summary</p>
             <p className="mt-2 text-sm leading-6 text-ink/58">
-              This workflow keeps the private storage contract separate from the buyer-facing Condition Overview while reusing the same captured condition evidence.
+              This workflow keeps the private storage contract separate from the buyer-facing CarNest Condition Summary while reusing the same captured condition evidence.
             </p>
             <div className="mt-4 space-y-3 text-sm text-ink/68">
               <p><span className="font-semibold text-ink">Customer profile:</span> {draft.ownerDetails.fullName || draft.ownerDetails.email || "Pending onboarding"}</p>
@@ -1937,7 +1927,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
-              <p><span className="font-semibold text-ink">Condition Overview:</span> {conditionOverviewReady ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Condition Summary:</span> {conditionOverviewReady ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
             {draft.vehicleId ? (

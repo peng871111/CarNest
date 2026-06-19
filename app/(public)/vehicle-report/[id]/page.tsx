@@ -14,7 +14,7 @@ export default async function VehicleReportRoute({ params }: { params: Promise<{
     return (
       <main className="mx-auto max-w-4xl px-6 py-16">
         <div className="rounded-[28px] border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-700 shadow-panel">
-          Condition Overview temporarily unavailable.
+          Condition Summary temporarily unavailable.
           <br />
           Please try again later.
         </div>
