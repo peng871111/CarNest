@@ -4,18 +4,20 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthGateModal } from "@/components/auth/auth-gate-modal";
 import { useAuth } from "@/lib/auth";
+import { VEHICLE_CONDITION_CATEGORY_LABELS } from "@/lib/vehicle-condition-config";
+import type { VehiclePublicReportSummary } from "@/types";
 
 export function VehicleReportAccess({
   vehicleId,
   reportAvailable,
   generatedAt,
-  conditionRating,
+  reportSummary,
   compact = false
 }: {
   vehicleId: string;
   reportAvailable?: boolean;
   generatedAt?: string;
-  conditionRating?: string;
+  reportSummary?: VehiclePublicReportSummary;
   compact?: boolean;
 }) {
   const router = useRouter();
@@ -23,7 +25,15 @@ export function VehicleReportAccess({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [opening, setOpening] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const hasValidReport = Boolean(reportAvailable && conditionRating?.trim());
+  const categoryEntries = reportSummary?.conditionCategories
+    ? [
+        ["documentationRecords", reportSummary.conditionCategories.documentationRecords.score],
+        ["exteriorBody", reportSummary.conditionCategories.exteriorBody.score],
+        ["mechanicalFunction", reportSummary.conditionCategories.mechanicalFunction.score],
+        ["interiorCondition", reportSummary.conditionCategories.interiorCondition.score]
+      ] as const
+    : [];
+  const hasValidReport = Boolean(reportAvailable && categoryEntries.length && categoryEntries.every(([, score]) => score?.trim()));
 
   async function handleOpenReport() {
     if (!hasValidReport) return;
@@ -55,7 +65,14 @@ export function VehicleReportAccess({
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Condition</p>
-              <p className="mt-2 text-3xl font-semibold text-ink">{conditionRating} / 5.0</p>
+              <div className="mt-3 space-y-2">
+                {categoryEntries.map(([key, score]) => (
+                  <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
+                    <p className="text-sm font-medium text-ink/76">{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</p>
+                    <p className="text-sm font-semibold text-ink">{score} / 5.0</p>
+                  </div>
+                ))}
+              </div>
               {generatedAt ? (
                 <p className="mt-2 text-xs text-ink/50">
                   Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
@@ -79,12 +96,13 @@ export function VehicleReportAccess({
         <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
           <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Overview</p>
           <h2 className="mt-2 text-2xl font-semibold text-ink">View verified vehicle condition summary</h2>
-          <div className="mt-4 flex flex-wrap gap-2 text-xs text-ink/55">
-            {conditionRating ? (
-              <span className="rounded-full border border-black/8 bg-shell px-3 py-1.5 font-medium text-ink/72">
-                Rating {conditionRating}
-              </span>
-            ) : null}
+          <div className="mt-4 space-y-2 text-sm text-ink/70">
+            {categoryEntries.map(([key, score]) => (
+              <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
+                <span>{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</span>
+                <span className="font-semibold text-ink">{score} / 5.0</span>
+              </div>
+            ))}
             {generatedAt ? (
               <span className="rounded-full border border-black/8 bg-shell px-3 py-1.5 font-medium text-ink/72">
                 Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}

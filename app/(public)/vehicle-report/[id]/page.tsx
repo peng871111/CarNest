@@ -22,12 +22,20 @@ export default async function VehicleReportRoute({ params }: { params: Promise<{
     );
   }
 
+  const hasStructuredConditionOverview = Boolean(
+    vehicle?.vehicleReportSummary?.conditionCategories?.documentationRecords?.score
+    && vehicle?.vehicleReportSummary?.conditionCategories?.exteriorBody?.score
+    && vehicle?.vehicleReportSummary?.conditionCategories?.mechanicalFunction?.score
+    && vehicle?.vehicleReportSummary?.conditionCategories?.interiorCondition?.score
+  );
+
   if (
     !vehicle
     || vehicle.deleted
     || vehicle.status !== "approved"
     || (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER")
     || !vehicle.vehicleReportAvailable
+    || !hasStructuredConditionOverview
   ) {
     notFound();
   }

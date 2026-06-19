@@ -179,7 +179,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
         vehicleId={vehicle.id}
         reportAvailable={vehicle.vehicleReportAvailable}
         generatedAt={vehicle.vehicleReportGeneratedAt}
-        conditionRating={vehicle.vehicleConditionRating}
+        reportSummary={vehicle.vehicleReportSummary}
         compact
       />
       <div className="mt-6">

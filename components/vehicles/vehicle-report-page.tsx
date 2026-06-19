@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { VehicleConditionBodyMap } from "@/components/vehicles/vehicle-condition-body-map";
 import { useAuth } from "@/lib/auth";
+import { VEHICLE_CONDITION_CATEGORY_HELPERS, VEHICLE_CONDITION_CATEGORY_LABELS } from "@/lib/vehicle-condition-config";
 import { Vehicle } from "@/types";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 
@@ -34,8 +36,33 @@ function DetailItem({ label, value }: { label: string; value?: string | number |
   );
 }
 
+function AssessmentCard({
+  title,
+  score,
+  helper,
+  note
+}: {
+  title: string;
+  score?: string | null;
+  helper: string;
+  note?: string | null;
+}) {
+  return (
+    <div className="rounded-[22px] border border-black/6 bg-shell px-5 py-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        <p className="text-base font-semibold text-ink">{score ? `${score} / 5.0` : "Not scored"}</p>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-ink/55">{helper}</p>
+      {note ? <p className="mt-4 whitespace-pre-line text-sm leading-6 text-ink/72">{note}</p> : null}
+    </div>
+  );
+}
+
 export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
   const { appUser, loading } = useAuth();
+  const summary = vehicle.vehicleReportSummary;
+  const categories = summary?.conditionCategories;
 
   if (loading) {
     return (
@@ -86,9 +113,31 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
             </h1>
             <p className="mt-2 text-sm text-ink/60">{getVehicleDisplayReference(vehicle)}</p>
           </div>
-          <div className="rounded-[22px] border border-black/8 bg-shell px-5 py-4 text-right">
+          <div className="rounded-[22px] border border-black/8 bg-shell px-5 py-4">
             <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Condition</p>
-            <p className="mt-2 text-3xl font-semibold text-ink">{vehicle.vehicleConditionRating ? `${vehicle.vehicleConditionRating} / 5.0` : "Pending"}</p>
+            <div className="mt-3 space-y-2 text-sm">
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-ink/72">{VEHICLE_CONDITION_CATEGORY_LABELS.documentationRecords}</span>
+                <span className="font-semibold text-ink">{categories?.documentationRecords.score || "0.0"} / 5.0</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-ink/72">{VEHICLE_CONDITION_CATEGORY_LABELS.exteriorBody}</span>
+                <span className="font-semibold text-ink">{categories?.exteriorBody.score || "0.0"} / 5.0</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-ink/72">{VEHICLE_CONDITION_CATEGORY_LABELS.mechanicalFunction}</span>
+                <span className="font-semibold text-ink">{categories?.mechanicalFunction.score || "0.0"} / 5.0</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="text-ink/72">{VEHICLE_CONDITION_CATEGORY_LABELS.interiorCondition}</span>
+                <span className="font-semibold text-ink">{categories?.interiorCondition.score || "0.0"} / 5.0</span>
+              </div>
+            </div>
+            {vehicle.vehicleReportGeneratedAt ? (
+              <p className="mt-3 text-xs text-ink/50">
+                Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(vehicle.vehicleReportGeneratedAt))}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -98,7 +147,7 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
           <DetailItem label="Transmission" value={vehicle.transmission} />
           <DetailItem label="Drivetrain" value={vehicle.drivetrain} />
           <DetailItem label="Odometer" value={`${vehicle.mileage.toLocaleString()} km`} />
-          <DetailItem label="Keys" value={vehicle.keyCount} />
+          <DetailItem label="Keys" value={vehicle.keyCount || summary?.keyCondition} />
           <DetailItem label="Service history" value={vehicle.serviceHistory} />
           <DetailItem label="Warranty status" value={vehicle.vehicleReportSummary?.warrantyStatus} />
           <DetailItem label="Number of owners" value={vehicle.vehicleReportSummary?.numberOfOwners} />
@@ -108,52 +157,77 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
         </section>
 
         <section className="mt-10 grid gap-6 lg:grid-cols-2">
-          <div className="space-y-5">
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Exterior / body condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.exteriorCondition || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Panel repair / repaint notes</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.panelRepairNotes || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Wheel condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.wheelCondition || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Interior condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.interiorCondition || "Not provided"}</p>
-            </div>
+          <AssessmentCard
+            title={VEHICLE_CONDITION_CATEGORY_LABELS.documentationRecords}
+            score={categories?.documentationRecords.score}
+            helper={VEHICLE_CONDITION_CATEGORY_HELPERS.documentationRecords}
+            note={categories?.documentationRecords.notes}
+          />
+          <AssessmentCard
+            title={VEHICLE_CONDITION_CATEGORY_LABELS.exteriorBody}
+            score={categories?.exteriorBody.score}
+            helper={VEHICLE_CONDITION_CATEGORY_HELPERS.exteriorBody}
+            note={categories?.exteriorBody.notes}
+          />
+          <AssessmentCard
+            title={VEHICLE_CONDITION_CATEGORY_LABELS.mechanicalFunction}
+            score={categories?.mechanicalFunction.score}
+            helper={VEHICLE_CONDITION_CATEGORY_HELPERS.mechanicalFunction}
+            note={categories?.mechanicalFunction.notes}
+          />
+          <AssessmentCard
+            title={VEHICLE_CONDITION_CATEGORY_LABELS.interiorCondition}
+            score={categories?.interiorCondition.score}
+            helper={VEHICLE_CONDITION_CATEGORY_HELPERS.interiorCondition}
+            note={categories?.interiorCondition.notes}
+          />
+        </section>
+
+        <section className="mt-10">
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">Documentation & records breakdown</p>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <DetailItem label="Number of keys" value={vehicle.keyCount} />
+            <DetailItem label="Service history" value={vehicle.serviceHistory} />
+            <DetailItem label="Ownership verification" value={summary?.ownershipVerificationStatus} />
+            <DetailItem label="PPSR status" value={summary?.ppsrStatus} />
+            <DetailItem label="Registration status" value={summary?.registrationStatus} />
+            <DetailItem label="RWC availability" value={summary?.rwcAvailability?.replace(/_/g, " ")} />
           </div>
-          <div className="space-y-5">
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Mechanical condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.mechanicalCondition || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Service record condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.serviceRecordCondition || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">Key condition</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.keyCondition || "Not provided"}</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-bronze">RWC cooperation</p>
-              <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">{vehicle.vehicleReportSummary?.rwcCooperation?.replace(/_/g, " ") || "Not provided"}</p>
-            </div>
+        </section>
+
+        <section className="mt-10">
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">Exterior & body map</p>
+          <div className="mt-4">
+            <VehicleConditionBodyMap bodyMap={summary?.bodyMap} />
           </div>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <DetailItem label="Paint / body condition" value={summary?.exteriorCondition} />
+            <DetailItem label="Panel repair / repaint notes" value={summary?.panelRepairNotes} />
+            <DetailItem label="Wheel condition" value={summary?.wheelCondition} />
+          </div>
+        </section>
+
+        <section className="mt-10">
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">Mechanical & function</p>
+          <p className="mt-3 text-sm leading-6 text-ink/72">{summary?.mechanicalCondition || "No additional mechanical notes recorded."}</p>
+          <p className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            Based on seller disclosure and visual inspection only. This is not a mechanical inspection.
+          </p>
+        </section>
+
+        <section className="mt-10">
+          <p className="text-xs uppercase tracking-[0.25em] text-bronze">Interior condition</p>
+          <p className="mt-3 text-sm leading-6 text-ink/72">{summary?.interiorCondition || "No additional interior notes recorded."}</p>
         </section>
 
         <section className="mt-10">
           <p className="text-xs uppercase tracking-[0.25em] text-bronze">Damage / condition notes</p>
           <p className="mt-3 whitespace-pre-line text-sm leading-6 text-ink/72">
-            {vehicle.vehicleReportSummary?.damageConditionNotes || "No additional damage notes recorded."}
+            {summary?.damageConditionNotes || "No additional damage notes recorded."}
           </p>
-          {vehicle.vehicleReportSummary?.damageImages?.length ? (
+          {summary?.damageImages?.length ? (
             <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {vehicle.vehicleReportSummary.damageImages.map((image, index) => (
+              {summary.damageImages.map((image, index) => (
                 <div key={`${image.url}-${index}`} className="overflow-hidden rounded-[22px] border border-black/6 bg-shell">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={image.url} alt={image.label} loading="lazy" className="aspect-[4/3] w-full object-cover object-center" />

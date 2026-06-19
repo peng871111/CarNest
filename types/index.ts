@@ -67,6 +67,27 @@ export type VehicleRecordStatus =
 export type WarehousePreferredContactMethod = "phone" | "email" | "sms" | "whatsapp" | "wechat" | "either" | "other";
 export type WarehouseIdentificationDocumentType = "" | "driver_licence" | "passport" | "other";
 export type VehicleConditionRating = "5.0" | "4.5" | "4.0" | "3.5" | "3.0" | "2.5";
+export type VehicleConditionScore = VehicleConditionRating;
+export type VehicleConditionCategoryKey =
+  | "documentationRecords"
+  | "exteriorBody"
+  | "mechanicalFunction"
+  | "interiorCondition";
+export type VehicleBodyPanelKey =
+  | "frontBumper"
+  | "bonnet"
+  | "roof"
+  | "bootLid"
+  | "leftFrontGuard"
+  | "rightFrontGuard"
+  | "leftFrontDoor"
+  | "rightFrontDoor"
+  | "leftRearDoor"
+  | "rightRearDoor"
+  | "leftRearQuarter"
+  | "rightRearQuarter"
+  | "rearBumper";
+export type VehicleBodyPanelCondition = "original" | "scratch" | "dent" | "repaint" | "repaired_damage";
 export type VehicleReportRwcCooperation =
   | "seller_includes_rwc"
   | "seller_repairs_for_rwc"
@@ -236,7 +257,27 @@ export interface VehicleReportImageSummary {
   note?: string;
 }
 
+export interface VehicleConditionAssessment {
+  score: VehicleConditionScore | "";
+  notes: string;
+}
+
+export interface VehicleConditionCategoryAssessments {
+  documentationRecords: VehicleConditionAssessment;
+  exteriorBody: VehicleConditionAssessment;
+  mechanicalFunction: VehicleConditionAssessment;
+  interiorCondition: VehicleConditionAssessment;
+}
+
+export type VehicleBodyPanelMap = Record<VehicleBodyPanelKey, VehicleBodyPanelCondition>;
+
 export interface VehiclePublicReportSummary {
+  conditionCategories?: VehicleConditionCategoryAssessments;
+  bodyMap?: VehicleBodyPanelMap;
+  ownershipVerificationStatus?: string;
+  ppsrStatus?: string;
+  registrationStatus?: string;
+  rwcAvailability?: string;
   warrantyStatus?: string;
   numberOfOwners?: string;
   accidentDeclaration?: string;
@@ -322,6 +363,9 @@ export interface WarehouseIntakeVehicleDetails {
 
 export interface WarehouseVehicleReportDetails {
   conditionRating: VehicleConditionRating | "";
+  conditionCategories: VehicleConditionCategoryAssessments;
+  bodyMap: VehicleBodyPanelMap;
+  ppsrStatus: string;
   exteriorCondition: string;
   panelRepairNotes: string;
   wheelCondition: string;

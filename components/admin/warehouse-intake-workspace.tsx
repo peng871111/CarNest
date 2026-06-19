@@ -16,7 +16,6 @@ import {
 } from "@/lib/data";
 import {
   CARNEST_CONCIERGE_AGREEMENT_COPY,
-  VEHICLE_REPORT_RATING_OPTIONS,
   VEHICLE_REPORT_RWC_COOPERATION_OPTIONS,
   WAREHOUSE_CONTACT_METHOD_OPTIONS,
   WAREHOUSE_DECLARATION_OPTIONS,
@@ -24,6 +23,14 @@ import {
   WAREHOUSE_INTAKE_STEPS,
   WAREHOUSE_PHOTO_SECTIONS
 } from "@/lib/warehouse-intake-config";
+import {
+  VEHICLE_BODY_PANEL_CONDITION_OPTIONS,
+  VEHICLE_BODY_PANEL_LABELS,
+  VEHICLE_BODY_PANEL_ORDER,
+  VEHICLE_CONDITION_CATEGORY_HELPERS,
+  VEHICLE_CONDITION_CATEGORY_LABELS,
+  VEHICLE_CONDITION_SCORE_SELECT_OPTIONS
+} from "@/lib/vehicle-condition-config";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
   fetchAdminWarehouseIntakeFileBytes,
@@ -46,7 +53,10 @@ import {
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
   WarehouseIntakeRecord,
-  VehicleConditionRating,
+  VehicleBodyPanelCondition,
+  VehicleBodyPanelKey,
+  VehicleConditionCategoryKey,
+  VehicleConditionScore,
   VehicleReportRwcCooperation,
   WarehouseServiceFeeItem
 } from "@/types";
@@ -418,8 +428,19 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       activeAt: draft.activeEditorAt
     };
   }, [actor, draft.activeEditorAt, draft.activeEditorName, draft.activeEditorUid]);
-  const listingEligibilityWarning = draft.vehicleReport.conditionRating === "2.5"
-    ? "Vehicles rated 2.5 should not be accepted for public platform listing."
+  const categoryScores = draft.vehicleReport.conditionCategories;
+  const conditionOverviewReady = Boolean(
+    draft.vehicleId
+    && categoryScores.documentationRecords.score
+    && categoryScores.exteriorBody.score
+    && categoryScores.mechanicalFunction.score
+    && categoryScores.interiorCondition.score
+  );
+  const listingEligibilityWarning = Object.values(categoryScores).some((item) => {
+    const numericScore = Number(item.score || 0);
+    return Number.isFinite(numericScore) && numericScore > 0 && numericScore < 2.5;
+  })
+    ? "Vehicles rated below 2.5 are not accepted for advertising on the CarNest platform."
     : "";
 
   async function getAdminIdToken() {
@@ -675,6 +696,38 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       vehicleReport: {
         ...current.vehicleReport,
         [key]: value
+      }
+    }));
+  }
+
+  function updateConditionCategory(
+    key: VehicleConditionCategoryKey,
+    updates: Partial<WarehouseIntakeRecord["vehicleReport"]["conditionCategories"][VehicleConditionCategoryKey]>
+  ) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        conditionCategories: {
+          ...current.vehicleReport.conditionCategories,
+          [key]: {
+            ...current.vehicleReport.conditionCategories[key],
+            ...updates
+          }
+        }
+      }
+    }));
+  }
+
+  function updateBodyPanel(key: VehicleBodyPanelKey, value: VehicleBodyPanelCondition) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        bodyMap: {
+          ...current.vehicleReport.bodyMap,
+          [key]: value
+        }
       }
     }));
   }
@@ -1080,7 +1133,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
           {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
           {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
-          {draft.vehicleId && draft.vehicleReport.conditionRating ? <StatusPill label="Condition Overview ready" tone="success" /> : <StatusPill label="Condition Overview pending" />}
+          {conditionOverviewReady ? <StatusPill label="Condition Overview ready" tone="success" /> : <StatusPill label="Condition Overview pending" />}
         </div>
       </div>
 
@@ -1420,93 +1473,109 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p className="mt-3 text-sm leading-6 text-ink/62">
                 Capture the structured condition details that feed the CarNest Condition Overview. Keep owner/private notes out of this section and focus on vehicle condition evidence only.
               </p>
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <FieldLabel>CarNest condition rating</FieldLabel>
-                  <SelectInput
-                    value={draft.vehicleReport.conditionRating}
-                    onChange={(event) => updateVehicleReportField("conditionRating", event.target.value as VehicleConditionRating | "")}
-                  >
-                    <option value="">Select rating</option>
-                    {VEHICLE_REPORT_RATING_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
+              <div className="mt-5 space-y-5">
+                {(
+                  Object.keys(VEHICLE_CONDITION_CATEGORY_LABELS) as VehicleConditionCategoryKey[]
+                ).map((key) => {
+                  const category = draft.vehicleReport.conditionCategories[key];
+                  return (
+                    <div key={key} className="rounded-[24px] border border-black/6 bg-shell p-5">
+                      <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold text-ink">{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</p>
+                          <FieldNote>{VEHICLE_CONDITION_CATEGORY_HELPERS[key]}</FieldNote>
+                          <SelectInput
+                            value={category.score}
+                            onChange={(event) => updateConditionCategory(key, { score: event.target.value as VehicleConditionScore | "" })}
+                          >
+                            <option value="">Select score</option>
+                            {VEHICLE_CONDITION_SCORE_SELECT_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </SelectInput>
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>Optional notes</FieldLabel>
+                          <TextAreaInput
+                            className="min-h-[104px]"
+                            placeholder={`Capture ${VEHICLE_CONDITION_CATEGORY_LABELS[key].toLowerCase()} notes for buyers.`}
+                            value={category.notes}
+                            onChange={(event) => updateConditionCategory(key, { notes: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <FieldLabel>PPSR status</FieldLabel>
+                    <TextInput
+                      placeholder="e.g. Clear / finance owing / seller declaration pending"
+                      value={draft.vehicleReport.ppsrStatus}
+                      onChange={(event) => updateVehicleReportField("ppsrStatus", event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel>RWC cooperation</FieldLabel>
+                    <SelectInput
+                      value={draft.vehicleReport.rwcCooperation}
+                      onChange={(event) => updateVehicleReportField("rwcCooperation", event.target.value as VehicleReportRwcCooperation | "")}
+                    >
+                      <option value="">Select RWC position</option>
+                      {VEHICLE_REPORT_RWC_COOPERATION_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </SelectInput>
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel>Wheel condition</FieldLabel>
+                    <TextAreaInput
+                      className="min-h-[96px]"
+                      value={draft.vehicleReport.wheelCondition}
+                      onChange={(event) => updateVehicleReportField("wheelCondition", event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <FieldLabel>Panel repair / repaint notes</FieldLabel>
+                    <TextAreaInput
+                      className="min-h-[96px]"
+                      value={draft.vehicleReport.panelRepairNotes}
+                      onChange={(event) => updateVehicleReportField("panelRepairNotes", event.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-black/6 bg-white p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Exterior body map</p>
+                      <FieldNote>Mark each panel to generate the buyer-facing body map automatically.</FieldNote>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {VEHICLE_BODY_PANEL_ORDER.map((panelKey) => (
+                      <div key={panelKey} className="space-y-2">
+                        <FieldLabel>{VEHICLE_BODY_PANEL_LABELS[panelKey]}</FieldLabel>
+                        <SelectInput
+                          value={draft.vehicleReport.bodyMap[panelKey]}
+                          onChange={(event) => updateBodyPanel(panelKey, event.target.value as VehicleBodyPanelCondition)}
+                        >
+                          {VEHICLE_BODY_PANEL_CONDITION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </SelectInput>
+                      </div>
                     ))}
-                  </SelectInput>
-                  <FieldNote>Vehicles rated 2.5 or below should not be accepted for public platform listing.</FieldNote>
+                  </div>
                 </div>
+
                 <div className="space-y-2">
-                  <FieldLabel>RWC cooperation</FieldLabel>
-                  <SelectInput
-                    value={draft.vehicleReport.rwcCooperation}
-                    onChange={(event) => updateVehicleReportField("rwcCooperation", event.target.value as VehicleReportRwcCooperation | "")}
-                  >
-                    <option value="">Select RWC position</option>
-                    {VEHICLE_REPORT_RWC_COOPERATION_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </SelectInput>
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Exterior paint / body condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.exteriorCondition}
-                    onChange={(event) => updateVehicleReportField("exteriorCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Panel repair / repaint notes</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.panelRepairNotes}
-                    onChange={(event) => updateVehicleReportField("panelRepairNotes", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Wheel condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.wheelCondition}
-                    onChange={(event) => updateVehicleReportField("wheelCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Interior condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.interiorCondition}
-                    onChange={(event) => updateVehicleReportField("interiorCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Mechanical condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.mechanicalCondition}
-                    onChange={(event) => updateVehicleReportField("mechanicalCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Service record condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.serviceRecordCondition}
-                    onChange={(event) => updateVehicleReportField("serviceRecordCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <FieldLabel>Key condition</FieldLabel>
-                  <TextAreaInput
-                    className="min-h-[96px]"
-                    value={draft.vehicleReport.keyCondition}
-                    onChange={(event) => updateVehicleReportField("keyCondition", event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2 md:col-span-2">
                   <FieldLabel>Damage / condition notes</FieldLabel>
                   <TextAreaInput
                     className="min-h-[112px]"
-                    placeholder="Record scratches, dents, wheel rash, interior marks, transport notes, or anything the buyer-facing report should explain."
+                    placeholder="Record scratches, dents, wheel rash, interior marks, transport notes, or anything the buyer-facing overview should explain."
                     value={draft.vehicleReport.damageConditionNotes}
                     onChange={(event) => {
                       updateVehicleReportField("damageConditionNotes", event.target.value);
@@ -1767,7 +1836,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Overview</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.vehicleId && draft.vehicleReport.conditionRating ? "Available for signed-in buyers" : "Visible after condition details and rating are complete"}</p>
+                  <p className="mt-2 text-sm text-ink/72">{conditionOverviewReady ? "Available for signed-in buyers" : "Visible after all four condition categories are scored"}</p>
                 </div>
               </div>
               {listingEligibilityWarning ? (
@@ -1861,11 +1930,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST` : "None yet"}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
-              <p><span className="font-semibold text-ink">Vehicle rating:</span> {draft.vehicleReport.conditionRating || "Pending"}</p>
+              <p><span className="font-semibold text-ink">Documentation &amp; Records:</span> {categoryScores.documentationRecords.score || "Pending"}</p>
+              <p><span className="font-semibold text-ink">Exterior &amp; Body:</span> {categoryScores.exteriorBody.score || "Pending"}</p>
+              <p><span className="font-semibold text-ink">Mechanical &amp; Function:</span> {categoryScores.mechanicalFunction.score || "Pending"}</p>
+              <p><span className="font-semibold text-ink">Interior Condition:</span> {categoryScores.interiorCondition.score || "Pending"}</p>
               <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
-              <p><span className="font-semibold text-ink">Condition Overview:</span> {draft.vehicleId && draft.vehicleReport.conditionRating ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">Condition Overview:</span> {conditionOverviewReady ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
             {draft.vehicleId ? (

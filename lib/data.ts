@@ -78,6 +78,12 @@ import {
   VehicleListingPriceHistoryEntry,
   VehicleListingStatusTimelineEntry,
   VehiclePublicationChecklist,
+  VehicleBodyPanelCondition,
+  VehicleBodyPanelKey,
+  VehicleBodyPanelMap,
+  VehicleConditionAssessment,
+  VehicleConditionCategoryAssessments,
+  VehicleConditionScore,
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
@@ -771,6 +777,17 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     || data.source === "admin"
     || data.ownerRole === "admin"
     || data.listingType === "warehouse";
+  const vehicleReportSummaryInput =
+    data.vehicleReportSummary && typeof data.vehicleReportSummary === "object"
+      ? data.vehicleReportSummary as Record<string, unknown>
+      : null;
+  const serializedConditionCategories = serializeVehicleConditionCategories(vehicleReportSummaryInput?.conditionCategories);
+  const hasStructuredConditionOverview = Boolean(
+    serializedConditionCategories.documentationRecords.score
+    && serializedConditionCategories.exteriorBody.score
+    && serializedConditionCategories.mechanicalFunction.score
+    && serializedConditionCategories.interiorCondition.score
+  );
 
   return {
     id,
@@ -792,38 +809,48 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
         : data.customerName === null
           ? null
           : "",
-    vehicleReportAvailable: data.vehicleReportAvailable === true || typeof data.vehicleReportStoragePath === "string",
+    vehicleReportAvailable: data.vehicleReportAvailable === true || hasStructuredConditionOverview,
     vehicleReportStoragePath: typeof data.vehicleReportStoragePath === "string" ? data.vehicleReportStoragePath : "",
     vehicleReportFileName: typeof data.vehicleReportFileName === "string" ? data.vehicleReportFileName : "",
     vehicleReportGeneratedAt: serializeDate(data.vehicleReportGeneratedAt),
-    vehicleConditionRating:
-      data.vehicleConditionRating === "5.0"
-      || data.vehicleConditionRating === "4.5"
-      || data.vehicleConditionRating === "4.0"
-      || data.vehicleConditionRating === "3.5"
-      || data.vehicleConditionRating === "3.0"
-      || data.vehicleConditionRating === "2.5"
-        ? data.vehicleConditionRating
-        : undefined,
+    vehicleConditionRating: normalizeVehicleConditionScore(data.vehicleConditionRating),
     vehicleReportSummary:
-      data.vehicleReportSummary && typeof data.vehicleReportSummary === "object"
+      vehicleReportSummaryInput
         ? {
-            warrantyStatus: typeof (data.vehicleReportSummary as Record<string, unknown>).warrantyStatus === "string" ? (data.vehicleReportSummary as Record<string, unknown>).warrantyStatus as string : "",
-            numberOfOwners: typeof (data.vehicleReportSummary as Record<string, unknown>).numberOfOwners === "string" ? (data.vehicleReportSummary as Record<string, unknown>).numberOfOwners as string : "",
-            accidentDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).accidentDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).accidentDeclaration as string : "",
-            financeOwingDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).financeOwingDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).financeOwingDeclaration as string : "",
-            odometerIssueDeclaration: typeof (data.vehicleReportSummary as Record<string, unknown>).odometerIssueDeclaration === "string" ? (data.vehicleReportSummary as Record<string, unknown>).odometerIssueDeclaration as string : "",
-            exteriorCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).exteriorCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).exteriorCondition as string : "",
-            panelRepairNotes: typeof (data.vehicleReportSummary as Record<string, unknown>).panelRepairNotes === "string" ? (data.vehicleReportSummary as Record<string, unknown>).panelRepairNotes as string : "",
-            wheelCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).wheelCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).wheelCondition as string : "",
-            interiorCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).interiorCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).interiorCondition as string : "",
-            mechanicalCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).mechanicalCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).mechanicalCondition as string : "",
-            serviceRecordCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).serviceRecordCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).serviceRecordCondition as string : "",
-            keyCondition: typeof (data.vehicleReportSummary as Record<string, unknown>).keyCondition === "string" ? (data.vehicleReportSummary as Record<string, unknown>).keyCondition as string : "",
-            rwcCooperation: typeof (data.vehicleReportSummary as Record<string, unknown>).rwcCooperation === "string" ? (data.vehicleReportSummary as Record<string, unknown>).rwcCooperation as string : "",
-            damageConditionNotes: typeof (data.vehicleReportSummary as Record<string, unknown>).damageConditionNotes === "string" ? (data.vehicleReportSummary as Record<string, unknown>).damageConditionNotes as string : "",
-            damageImages: Array.isArray((data.vehicleReportSummary as Record<string, unknown>).damageImages)
-              ? ((data.vehicleReportSummary as Record<string, unknown>).damageImages as Array<Record<string, unknown>>)
+            conditionCategories: serializedConditionCategories,
+            bodyMap: serializeVehicleBodyMap(vehicleReportSummaryInput.bodyMap),
+            ownershipVerificationStatus:
+              typeof vehicleReportSummaryInput.ownershipVerificationStatus === "string"
+                ? vehicleReportSummaryInput.ownershipVerificationStatus as string
+                : "",
+            ppsrStatus:
+              typeof vehicleReportSummaryInput.ppsrStatus === "string"
+                ? vehicleReportSummaryInput.ppsrStatus as string
+                : "",
+            registrationStatus:
+              typeof vehicleReportSummaryInput.registrationStatus === "string"
+                ? vehicleReportSummaryInput.registrationStatus as string
+                : "",
+            rwcAvailability:
+              typeof vehicleReportSummaryInput.rwcAvailability === "string"
+                ? vehicleReportSummaryInput.rwcAvailability as string
+                : "",
+            warrantyStatus: typeof vehicleReportSummaryInput.warrantyStatus === "string" ? vehicleReportSummaryInput.warrantyStatus as string : "",
+            numberOfOwners: typeof vehicleReportSummaryInput.numberOfOwners === "string" ? vehicleReportSummaryInput.numberOfOwners as string : "",
+            accidentDeclaration: typeof vehicleReportSummaryInput.accidentDeclaration === "string" ? vehicleReportSummaryInput.accidentDeclaration as string : "",
+            financeOwingDeclaration: typeof vehicleReportSummaryInput.financeOwingDeclaration === "string" ? vehicleReportSummaryInput.financeOwingDeclaration as string : "",
+            odometerIssueDeclaration: typeof vehicleReportSummaryInput.odometerIssueDeclaration === "string" ? vehicleReportSummaryInput.odometerIssueDeclaration as string : "",
+            exteriorCondition: typeof vehicleReportSummaryInput.exteriorCondition === "string" ? vehicleReportSummaryInput.exteriorCondition as string : "",
+            panelRepairNotes: typeof vehicleReportSummaryInput.panelRepairNotes === "string" ? vehicleReportSummaryInput.panelRepairNotes as string : "",
+            wheelCondition: typeof vehicleReportSummaryInput.wheelCondition === "string" ? vehicleReportSummaryInput.wheelCondition as string : "",
+            interiorCondition: typeof vehicleReportSummaryInput.interiorCondition === "string" ? vehicleReportSummaryInput.interiorCondition as string : "",
+            mechanicalCondition: typeof vehicleReportSummaryInput.mechanicalCondition === "string" ? vehicleReportSummaryInput.mechanicalCondition as string : "",
+            serviceRecordCondition: typeof vehicleReportSummaryInput.serviceRecordCondition === "string" ? vehicleReportSummaryInput.serviceRecordCondition as string : "",
+            keyCondition: typeof vehicleReportSummaryInput.keyCondition === "string" ? vehicleReportSummaryInput.keyCondition as string : "",
+            rwcCooperation: typeof vehicleReportSummaryInput.rwcCooperation === "string" ? vehicleReportSummaryInput.rwcCooperation as string : "",
+            damageConditionNotes: typeof vehicleReportSummaryInput.damageConditionNotes === "string" ? vehicleReportSummaryInput.damageConditionNotes as string : "",
+            damageImages: Array.isArray(vehicleReportSummaryInput.damageImages)
+              ? (vehicleReportSummaryInput.damageImages as Array<Record<string, unknown>>)
                   .filter((item) => typeof item?.url === "string" && item.url)
                   .map((item) => ({
                     url: item.url as string,
@@ -850,6 +877,29 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
 
 const WAREHOUSE_DECLARATION_DEFAULT = "unknown" as const;
 const WAREHOUSE_CONDITION_DEFAULT = "not_checked" as const;
+const VEHICLE_CONDITION_SCORE_VALUES = new Set<VehicleConditionScore>([
+  "5.0",
+  "4.5",
+  "4.0",
+  "3.5",
+  "3.0",
+  "2.5"
+]);
+const VEHICLE_BODY_PANEL_KEYS: VehicleBodyPanelKey[] = [
+  "frontBumper",
+  "bonnet",
+  "roof",
+  "bootLid",
+  "leftFrontGuard",
+  "rightFrontGuard",
+  "leftFrontDoor",
+  "rightFrontDoor",
+  "leftRearDoor",
+  "rightRearDoor",
+  "leftRearQuarter",
+  "rightRearQuarter",
+  "rearBumper"
+];
 const WAREHOUSE_EXTERIOR_KEYS = [
   "frontExterior",
   "rearExterior",
@@ -1000,9 +1050,77 @@ function createEmptyWarehouseVehicleDetails(): WarehouseIntakeVehicleDetails {
   };
 }
 
+function normalizeVehicleConditionScore(value: unknown): VehicleConditionScore | "" {
+  return typeof value === "string" && VEHICLE_CONDITION_SCORE_VALUES.has(value as VehicleConditionScore)
+    ? value as VehicleConditionScore
+    : "";
+}
+
+function createEmptyVehicleConditionAssessment(): VehicleConditionAssessment {
+  return {
+    score: "",
+    notes: ""
+  };
+}
+
+function createEmptyVehicleConditionCategories(): VehicleConditionCategoryAssessments {
+  return {
+    documentationRecords: createEmptyVehicleConditionAssessment(),
+    exteriorBody: createEmptyVehicleConditionAssessment(),
+    mechanicalFunction: createEmptyVehicleConditionAssessment(),
+    interiorCondition: createEmptyVehicleConditionAssessment()
+  };
+}
+
+function normalizeVehicleBodyPanelCondition(value: unknown): VehicleBodyPanelCondition {
+  return value === "scratch"
+    || value === "dent"
+    || value === "repaint"
+    || value === "repaired_damage"
+    ? value
+    : "original";
+}
+
+function createEmptyVehicleBodyMap(): VehicleBodyPanelMap {
+  return VEHICLE_BODY_PANEL_KEYS.reduce((accumulator, key) => {
+    accumulator[key] = "original";
+    return accumulator;
+  }, {} as VehicleBodyPanelMap);
+}
+
+function serializeVehicleConditionAssessment(input: unknown): VehicleConditionAssessment {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    score: normalizeVehicleConditionScore(value.score),
+    notes: typeof value.notes === "string" ? value.notes : ""
+  };
+}
+
+function serializeVehicleConditionCategories(input: unknown): VehicleConditionCategoryAssessments {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    documentationRecords: serializeVehicleConditionAssessment(value.documentationRecords),
+    exteriorBody: serializeVehicleConditionAssessment(value.exteriorBody),
+    mechanicalFunction: serializeVehicleConditionAssessment(value.mechanicalFunction),
+    interiorCondition: serializeVehicleConditionAssessment(value.interiorCondition)
+  };
+}
+
+function serializeVehicleBodyMap(input: unknown): VehicleBodyPanelMap {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const bodyMap = createEmptyVehicleBodyMap();
+  for (const key of VEHICLE_BODY_PANEL_KEYS) {
+    bodyMap[key] = normalizeVehicleBodyPanelCondition(value[key]);
+  }
+  return bodyMap;
+}
+
 function createEmptyWarehouseVehicleReport() {
   return {
     conditionRating: "",
+    conditionCategories: createEmptyVehicleConditionCategories(),
+    bodyMap: createEmptyVehicleBodyMap(),
+    ppsrStatus: "",
     exteriorCondition: "",
     panelRepairNotes: "",
     wheelCondition: "",
@@ -1451,6 +1569,9 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
         || vehicleReportInput.conditionRating === "2.5"
           ? vehicleReportInput.conditionRating
           : "",
+      conditionCategories: serializeVehicleConditionCategories(vehicleReportInput.conditionCategories),
+      bodyMap: serializeVehicleBodyMap(vehicleReportInput.bodyMap),
+      ppsrStatus: typeof vehicleReportInput.ppsrStatus === "string" ? vehicleReportInput.ppsrStatus : "",
       exteriorCondition: typeof vehicleReportInput.exteriorCondition === "string" ? vehicleReportInput.exteriorCondition : "",
       panelRepairNotes: typeof vehicleReportInput.panelRepairNotes === "string" ? vehicleReportInput.panelRepairNotes : "",
       wheelCondition: typeof vehicleReportInput.wheelCondition === "string" ? vehicleReportInput.wheelCondition : "",
@@ -4993,6 +5114,33 @@ function buildWarehouseIntakeWritePayload(
     vehicleReport: {
       ...base.vehicleReport,
       ...input.vehicleReport,
+      conditionCategories: {
+        documentationRecords: {
+          ...base.vehicleReport.conditionCategories.documentationRecords,
+          ...input.vehicleReport?.conditionCategories?.documentationRecords,
+          score: normalizeVehicleConditionScore(input.vehicleReport?.conditionCategories?.documentationRecords?.score),
+          notes: sanitizeMultilineText(input.vehicleReport?.conditionCategories?.documentationRecords?.notes ?? "")
+        },
+        exteriorBody: {
+          ...base.vehicleReport.conditionCategories.exteriorBody,
+          ...input.vehicleReport?.conditionCategories?.exteriorBody,
+          score: normalizeVehicleConditionScore(input.vehicleReport?.conditionCategories?.exteriorBody?.score),
+          notes: sanitizeMultilineText(input.vehicleReport?.conditionCategories?.exteriorBody?.notes ?? "")
+        },
+        mechanicalFunction: {
+          ...base.vehicleReport.conditionCategories.mechanicalFunction,
+          ...input.vehicleReport?.conditionCategories?.mechanicalFunction,
+          score: normalizeVehicleConditionScore(input.vehicleReport?.conditionCategories?.mechanicalFunction?.score),
+          notes: sanitizeMultilineText(input.vehicleReport?.conditionCategories?.mechanicalFunction?.notes ?? "")
+        },
+        interiorCondition: {
+          ...base.vehicleReport.conditionCategories.interiorCondition,
+          ...input.vehicleReport?.conditionCategories?.interiorCondition,
+          score: normalizeVehicleConditionScore(input.vehicleReport?.conditionCategories?.interiorCondition?.score),
+          notes: sanitizeMultilineText(input.vehicleReport?.conditionCategories?.interiorCondition?.notes ?? "")
+        }
+      },
+      bodyMap: serializeVehicleBodyMap(input.vehicleReport?.bodyMap),
       conditionRating:
         input.vehicleReport?.conditionRating === "5.0"
         || input.vehicleReport?.conditionRating === "4.5"
@@ -5008,7 +5156,32 @@ function buildWarehouseIntakeWritePayload(
         || input.vehicleReport?.rwcCooperation === "seller_coordinates_with_carnest"
         || input.vehicleReport?.rwcCooperation === "seller_does_not_include_rwc"
           ? input.vehicleReport.rwcCooperation
-          : ""
+          : "",
+      ppsrStatus: sanitizeMultilineText(input.vehicleReport?.ppsrStatus ?? ""),
+      exteriorCondition: sanitizeMultilineText(
+        input.vehicleReport?.exteriorCondition
+        ?? input.vehicleReport?.conditionCategories?.exteriorBody?.notes
+        ?? ""
+      ),
+      panelRepairNotes: sanitizeMultilineText(input.vehicleReport?.panelRepairNotes ?? ""),
+      wheelCondition: sanitizeMultilineText(input.vehicleReport?.wheelCondition ?? ""),
+      interiorCondition: sanitizeMultilineText(
+        input.vehicleReport?.interiorCondition
+        ?? input.vehicleReport?.conditionCategories?.interiorCondition?.notes
+        ?? ""
+      ),
+      mechanicalCondition: sanitizeMultilineText(
+        input.vehicleReport?.mechanicalCondition
+        ?? input.vehicleReport?.conditionCategories?.mechanicalFunction?.notes
+        ?? ""
+      ),
+      serviceRecordCondition: sanitizeMultilineText(
+        input.vehicleReport?.serviceRecordCondition
+        ?? input.vehicleReport?.conditionCategories?.documentationRecords?.notes
+        ?? ""
+      ),
+      keyCondition: sanitizeMultilineText(input.vehicleReport?.keyCondition ?? ""),
+      damageConditionNotes: sanitizeMultilineText(input.vehicleReport?.damageConditionNotes ?? "")
     } satisfies WarehouseIntakeRecord["vehicleReport"],
     photos,
     serviceItems,
@@ -5083,17 +5256,12 @@ async function resolveVehicleReportDamageImages(input: Pick<WarehouseIntakeRecor
 function hasVehicleReportSummary(
   input: Pick<WarehouseIntakeRecord, "vehicleReport">
 ) {
+  const categories = input.vehicleReport.conditionCategories;
   return Boolean(
-    input.vehicleReport.conditionRating
-    || input.vehicleReport.exteriorCondition.trim()
-    || input.vehicleReport.panelRepairNotes.trim()
-    || input.vehicleReport.wheelCondition.trim()
-    || input.vehicleReport.interiorCondition.trim()
-    || input.vehicleReport.mechanicalCondition.trim()
-    || input.vehicleReport.serviceRecordCondition.trim()
-    || input.vehicleReport.keyCondition.trim()
-    || input.vehicleReport.rwcCooperation
-    || input.vehicleReport.damageConditionNotes.trim()
+    categories.documentationRecords.score
+    && categories.exteriorBody.score
+    && categories.mechanicalFunction.score
+    && categories.interiorCondition.score
   );
 }
 
@@ -5101,7 +5269,7 @@ async function syncVehicleReportMetadataToPublicListing(
   vehicleId: string,
   input: Pick<
     WarehouseIntakeRecord,
-    "vehicleDetails" | "declarations" | "vehicleReport" | "photos" | "vehicleReportPdfStoragePath" | "vehicleReportPdfFileName" | "vehicleReportGeneratedAt"
+    "ownerDetails" | "vehicleDetails" | "declarations" | "vehicleReport" | "photos" | "vehicleReportGeneratedAt"
   >
 ) {
   if (!vehicleId || !isFirebaseConfigured) return;
@@ -5113,12 +5281,16 @@ async function syncVehicleReportMetadataToPublicListing(
     doc(db, "vehicles", vehicleId),
     sanitizeFirestoreWriteData({
       vehicleReportAvailable: hasReport,
-      vehicleReportStoragePath: hasReport ? input.vehicleReportPdfStoragePath?.trim() : deleteField(),
-      vehicleReportFileName: hasReport ? (input.vehicleReportPdfFileName?.trim() || "") : deleteField(),
       vehicleReportGeneratedAt: hasReport ? (input.vehicleReportGeneratedAt || new Date().toISOString()) : deleteField(),
-      vehicleConditionRating: hasReport ? (input.vehicleReport.conditionRating || "") : deleteField(),
+      vehicleConditionRating: deleteField(),
       vehicleReportSummary: hasReport
         ? {
+            conditionCategories: input.vehicleReport.conditionCategories,
+            bodyMap: input.vehicleReport.bodyMap,
+            ownershipVerificationStatus: input.ownerDetails.isLegalOwnerConfirmed ? "Owner identity confirmed" : "Owner confirmation pending",
+            ppsrStatus: input.vehicleReport.ppsrStatus || "",
+            registrationStatus: input.vehicleDetails.registrationExpiry ? `Registered until ${input.vehicleDetails.registrationExpiry}` : "Registration status pending",
+            rwcAvailability: input.vehicleReport.rwcCooperation || "",
             warrantyStatus: input.vehicleDetails.warrantyStatus || "",
             numberOfOwners: input.vehicleDetails.numberOfOwners || "",
             accidentDeclaration: input.vehicleDetails.accidentHistory || input.declarations.writtenOffHistory || "",
@@ -5140,6 +5312,38 @@ async function syncVehicleReportMetadataToPublicListing(
     }),
     { merge: true }
   );
+}
+
+async function clearVehicleReportMetadataFromPublicListing(vehicleId: string) {
+  if (!vehicleId || !isFirebaseConfigured) return;
+
+  await setDoc(
+    doc(db, "vehicles", vehicleId),
+    sanitizeFirestoreWriteData({
+      vehicleReportAvailable: false,
+      vehicleReportGeneratedAt: deleteField(),
+      vehicleConditionRating: deleteField(),
+      vehicleReportSummary: deleteField(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+}
+
+async function reconcileVehicleReportMetadataForPublicListing(vehicleId: string) {
+  if (!vehicleId || !isFirebaseConfigured) return;
+
+  const result = await getWarehouseIntakeByVehicleId(vehicleId);
+  const sourceIntake = result.items.find(
+    (item) => item.vehicleId === vehicleId && hasVehicleReportSummary(item)
+  );
+
+  if (!sourceIntake) {
+    await clearVehicleReportMetadataFromPublicListing(vehicleId);
+    return;
+  }
+
+  await syncVehicleReportMetadataToPublicListing(vehicleId, sourceIntake);
 }
 
 export async function saveWarehouseIntake(
@@ -5204,6 +5408,9 @@ export async function saveWarehouseIntake(
     },
     actor
   );
+  const affectedVehicleIds = Array.from(
+    new Set([previousIntake?.vehicleId?.trim() || "", payload.vehicleId?.trim() || ""].filter(Boolean))
+  );
 
   if (existingId) {
     const ownerDetails = {
@@ -5246,7 +5453,11 @@ export async function saveWarehouseIntake(
     );
 
     await syncVehicleRecordReportingSnapshot(vehicleRecordId);
-    await syncVehicleReportMetadataToPublicListing(payload.vehicleId, payload).catch(() => undefined);
+    await Promise.all(
+      affectedVehicleIds.map((vehicleId) =>
+        reconcileVehicleReportMetadataForPublicListing(vehicleId).catch(() => undefined)
+      )
+    );
     await writeAdminOperationalEvent({
       actor,
       recordType: "warehouse_intake",
@@ -5295,7 +5506,11 @@ export async function saveWarehouseIntake(
   );
 
   await syncVehicleRecordReportingSnapshot(vehicleRecordId);
-  await syncVehicleReportMetadataToPublicListing(payload.vehicleId, payload).catch(() => undefined);
+  await Promise.all(
+    affectedVehicleIds.map((vehicleId) =>
+      reconcileVehicleReportMetadataForPublicListing(vehicleId).catch(() => undefined)
+    )
+  );
   await writeAdminOperationalEvent({
     actor,
     recordType: "warehouse_intake",
