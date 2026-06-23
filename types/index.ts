@@ -123,7 +123,14 @@ export type VehiclePublicationPlatform =
   | "website"
   | "other";
 export type AdminAccountingEntryType = "income" | "expense" | "receivable" | "payable";
-export type AdminAccountingPaymentMethod = "bank_transfer" | "cash";
+export type AdminAccountingPaymentMethod =
+  | "bank_transfer"
+  | "cash"
+  | "credit_card"
+  | "other"
+  // Legacy values are preserved for compatibility and normalized into "other" in the UI/reporting layer.
+  | "debit_card"
+  | "eftpos";
 export type AdminAccountingEntryStatus = "paid" | "unpaid" | "partially_paid";
 export type VehicleActivityType =
   | "offer_created"
@@ -579,6 +586,8 @@ export interface AdminAccountingEntry {
   relatedVehicleRecordId?: string;
   relatedDisplayReference?: string;
   relatedVehicleTitle?: string;
+  relatedCustomerProfileId?: string;
+  relatedCustomerName?: string;
   note: string;
   status: AdminAccountingEntryStatus;
   createdByUid?: string;

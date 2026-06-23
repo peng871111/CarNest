@@ -1230,7 +1230,17 @@ function normalizeAdminAccountingEntryType(value: unknown): AdminAccountingEntry
 }
 
 function normalizeAdminAccountingPaymentMethod(value: unknown): AdminAccountingPaymentMethod {
-  return value === "cash" ? "cash" : "bank_transfer";
+  if (
+    value === "cash"
+    || value === "credit_card"
+    || value === "other"
+  ) {
+    return value;
+  }
+  if (value === "debit_card" || value === "eftpos") {
+    return "other";
+  }
+  return "bank_transfer";
 }
 
 function normalizeAdminAccountingEntryStatus(value: unknown): AdminAccountingEntryStatus {
@@ -1261,6 +1271,8 @@ export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "i
     relatedVehicleRecordId: "",
     relatedDisplayReference: "",
     relatedVehicleTitle: "",
+    relatedCustomerProfileId: "",
+    relatedCustomerName: "",
     note: "",
     status: "paid",
     createdByUid: "",
@@ -1850,6 +1862,8 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     relatedVehicleRecordId: typeof data.relatedVehicleRecordId === "string" ? data.relatedVehicleRecordId : "",
     relatedDisplayReference: typeof data.relatedDisplayReference === "string" ? data.relatedDisplayReference : "",
     relatedVehicleTitle: typeof data.relatedVehicleTitle === "string" ? data.relatedVehicleTitle : "",
+    relatedCustomerProfileId: typeof data.relatedCustomerProfileId === "string" ? data.relatedCustomerProfileId : "",
+    relatedCustomerName: typeof data.relatedCustomerName === "string" ? data.relatedCustomerName : "",
     note: typeof data.note === "string" ? data.note : "",
     status: normalizeAdminAccountingEntryStatus(data.status),
     createdByUid: typeof data.createdByUid === "string" ? data.createdByUid : "",
@@ -4254,6 +4268,8 @@ export async function saveAdminAccountingEntry(
     relatedVehicleRecordId: sanitizeSingleLineText(input.relatedVehicleRecordId ?? ""),
     relatedDisplayReference: sanitizeSingleLineText(input.relatedDisplayReference ?? ""),
     relatedVehicleTitle: sanitizeSingleLineText(input.relatedVehicleTitle ?? ""),
+    relatedCustomerProfileId: sanitizeSingleLineText(input.relatedCustomerProfileId ?? ""),
+    relatedCustomerName: sanitizeSingleLineText(input.relatedCustomerName ?? ""),
     note: sanitizeMultilineText(input.note ?? ""),
     status: normalizeAdminAccountingEntryStatus(input.status),
     ...(existingId
