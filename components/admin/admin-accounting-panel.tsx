@@ -209,6 +209,21 @@ function SummaryCard({
   );
 }
 
+function ReportKpiCard({
+  label,
+  value
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/48">{label}</p>
+      <p className="mt-3 text-xl font-semibold text-ink">{value}</p>
+    </div>
+  );
+}
+
 export function AdminAccountingPanel() {
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
@@ -1032,218 +1047,208 @@ export function AdminAccountingPanel() {
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr,0.9fr]">
-        <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Export report</p>
-              <p className="mt-2 text-sm text-ink/60">Export the accounting ledger for BAS preparation, tax reporting, and internal profit tracking without changing the daily bookkeeping workflow.</p>
-            </div>
-            <div className="min-w-[280px] rounded-[22px] border border-black/6 bg-shell p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <select
-                  value={exportPeriod}
-                  onChange={(event) => setExportPeriod(event.target.value as AccountingPeriodOption)}
-                  className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                >
-                  {EXPORT_PERIOD_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={exportFormat}
-                  onChange={(event) => setExportFormat(event.target.value as AccountingExportFormat)}
-                  className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                >
-                  <option value="xlsx">Excel (.xlsx)</option>
-                  <option value="pdf">PDF</option>
-                  <option value="csv">CSV</option>
-                </select>
-              </div>
-              {exportPeriod === "custom" ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="date"
-                    value={exportCustomStart}
-                    onChange={(event) => setExportCustomStart(event.target.value)}
-                    className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  />
-                  <input
-                    type="date"
-                    value={exportCustomEnd}
-                    onChange={(event) => setExportCustomEnd(event.target.value)}
-                    className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  />
-                </div>
-              ) : null}
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-ink/56">
-                <span>
-                  {exportEntries.length} export entr{exportEntries.length === 1 ? "y" : "ies"} · {getAccountingPeriodLabel(exportPeriod)}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void handleExport()}
-                  disabled={exporting || !exportEntries.length}
-                  className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50"
-                >
-                  {exporting ? "Exporting..." : exportEntries.length ? "Export report" : "No data to export"}
-                </button>
-              </div>
-            </div>
+      <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-xs uppercase tracking-[0.22em] text-bronze">Export report</p>
+            <p className="mt-2 text-sm text-ink/60">Export the accounting ledger for BAS preparation, tax reporting, and internal profit tracking without changing the daily bookkeeping workflow.</p>
+            <p className="mt-4 text-sm font-medium text-ink/68">
+              {exportEntries.length} export entr{exportEntries.length === 1 ? "y" : "ies"} in {getAccountingPeriodLabel(exportPeriod)}.
+            </p>
           </div>
+          <div className="flex w-full flex-wrap items-center gap-3 xl:w-auto xl:max-w-[720px] xl:justify-end">
+            <select
+              value={exportPeriod}
+              onChange={(event) => setExportPeriod(event.target.value as AccountingPeriodOption)}
+              className="min-h-[42px] min-w-[200px] flex-1 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D] xl:flex-none"
+            >
+              {EXPORT_PERIOD_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={exportFormat}
+              onChange={(event) => setExportFormat(event.target.value as AccountingExportFormat)}
+              className="min-h-[42px] min-w-[200px] flex-1 rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D] xl:flex-none"
+            >
+              <option value="xlsx">Excel (.xlsx)</option>
+              <option value="pdf">PDF</option>
+              <option value="csv">CSV</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              disabled={exporting || !exportEntries.length}
+              className="min-h-[42px] rounded-full bg-ink px-5 py-2 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50"
+            >
+              {exporting ? "Exporting..." : exportEntries.length ? "Export report" : "No data to export"}
+            </button>
+          </div>
+        </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            <div className="rounded-[22px] border border-black/6 bg-shell p-4 text-sm text-ink/64">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/48">Accounting report summary</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <span>Total Income {formatCurrency(exportSummary.totalIncome)}</span>
-                <span>Total Expenses {formatCurrency(exportSummary.totalExpense)}</span>
-                <span>Net Profit / Loss {formatCurrency(exportSummary.netCashflow)}</span>
-                <span>GST Collected {formatCurrency(exportSummary.gstCollected)}</span>
-                <span>GST Paid {formatCurrency(exportSummary.gstPaid)}</span>
-                <span>GST Payable {formatCurrency(exportSummary.gstPayable)}</span>
-                <span>Vehicle Reports {exportSummary.vehicleProfitBreakdown.length}</span>
-                <span>Payment Methods {exportSummary.paymentMethodBreakdown.length}</span>
-              </div>
+        {exportPeriod === "custom" ? (
+          <div className="mt-4 grid gap-3 md:max-w-[560px] md:grid-cols-2">
+            <input
+              type="date"
+              value={exportCustomStart}
+              onChange={(event) => setExportCustomStart(event.target.value)}
+              className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+            />
+            <input
+              type="date"
+              value={exportCustomEnd}
+              onChange={(event) => setExportCustomEnd(event.target.value)}
+              className="min-h-[42px] rounded-2xl border border-black/10 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+            />
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <ReportKpiCard label="Total Income" value={formatCurrency(exportSummary.totalIncome)} />
+          <ReportKpiCard label="Total Expenses" value={formatCurrency(exportSummary.totalExpense)} />
+          <ReportKpiCard label="Net Profit / Loss" value={formatCurrency(exportSummary.netCashflow)} />
+          <ReportKpiCard label="GST Collected" value={formatCurrency(exportSummary.gstCollected)} />
+          <ReportKpiCard label="GST Paid" value={formatCurrency(exportSummary.gstPaid)} />
+          <ReportKpiCard label="GST Payable" value={formatCurrency(exportSummary.gstPayable)} />
+          <ReportKpiCard label="Vehicle Reports" value={String(exportSummary.vehicleProfitBreakdown.length)} />
+          <ReportKpiCard label="Payment Methods" value={String(exportSummary.paymentMethodBreakdown.length)} />
+        </div>
+
+        <div className="mt-5 rounded-[22px] border border-black/6 bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/48">Filters</p>
+              <p className="mt-2 text-sm text-ink/60">Refine the ledger view by date, category, payment method, status, vehicle, or customer.</p>
             </div>
-
-            <div className="rounded-[22px] border border-black/6 bg-white p-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/48">Filters</p>
-                  <p className="mt-2 text-sm text-ink/60">Refine the ledger view by date, category, payment method, status, vehicle, or customer.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                >
-                  Clear filters
-                </button>
-              </div>
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            >
+              Clear filters
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Date</label>
+              <select
+                value={filters.period}
+                onChange={(event) => setFilters((current) => ({ ...current, period: event.target.value as AccountingPeriodOption }))}
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              >
+                {DATE_FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Category</label>
+              <select
+                value={filters.category}
+                onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              >
+                <option value="">All categories</option>
+                {categoryFilterOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Payment method</label>
+              <select
+                value={filters.paymentMethod}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    paymentMethod: event.target.value as AccountingFilterState["paymentMethod"]
+                  }))
+                }
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              >
+                <option value="">All payment methods</option>
+                {PAYMENT_METHOD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Status</label>
+              <select
+                value={filters.status}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    status: event.target.value as AccountingFilterState["status"]
+                  }))
+                }
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              >
+                <option value="">All statuses</option>
+                <option value="paid">Paid</option>
+                <option value="unpaid">Unpaid</option>
+                <option value="partially_paid">Partially paid</option>
+              </select>
+            </div>
+            {filters.period === "custom" ? (
+              <>
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Date</label>
-                  <select
-                    value={filters.period}
-                    onChange={(event) => setFilters((current) => ({ ...current, period: event.target.value as AccountingPeriodOption }))}
-                    className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  >
-                    {DATE_FILTER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Category</label>
-                  <select
-                    value={filters.category}
-                    onChange={(event) => setFilters((current) => ({ ...current, category: event.target.value }))}
-                    className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  >
-                    <option value="">All categories</option>
-                    {categoryFilterOptions.map((category) => (
-                      <option key={category} value={category}>
-                        {category}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Payment method</label>
-                  <select
-                    value={filters.paymentMethod}
-                    onChange={(event) =>
-                      setFilters((current) => ({
-                        ...current,
-                        paymentMethod: event.target.value as AccountingFilterState["paymentMethod"]
-                      }))
-                    }
-                    className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  >
-                    <option value="">All payment methods</option>
-                    {PAYMENT_METHOD_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Status</label>
-                  <select
-                    value={filters.status}
-                    onChange={(event) =>
-                      setFilters((current) => ({
-                        ...current,
-                        status: event.target.value as AccountingFilterState["status"]
-                      }))
-                    }
-                    className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                  >
-                    <option value="">All statuses</option>
-                    <option value="paid">Paid</option>
-                    <option value="unpaid">Unpaid</option>
-                    <option value="partially_paid">Partially paid</option>
-                  </select>
-                </div>
-                {filters.period === "custom" ? (
-                  <>
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Custom start</label>
-                      <input
-                        type="date"
-                        value={filters.customStart}
-                        onChange={(event) => setFilters((current) => ({ ...current, customStart: event.target.value }))}
-                        className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Custom end</label>
-                      <input
-                        type="date"
-                        value={filters.customEnd}
-                        onChange={(event) => setFilters((current) => ({ ...current, customEnd: event.target.value }))}
-                        className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
-                      />
-                    </div>
-                  </>
-                ) : null}
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Vehicle</label>
+                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Custom start</label>
                   <input
-                    list="accounting-vehicle-filter-options"
-                    value={filters.vehicle}
-                    onChange={(event) => setFilters((current) => ({ ...current, vehicle: event.target.value }))}
-                    placeholder="Search listing or vehicle"
+                    type="date"
+                    value={filters.customStart}
+                    onChange={(event) => setFilters((current) => ({ ...current, customStart: event.target.value }))}
                     className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
                   />
-                  <datalist id="accounting-vehicle-filter-options">
-                    {vehicleFilterOptions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Customer</label>
+                  <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Custom end</label>
                   <input
-                    list="accounting-customer-filter-options"
-                    value={filters.customer}
-                    onChange={(event) => setFilters((current) => ({ ...current, customer: event.target.value }))}
-                    placeholder="Search customer"
+                    type="date"
+                    value={filters.customEnd}
+                    onChange={(event) => setFilters((current) => ({ ...current, customEnd: event.target.value }))}
                     className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
                   />
-                  <datalist id="accounting-customer-filter-options">
-                    {customerFilterOptions.map((option) => (
-                      <option key={option} value={option} />
-                    ))}
-                  </datalist>
                 </div>
-              </div>
+              </>
+            ) : null}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Vehicle</label>
+              <input
+                list="accounting-vehicle-filter-options"
+                value={filters.vehicle}
+                onChange={(event) => setFilters((current) => ({ ...current, vehicle: event.target.value }))}
+                placeholder="Search listing or vehicle"
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              />
+              <datalist id="accounting-vehicle-filter-options">
+                {vehicleFilterOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Customer</label>
+              <input
+                list="accounting-customer-filter-options"
+                value={filters.customer}
+                onChange={(event) => setFilters((current) => ({ ...current, customer: event.target.value }))}
+                placeholder="Search customer"
+                className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
+              />
+              <datalist id="accounting-customer-filter-options">
+                {customerFilterOptions.map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
             </div>
           </div>
         </div>
