@@ -23,23 +23,15 @@ export const metadata: Metadata = {
 
 const TRUST_FEATURES = [
   {
-    title: "CarNest Verified",
-    text: "Quality assured",
-    icon: "shield"
-  },
-  {
-    title: "Independent Inspections",
-    text: "Vehicle Condition Summary",
+    title: "Vehicle Condition Summary",
     icon: "inspection"
   },
   {
     title: "Direct Owner Transactions",
-    text: "Deal with owners",
     icon: "handshake"
   },
   {
-    title: "Transparent Fees",
-    text: "No hidden costs",
+    title: "No Hidden Costs",
     icon: "dollar"
   }
 ] as const;
@@ -139,13 +131,7 @@ export default async function HomePage() {
   const { vehicles: recentVehicles } = await listPublishedVehicles();
   const recentHeroVehicles = recentVehicles.slice(0, 3);
   const featuredVehicles = recentVehicles.slice(0, 5);
-  const soldValue = soldVehicles.reduce((sum, vehicle) => sum + vehicle.price, 0);
   const stats = [
-    {
-      label: "Vehicle Value Sold",
-      value: `${formatCurrency(soldValue || 0)}+`,
-      icon: "dollar"
-    },
     {
       label: "Verified Listings",
       value: `${recentVehicles.length}+`,
@@ -171,7 +157,7 @@ export default async function HomePage() {
         <SoldHeroCollage vehicles={soldVehicles} />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_42%,rgba(198,168,125,0.22),transparent_20%),radial-gradient(circle_at_62%_50%,rgba(198,168,125,0.12),transparent_34%),linear-gradient(90deg,rgba(2,2,2,0.96)_0%,rgba(2,2,2,0.88)_24%,rgba(2,2,2,0.55)_48%,rgba(2,2,2,0.22)_72%,rgba(2,2,2,0.24)_100%),linear-gradient(180deg,rgba(2,2,2,0.34)_0%,rgba(2,2,2,0.5)_18%,rgba(2,2,2,0.78)_58%,rgba(2,2,2,0.98)_100%)]" />
         <div className="absolute inset-0 opacity-50 [background-image:radial-gradient(circle_at_center,rgba(198,168,125,0.18)_0,transparent_44%),repeating-radial-gradient(circle_at_60%_45%,rgba(198,168,125,0.12)_0,rgba(198,168,125,0.12)_2px,transparent_2px,transparent_34px)]" />
-        <div className="relative mx-auto flex min-h-[42rem] max-w-7xl items-center px-6 pb-20 pt-24 md:min-h-[48rem]">
+        <div className="relative mx-auto flex min-h-[40rem] max-w-7xl items-center px-6 pb-16 pt-16 md:min-h-[44rem] md:pb-18 md:pt-14">
           <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] xl:gap-16">
             <div className="relative">
               <div className="absolute inset-0 rounded-[36px] bg-[linear-gradient(180deg,rgba(12,12,12,0.78),rgba(12,12,12,0.5))] blur-3xl" />
@@ -212,30 +198,10 @@ export default async function HomePage() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-7 flex items-center gap-3 text-sm text-white/82">
-                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#D9B36A]/40 bg-[#D9B36A]/10 text-[#D9B36A]">
-                    <FeatureIcon kind="shield" className="h-4 w-4" />
-                  </span>
-                  <span>
-                    Every car is <span className="text-[#D9B36A]">CarNest Verified</span>
-                  </span>
-                </div>
               </div>
             </div>
 
             <div className="hidden lg:flex lg:flex-col lg:gap-4">
-              <div className="self-end rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,14,14,0.84),rgba(14,14,14,0.7))] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-[10px]">
-                <div className="flex items-start gap-4">
-                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
-                    <FeatureIcon kind="shield" className="h-6 w-6" />
-                  </span>
-                  <div>
-                    <p className="text-lg font-semibold text-white">Every car is CarNest Verified</p>
-                    <p className="mt-1 text-sm leading-6 text-white/64">Quality assured.</p>
-                  </div>
-                </div>
-              </div>
-
               {recentHeroVehicles.length ? (
                 <div className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,14,14,0.82),rgba(14,14,14,0.68))] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-[10px]">
                   <p className="text-[11px] uppercase tracking-[0.28em] text-[#D9B36A]">Recently Added</p>
@@ -277,19 +243,16 @@ export default async function HomePage() {
       <section className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 bg-[#040404] pb-20">
         <div className="mx-auto max-w-7xl px-6">
           <div className="rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(15,15,15,0.92),rgba(10,10,10,0.92))] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.34)] md:p-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-3">
               {TRUST_FEATURES.map((feature) => (
                 <div
                   key={feature.title}
-                  className="flex items-center gap-4 rounded-[24px] border border-white/7 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-4 py-4"
+                  className="flex items-center gap-4 rounded-[24px] border border-white/7 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-4 py-5"
                 >
                   <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
                     <FeatureIcon kind={feature.icon} className="h-5 w-5" />
                   </span>
-                  <div>
-                    <p className="text-base font-semibold text-white">{feature.title}</p>
-                    <p className="mt-1 text-sm text-white/62">{feature.text}</p>
-                  </div>
+                  <p className="text-base font-semibold text-white">{feature.title}</p>
                 </div>
               ))}
             </div>
@@ -317,7 +280,7 @@ export default async function HomePage() {
           <section className="mt-10">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Featured Listings</p>
+                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Recent Sold Vehicles</p>
                 <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">Recently Added</h2>
               </div>
               <Link href="/inventory" className="text-sm font-medium text-[#F0D296] transition hover:text-white">
