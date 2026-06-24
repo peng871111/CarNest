@@ -116,7 +116,7 @@ export default async function HomePage() {
         <SoldHeroCollage vehicles={soldVehicles} />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_42%,rgba(198,168,125,0.22),transparent_20%),radial-gradient(circle_at_62%_50%,rgba(198,168,125,0.12),transparent_34%),linear-gradient(90deg,rgba(2,2,2,0.96)_0%,rgba(2,2,2,0.88)_24%,rgba(2,2,2,0.55)_48%,rgba(2,2,2,0.22)_72%,rgba(2,2,2,0.24)_100%),linear-gradient(180deg,rgba(2,2,2,0.34)_0%,rgba(2,2,2,0.5)_18%,rgba(2,2,2,0.78)_58%,rgba(2,2,2,0.98)_100%)]" />
         <div className="absolute inset-0 opacity-50 [background-image:radial-gradient(circle_at_center,rgba(198,168,125,0.18)_0,transparent_44%),repeating-radial-gradient(circle_at_60%_45%,rgba(198,168,125,0.12)_0,rgba(198,168,125,0.12)_2px,transparent_2px,transparent_34px)]" />
-        <div className="relative mx-auto flex min-h-[40rem] max-w-7xl items-center px-6 pb-16 pt-16 md:min-h-[44rem] md:pb-18 md:pt-14">
+        <div className="relative mx-auto flex min-h-[40rem] max-w-7xl items-center px-6 pb-10 pt-16 md:min-h-[44rem] md:pb-12 md:pt-14">
           <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] xl:gap-16">
             <div className="relative">
               <div className="absolute inset-0 rounded-[36px] bg-[linear-gradient(180deg,rgba(12,12,12,0.78),rgba(12,12,12,0.5))] blur-3xl" />
@@ -199,7 +199,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 bg-[#040404] pb-20">
+      <section className="relative left-1/2 right-1/2 z-10 -mt-6 w-screen -translate-x-1/2 bg-[#040404] pb-20 md:-mt-8">
         <div className="mx-auto max-w-7xl px-6">
           <div className="rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(15,15,15,0.92),rgba(10,10,10,0.92))] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.34)] md:p-6">
             <div className="grid gap-4 md:grid-cols-3">
@@ -249,13 +249,14 @@ export default async function HomePage() {
                     <h3 className="text-lg font-semibold text-white">
                       {vehicle.year} {vehicle.make} {vehicle.model}
                     </h3>
-                    <p className="mt-3 text-lg font-semibold uppercase tracking-[0.28em] text-[#D9B36A]">Sold Via CarNest</p>
                     <div className="mt-3 flex items-center justify-between gap-3 text-sm text-white/68">
                       <span>{vehicle.mileage.toLocaleString()} km</span>
-                      <span className="inline-flex items-center gap-2 text-[#D9B36A]">
-                        <FeatureIcon kind="shield" className="h-4 w-4" />
-                        Verified
-                      </span>
+                      {vehicle.vehicleReportAvailable ? (
+                        <span className="inline-flex items-center gap-2 text-[#D9B36A]">
+                          <FeatureIcon kind="shield" className="h-4 w-4" />
+                          Verified
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </Link>
