@@ -6,7 +6,7 @@ import { Vehicle } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { getPublicVehicleLocation, getVehicleImageCandidates } from "@/lib/permissions";
 import { ListingBadge } from "@/components/vehicles/listing-badge";
-import { ListingSummary } from "@/components/vehicles/listing-summary";
+import { ConditionSummaryPreview } from "@/components/vehicles/condition-summary-preview";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
 import { SellerVehicleStatusBadge } from "@/components/vehicles/seller-vehicle-status-badge";
 import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
@@ -58,7 +58,7 @@ export function VehicleCard({ vehicle, compact = false }: { vehicle: Vehicle; co
           <span>{vehicle.fuelType}</span>
           <span>{getPublicVehicleLocation(vehicle)}</span>
         </div>
-        <ListingSummary vehicle={vehicle} compact={compact} />
+        <ConditionSummaryPreview vehicle={vehicle} compact={compact} />
       </div>
     </Link>
   );
