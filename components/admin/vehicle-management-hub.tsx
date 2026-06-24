@@ -44,6 +44,8 @@ type VehicleLogComposerDraft = {
   sendEmail: boolean;
 };
 
+const VEHICLE_LOG_REMINDER_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 function createVehicleLogComposerDraft(mode: VehicleLogComposerMode, sendEmail = false): VehicleLogComposerDraft {
   return {
     mode,
@@ -91,6 +93,34 @@ function getVehicleListTitle(vehicle: Vehicle) {
 
 function getVehicleListedAt(vehicle: Vehicle) {
   return vehicle.approvedAt || vehicle.createdAt || "";
+}
+
+function parseIsoDateToTimestamp(value?: string) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function isActiveAdminListing(vehicle: Vehicle) {
+  return !vehicle.deleted && vehicle.status === "approved" && vehicle.sellerStatus === "ACTIVE";
+}
+
+function getVehicleLogReminderAnchorTimestamp(vehicle: Vehicle, logItems: VehicleActivityEvent[]) {
+  const latestLogTimestamp = logItems.reduce<number | null>((latest, item) => {
+    const nextTimestamp = parseIsoDateToTimestamp(item.createdAt);
+    if (nextTimestamp == null) return latest;
+    if (latest == null) return nextTimestamp;
+    return nextTimestamp > latest ? nextTimestamp : latest;
+  }, null);
+
+  return latestLogTimestamp ?? parseIsoDateToTimestamp(vehicle.createdAt);
+}
+
+function isVehicleLogReminderOverdue(vehicle: Vehicle, logItems: VehicleActivityEvent[], now = Date.now()) {
+  if (!isActiveAdminListing(vehicle)) return false;
+  const anchorTimestamp = getVehicleLogReminderAnchorTimestamp(vehicle, logItems);
+  if (anchorTimestamp == null) return false;
+  return now - anchorTimestamp > VEHICLE_LOG_REMINDER_WINDOW_MS;
 }
 
 function getDaysBetweenIsoDates(startDate?: string, endDate?: string) {
@@ -236,6 +266,23 @@ function CompactTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement
   return <textarea {...props} className={`min-h-[92px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D] ${props.className ?? ""}`} />;
 }
 
+function VehicleLogButton({
+  overdue,
+  className,
+  onClick
+}: {
+  overdue: boolean;
+  className: string;
+  onClick: () => void;
+}) {
+  return (
+    <button type="button" onClick={onClick} className={`relative ${className}`}>
+      Vehicle log
+      {overdue ? <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-500" aria-hidden="true" /> : null}
+    </button>
+  );
+}
+
 const MAX_ACTIVITY_ATTACHMENTS = 5;
 
 export function VehicleManagementHub({
@@ -272,6 +319,7 @@ export function VehicleManagementHub({
   const [vehicleLogLoadingByVehicleId, setVehicleLogLoadingByVehicleId] = useState<Record<string, boolean>>({});
   const [vehicleLogErrorByVehicleId, setVehicleLogErrorByVehicleId] = useState<Record<string, string>>({});
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
+  const [vehicleLogReminderCheckedByVehicleId, setVehicleLogReminderCheckedByVehicleId] = useState<Record<string, boolean>>({});
   const [showVehicleSummary, setShowVehicleSummary] = useState(false);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
@@ -520,6 +568,43 @@ export function VehicleManagementHub({
       gstPayableEstimate
     };
   }, [accountingEntries, intakesByVehicleRecordId, listingMap, localVehicleRecords]);
+
+  useEffect(() => {
+    const vehicleIdsToPrefetch = localVehicles
+      .filter((vehicle) => isActiveAdminListing(vehicle))
+      .map((vehicle) => vehicle.id)
+      .filter((vehicleId) => !vehicleLogReminderCheckedByVehicleId[vehicleId] && !vehicleLogLoadingByVehicleId[vehicleId]);
+
+    if (!vehicleIdsToPrefetch.length) return;
+
+    let cancelled = false;
+
+    void Promise.all(
+      vehicleIdsToPrefetch.map(async (vehicleId) => ({
+        vehicleId,
+        result: await getVehicleActivityLog(vehicleId)
+      }))
+    ).then((results) => {
+      if (cancelled) return;
+
+      setVehicleLogItemsByVehicleId((current) => {
+        const next = { ...current };
+        results.forEach(({ vehicleId, result }) => {
+          next[vehicleId] = result.items;
+        });
+        return next;
+      });
+
+      setVehicleLogReminderCheckedByVehicleId((current) => ({
+        ...current,
+        ...Object.fromEntries(results.map(({ vehicleId }) => [vehicleId, true] as const))
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [localVehicles, vehicleLogLoadingByVehicleId, vehicleLogReminderCheckedByVehicleId]);
 
   async function handleVehicleListingStatusChange(vehicle: Vehicle, nextStatus: VehicleRowStatusControl) {
     if (!actor) return;
@@ -1102,6 +1187,8 @@ export function VehicleManagementHub({
                 const listedAt = getVehicleListedAt(vehicle);
                 const listingEndDate = vehicle.soldAt || new Date().toISOString();
                 const daysListed = listedAt ? getDaysBetweenIsoDates(listedAt, listingEndDate) : null;
+                const logReminderChecked = vehicleLogReminderCheckedByVehicleId[vehicle.id] ?? false;
+                const showVehicleLogReminder = logReminderChecked && isVehicleLogReminderOverdue(vehicle, logItems);
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1184,9 +1271,11 @@ export function VehicleManagementHub({
                             Start storage contract
                           </Link>
                         )}
-                        <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                          Vehicle log
-                        </button>
+                        <VehicleLogButton
+                          overdue={showVehicleLogReminder}
+                          onClick={() => void openVehicleLog(vehicle.id)}
+                          className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1218,9 +1307,11 @@ export function VehicleManagementHub({
                           Start storage contract
                         </Link>
                       )}
-                      <button type="button" onClick={() => void openVehicleLog(vehicle.id)} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
-                        Vehicle log
-                      </button>
+                      <VehicleLogButton
+                        overdue={showVehicleLogReminder}
+                        onClick={() => void openVehicleLog(vehicle.id)}
+                        className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                      />
                   </div>
                   <div className="mt-4">
                     <VehicleAccountingSummary
