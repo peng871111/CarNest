@@ -220,8 +220,7 @@ export default async function HomePage() {
           <section className="mt-10">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Recent Sold Vehicles</p>
-                <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">Recent Sold Vehicles</h2>
+                <h2 className="text-4xl font-semibold tracking-[-0.04em] text-white">Recent Sold Vehicles</h2>
               </div>
               <Link href="/sold" className="text-sm font-medium text-[#F0D296] transition hover:text-white">
                 View sold cars
@@ -250,7 +249,7 @@ export default async function HomePage() {
                     <h3 className="text-lg font-semibold text-white">
                       {vehicle.year} {vehicle.make} {vehicle.model}
                     </h3>
-                    <p className="mt-3 text-2xl font-semibold text-[#F0D296]">{formatCurrency(vehicle.price)}</p>
+                    <p className="mt-3 text-lg font-semibold uppercase tracking-[0.28em] text-[#D9B36A]">Sold Via CarNest</p>
                     <div className="mt-3 flex items-center justify-between gap-3 text-sm text-white/68">
                       <span>{vehicle.mileage.toLocaleString()} km</span>
                       <span className="inline-flex items-center gap-2 text-[#D9B36A]">
