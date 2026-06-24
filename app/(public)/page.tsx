@@ -42,19 +42,6 @@ const HERO_TRUST_FEATURES = [
   { label: "Direct Owner Transactions", icon: "handshake" }
 ] as const;
 
-const STATIC_STATS = [
-  {
-    label: "Seller Satisfaction",
-    value: "98%",
-    icon: "users"
-  },
-  {
-    label: "Average Response Time",
-    value: "24h",
-    icon: "clock"
-  }
-] as const;
-
 function FeatureIcon({ kind, className = "h-5 w-5" }: { kind: string; className?: string }) {
   if (kind === "shield") {
     return (
@@ -96,28 +83,6 @@ function FeatureIcon({ kind, className = "h-5 w-5" }: { kind: string; className?
     );
   }
 
-  if (kind === "car") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
-        <path d="m5 15 1.6-4.7A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3L19 15" />
-        <path d="M4.5 15.5h15v3a1 1 0 0 1-1 1h-1v-2h-11v2h-1a1 1 0 0 1-1-1v-3Z" />
-        <circle cx="8" cy="15.5" r="1" fill="currentColor" stroke="none" />
-        <circle cx="16" cy="15.5" r="1" fill="currentColor" stroke="none" />
-      </svg>
-    );
-  }
-
-  if (kind === "users") {
-    return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
-        <path d="M15.5 18.5v-.6a3.4 3.4 0 0 0-3.4-3.4H7.9a3.4 3.4 0 0 0-3.4 3.4v.6" strokeLinecap="round" />
-        <circle cx="10" cy="8.5" r="3" />
-        <path d="M19.5 18.5v-.4a3 3 0 0 0-2.4-2.9" strokeLinecap="round" />
-        <path d="M16.7 5.8a2.7 2.7 0 0 1 0 5.4" strokeLinecap="round" />
-      </svg>
-    );
-  }
-
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
       <circle cx="12" cy="12" r="9" />
@@ -130,15 +95,9 @@ export default async function HomePage() {
   const { vehicles: soldVehicles } = await getPublicSoldVehicles();
   const { vehicles: recentVehicles } = await listPublishedVehicles();
   const recentHeroVehicles = recentVehicles.slice(0, 3);
-  const featuredVehicles = recentVehicles.slice(0, 5);
-  const stats = [
-    {
-      label: "Verified Listings",
-      value: `${recentVehicles.length}+`,
-      icon: "car"
-    },
-    ...STATIC_STATS
-  ];
+  const featuredVehicles = [...soldVehicles]
+    .sort((left, right) => (right.soldAt ?? right.updatedAt ?? right.createdAt ?? "").localeCompare(left.soldAt ?? left.updatedAt ?? left.createdAt ?? ""))
+    .slice(0, 5);
   const organizationStructuredData = {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -258,33 +217,14 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(15,15,15,0.94),rgba(9,9,9,0.96))] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.34)] md:p-6">
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {stats.map((stat) => (
-                <div
-                  key={stat.label}
-                  className="flex items-center gap-4 rounded-[24px] border border-white/7 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-4 py-5"
-                >
-                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
-                    <FeatureIcon kind={stat.icon} className="h-5 w-5" />
-                  </span>
-                  <div>
-                    <p className="text-4xl font-semibold tracking-[-0.03em] text-white">{stat.value}</p>
-                    <p className="mt-1 text-sm text-white/62">{stat.label}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <section className="mt-10">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Recent Sold Vehicles</p>
-                <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">Recently Added</h2>
+                <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">Recent Sold Vehicles</h2>
               </div>
-              <Link href="/inventory" className="text-sm font-medium text-[#F0D296] transition hover:text-white">
-                View all cars
+              <Link href="/sold" className="text-sm font-medium text-[#F0D296] transition hover:text-white">
+                View sold cars
               </Link>
             </div>
 
