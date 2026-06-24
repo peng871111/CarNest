@@ -21,76 +21,138 @@ export const metadata: Metadata = {
   }
 };
 
-const VALUE_CARDS = [
+const TRUST_FEATURES = [
   {
-    title: "Free to use marketplace",
-    text: "List, browse, and inspect without hidden platform fees layered into the process."
+    title: "CarNest Verified",
+    text: "Quality assured",
+    icon: "shield"
   },
   {
-    title: "No hidden platform fees",
-    text: "CarNest keeps the experience clear so pricing conversations stay between buyers and sellers."
+    title: "Independent Inspections",
+    text: "Vehicle Condition Summary",
+    icon: "inspection"
   },
   {
-    title: "Inspections arranged for genuine buyers",
-    text: "We help organise serious inspection activity before direct seller connection takes place."
+    title: "Direct Owner Transactions",
+    text: "Deal with owners",
+    icon: "handshake"
+  },
+  {
+    title: "Transparent Fees",
+    text: "No hidden costs",
+    icon: "dollar"
   }
-];
-
-const HOW_IT_WORKS_STEPS = [
-  {
-    title: "List your car",
-    text: "Create a polished private listing with clear photos, pricing, and the right level of support."
-  },
-  {
-    title: "Receive enquiries & inspections",
-    text: "CarNest helps connect genuine buyers and coordinate vehicle inspections."
-  },
-  {
-    title: "Transact directly",
-    text: "Buyers and sellers proceed directly once the car and terms are right for both sides."
-  }
-];
-
-const HERO_TRUST_FEATURES = [
-  { label: "Verified Listings", icon: "shield" },
-  { label: "Book Inspections", icon: "calendar" },
-  { label: "Transact Directly", icon: "handshake" }
 ] as const;
 
-function HeroTrustIcon({ kind }: { kind: (typeof HERO_TRUST_FEATURES)[number]["icon"] }) {
+const HERO_TRUST_FEATURES = [
+  { label: "CarNest Verified", icon: "shield" },
+  { label: "Vehicle Condition Summary", icon: "inspection" },
+  { label: "Direct Owner Transactions", icon: "handshake" }
+] as const;
+
+const STATIC_STATS = [
+  {
+    label: "Seller Satisfaction",
+    value: "98%",
+    icon: "users"
+  },
+  {
+    label: "Average Response Time",
+    value: "24h",
+    icon: "clock"
+  }
+] as const;
+
+function FeatureIcon({ kind, className = "h-5 w-5" }: { kind: string; className?: string }) {
   if (kind === "shield") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
         <path d="M12 3 5.5 5.6v5.7c0 4.4 2.7 8.3 6.5 9.7 3.8-1.4 6.5-5.3 6.5-9.7V5.6L12 3Z" />
         <path d="m9.2 12 1.8 1.8 4-4.3" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
 
-  if (kind === "calendar") {
+  if (kind === "inspection") {
     return (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
-        <path d="M7 3.5v3M17 3.5v3M4.5 8.5h15" strokeLinecap="round" />
-        <rect x="4.5" y="5.5" width="15" height="14" rx="2.5" />
-        <path d="M9 12h2M13 12h2M9 15.5h2M13 15.5h2" strokeLinecap="round" />
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+        <path d="M10 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H14" />
+        <path d="M8 8.5h6M8 12h4" strokeLinecap="round" />
+        <path d="m16.5 15.5 1.8 1.8 3.2-3.2" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="17.5" cy="16.5" r="4.5" />
+      </svg>
+    );
+  }
+
+  if (kind === "handshake") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+        <path d="M7.5 13.5 10 11a2.5 2.5 0 0 1 3.5 0l.5.5a2.5 2.5 0 0 0 3.5 0l1.5-1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="m3.5 11 3-3a2.6 2.6 0 0 1 3.7 0l1.3 1.3M20.5 13l-3 3a2.6 2.6 0 0 1-3.7 0L12.5 14.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M2.5 10.5 5 8m14 8 2.5-2.5" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "dollar") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M14.5 9.2c0-1.2-1-2.2-2.5-2.2-1.4 0-2.5.9-2.5 2.1 0 1.1.8 1.8 2.4 2.2 1.7.4 2.6 1 2.6 2.3 0 1.3-1.2 2.2-2.8 2.2-1.7 0-2.8-.9-2.9-2.3" strokeLinecap="round" />
+        <path d="M12 5.8v12.4" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "car") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+        <path d="m5 15 1.6-4.7A2 2 0 0 1 8.5 9h7a2 2 0 0 1 1.9 1.3L19 15" />
+        <path d="M4.5 15.5h15v3a1 1 0 0 1-1 1h-1v-2h-11v2h-1a1 1 0 0 1-1-1v-3Z" />
+        <circle cx="8" cy="15.5" r="1" fill="currentColor" stroke="none" />
+        <circle cx="16" cy="15.5" r="1" fill="currentColor" stroke="none" />
+      </svg>
+    );
+  }
+
+  if (kind === "users") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+        <path d="M15.5 18.5v-.6a3.4 3.4 0 0 0-3.4-3.4H7.9a3.4 3.4 0 0 0-3.4 3.4v.6" strokeLinecap="round" />
+        <circle cx="10" cy="8.5" r="3" />
+        <path d="M19.5 18.5v-.4a3 3 0 0 0-2.4-2.9" strokeLinecap="round" />
+        <path d="M16.7 5.8a2.7 2.7 0 0 1 0 5.4" strokeLinecap="round" />
       </svg>
     );
   }
 
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4">
-      <path d="M7.5 13.5 10 11a2.5 2.5 0 0 1 3.5 0l.5.5a2.5 2.5 0 0 0 3.5 0l1.5-1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="m3.5 11 3-3a2.6 2.6 0 0 1 3.7 0l1.3 1.3M20.5 13l-3 3a2.6 2.6 0 0 1-3.7 0L12.5 14.7" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M2.5 10.5 5 8m14 8 2.5-2.5" strokeLinecap="round" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.5v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 export default async function HomePage() {
-  const { vehicles: soldVehicles, error: soldVehiclesError } = await getPublicSoldVehicles();
+  const { vehicles: soldVehicles } = await getPublicSoldVehicles();
   const { vehicles: recentVehicles } = await listPublishedVehicles();
-  const soldStripVehicles = soldVehicles.slice(0, 8);
   const recentHeroVehicles = recentVehicles.slice(0, 3);
+  const featuredVehicles = recentVehicles.slice(0, 5);
+  const soldValue = soldVehicles.reduce((sum, vehicle) => sum + vehicle.price, 0);
+  const stats = [
+    {
+      label: "Vehicle Value Sold",
+      value: `${formatCurrency(soldValue || 0)}+`,
+      icon: "dollar"
+    },
+    {
+      label: "Verified Listings",
+      value: `${recentVehicles.length}+`,
+      icon: "car"
+    },
+    ...STATIC_STATS
+  ];
   const organizationStructuredData = {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -99,73 +161,90 @@ export default async function HomePage() {
   };
 
   return (
-    <main className="-mx-6 -mt-10">
+    <main className="-mx-6 -mt-10 overflow-hidden bg-[#040404] text-white">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationStructuredData) }}
       />
-      <section className="relative isolate left-1/2 right-1/2 w-screen -translate-x-1/2 overflow-hidden bg-[#030405]">
+
+      <section className="relative isolate left-1/2 right-1/2 w-screen -translate-x-1/2 overflow-hidden border-b border-[#C6A87D]/10 bg-[#040404]">
         <SoldHeroCollage vehicles={soldVehicles} />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(3,4,5,0.28)_0%,rgba(3,4,5,0.36)_12%,rgba(3,4,5,0.64)_32%,rgba(3,4,5,0.86)_62%,rgba(3,4,5,0.97)_100%),linear-gradient(90deg,rgba(0,0,0,0.92)_0%,rgba(0,0,0,0.76)_22%,rgba(0,0,0,0.42)_48%,rgba(0,0,0,0.22)_100%)] md:bg-[linear-gradient(180deg,rgba(3,4,5,0.18)_0%,rgba(3,4,5,0.26)_10%,rgba(3,4,5,0.5)_24%,rgba(3,4,5,0.78)_52%,rgba(3,4,5,0.93)_78%,rgba(3,4,5,0.99)_100%),linear-gradient(90deg,rgba(0,0,0,0.94)_0%,rgba(0,0,0,0.84)_14%,rgba(0,0,0,0.58)_30%,rgba(0,0,0,0.26)_48%,rgba(0,0,0,0.12)_68%,rgba(0,0,0,0.18)_100%)]" />
-        <div className="absolute inset-0 hidden md:block md:bg-[radial-gradient(circle_at_top,rgba(214,171,92,0.16),transparent_18%),radial-gradient(circle_at_16%_34%,rgba(0,0,0,0.8),transparent_34%),radial-gradient(circle_at_40%_56%,rgba(0,0,0,0.22),transparent_24%),radial-gradient(circle_at_72%_24%,rgba(0,0,0,0.3),transparent_30%),radial-gradient(circle_at_96%_28%,rgba(0,0,0,0.22),transparent_34%),radial-gradient(circle_at_center,transparent_10%,rgba(0,0,0,0.14)_42%,rgba(0,0,0,0.68)_100%)]" />
-        <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-[#030405]/88 via-[#030405]/38 to-transparent md:h-40" />
-        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-[#030405]/55 to-shell md:h-44" />
-        <div className="relative mx-auto flex min-h-[33rem] max-w-7xl items-end px-6 pb-12 pt-24 md:min-h-[42rem] md:items-center md:pb-20 md:pt-20">
-          <div className="grid w-full items-center gap-8 lg:grid-cols-[minmax(0,44rem)_minmax(16rem,19rem)] lg:gap-16 xl:gap-20">
-            <div className="relative w-full max-w-4xl">
-              <div className="absolute inset-y-0 left-0 w-full rounded-[30px] bg-[linear-gradient(180deg,rgba(2,2,2,0.76)_0%,rgba(2,2,2,0.62)_100%)] opacity-100 md:w-[46rem] md:bg-[radial-gradient(circle_at_top_left,rgba(196,152,79,0.16),transparent_24%),linear-gradient(90deg,rgba(2,2,2,0.66)_0%,rgba(2,2,2,0.44)_46%,rgba(2,2,2,0.12)_100%)] md:backdrop-blur-[14px]" />
-              <div className="relative flex max-w-4xl flex-col items-center space-y-6 rounded-[30px] px-5 py-7 text-center shadow-[0_24px_80px_rgba(0,0,0,0.26)] md:max-w-[44rem] md:items-start md:px-8 md:py-10 md:text-left">
-                <p className="text-sm uppercase tracking-[0.35em] text-bronze">
-                  A more transparent way to buy and sell cars
-                </p>
-                <h1 className="max-w-3xl font-display text-5xl leading-[0.96] text-white drop-shadow-[0_10px_30px_rgba(0,0,0,0.55)] md:text-7xl">
-                  Buy and sell cars with confidence
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_58%_42%,rgba(198,168,125,0.22),transparent_20%),radial-gradient(circle_at_62%_50%,rgba(198,168,125,0.12),transparent_34%),linear-gradient(90deg,rgba(2,2,2,0.96)_0%,rgba(2,2,2,0.88)_24%,rgba(2,2,2,0.55)_48%,rgba(2,2,2,0.22)_72%,rgba(2,2,2,0.24)_100%),linear-gradient(180deg,rgba(2,2,2,0.34)_0%,rgba(2,2,2,0.5)_18%,rgba(2,2,2,0.78)_58%,rgba(2,2,2,0.98)_100%)]" />
+        <div className="absolute inset-0 opacity-50 [background-image:radial-gradient(circle_at_center,rgba(198,168,125,0.18)_0,transparent_44%),repeating-radial-gradient(circle_at_60%_45%,rgba(198,168,125,0.12)_0,rgba(198,168,125,0.12)_2px,transparent_2px,transparent_34px)]" />
+        <div className="relative mx-auto flex min-h-[42rem] max-w-7xl items-center px-6 pb-20 pt-24 md:min-h-[48rem]">
+          <div className="grid w-full items-center gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(18rem,0.9fr)] xl:gap-16">
+            <div className="relative">
+              <div className="absolute inset-0 rounded-[36px] bg-[linear-gradient(180deg,rgba(12,12,12,0.78),rgba(12,12,12,0.5))] blur-3xl" />
+              <div className="relative max-w-3xl rounded-[36px] border border-white/8 bg-[linear-gradient(180deg,rgba(13,13,13,0.78),rgba(13,13,13,0.54))] px-6 py-8 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-[10px] md:px-8 md:py-10">
+                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Australia&apos;s trusted car marketplace</p>
+                <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[0.94] text-white md:text-7xl">
+                  Buy and sell cars
+                  <br />
+                  with <span className="text-[#D9B36A]">confidence</span>
                 </h1>
-                <p className="max-w-3xl text-lg leading-8 text-white md:text-[1.15rem]">
-                  Browse verified private listings, book inspections, and deal directly with owners.
+                <p className="mt-6 max-w-2xl text-lg leading-8 text-white/72 md:text-[1.15rem]">
+                  Verified listings, independent inspections, and direct owner transactions.
                 </p>
-                <div className="flex flex-wrap justify-center gap-4 pt-2 md:justify-start">
-                  <Link
-                    href="/sell"
-                    className="rounded-full bg-white px-8 py-4 text-base font-semibold text-ink shadow-[0_16px_34px_rgba(0,0,0,0.34)] transition duration-200 hover:-translate-y-0.5 hover:bg-white/92 hover:shadow-[0_22px_40px_rgba(0,0,0,0.42)]"
-                  >
-                    Sell your car
-                  </Link>
+                <div className="mt-8 flex flex-wrap gap-4">
                   <Link
                     href="/inventory"
-                    className="rounded-full border border-white/20 bg-white/10 px-8 py-4 text-base font-semibold text-white shadow-[0_16px_34px_rgba(0,0,0,0.2)] transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/15 hover:shadow-[0_22px_40px_rgba(0,0,0,0.28)]"
+                    className="rounded-2xl bg-[#D9B36A] px-8 py-4 text-base font-semibold text-[#141414] shadow-[0_18px_38px_rgba(217,179,106,0.26)] transition hover:-translate-y-0.5 hover:bg-[#e3bf78]"
                   >
-                    Browse cars
+                    Browse Cars
+                  </Link>
+                  <Link
+                    href="/sell"
+                    className="rounded-2xl border border-[#D9B36A]/55 bg-black/20 px-8 py-4 text-base font-semibold text-white transition hover:-translate-y-0.5 hover:border-[#D9B36A] hover:bg-white/5"
+                  >
+                    Sell Your Car
                   </Link>
                 </div>
-                <div className="grid w-full max-w-3xl grid-cols-1 gap-3 text-left sm:grid-cols-2 md:grid-cols-3">
+                <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                   {HERO_TRUST_FEATURES.map((feature) => (
                     <div
                       key={feature.label}
-                      className="flex items-center gap-3 rounded-full border border-[#C6A87D]/28 bg-black/32 px-4 py-3 text-sm text-white md:bg-black/18 md:backdrop-blur-[8px]"
+                      className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/24 px-4 py-3 text-sm text-white/88"
                     >
-                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#C6A87D]/55 text-[#C6A87D]">
-                        <HeroTrustIcon kind={feature.icon} />
+                      <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[#D9B36A]/40 bg-[#D9B36A]/10 text-[#D9B36A]">
+                        <FeatureIcon kind={feature.icon} className="h-4.5 w-4.5" />
                       </span>
-                      <span className="font-semibold tracking-[0.01em] text-bronze">{feature.label}</span>
+                      <span className="font-medium text-white">{feature.label}</span>
                     </div>
                   ))}
                 </div>
-                <p className="relative z-10 max-w-3xl text-sm leading-7 text-white">
-                  we help arrange the inspection. You deal directly with the owner if you proceed.
-                </p>
+                <div className="mt-7 flex items-center gap-3 text-sm text-white/82">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[#D9B36A]/40 bg-[#D9B36A]/10 text-[#D9B36A]">
+                    <FeatureIcon kind="shield" className="h-4 w-4" />
+                  </span>
+                  <span>
+                    Every car is <span className="text-[#D9B36A]">CarNest Verified</span>
+                  </span>
+                </div>
               </div>
             </div>
-            {recentHeroVehicles.length ? (
-              <div className="hidden self-center lg:flex lg:flex-col lg:gap-3">
-                <div className="rounded-[26px] border border-white/10 bg-black/34 p-4 shadow-[0_18px_48px_rgba(0,0,0,0.28)] backdrop-blur-[10px]">
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-bronze">Recently Added</p>
+
+            <div className="hidden lg:flex lg:flex-col lg:gap-4">
+              <div className="self-end rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,14,14,0.84),rgba(14,14,14,0.7))] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-[10px]">
+                <div className="flex items-start gap-4">
+                  <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
+                    <FeatureIcon kind="shield" className="h-6 w-6" />
+                  </span>
+                  <div>
+                    <p className="text-lg font-semibold text-white">Every car is CarNest Verified</p>
+                    <p className="mt-1 text-sm leading-6 text-white/64">Quality assured.</p>
+                  </div>
+                </div>
+              </div>
+
+              {recentHeroVehicles.length ? (
+                <div className="rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(14,14,14,0.82),rgba(14,14,14,0.68))] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur-[10px]">
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-[#D9B36A]">Recently Added</p>
                   <div className="mt-4 space-y-3">
                     {recentHeroVehicles.map((vehicle) => (
                       <Link
                         key={vehicle.id}
                         href={`/inventory/${vehicle.id}`}
-                        className="group flex items-center gap-3 rounded-[20px] border border-white/8 bg-black/28 p-2.5 transition hover:border-[#C6A87D]/35 hover:bg-black/38"
+                        className="group flex items-center gap-3 rounded-[20px] border border-white/8 bg-black/28 p-2.5 transition hover:border-[#D9B36A]/35 hover:bg-black/38"
                       >
                         <div className="relative h-20 w-24 shrink-0 overflow-hidden rounded-[16px] border border-white/8 bg-black/30">
                           <PublicVehicleImage
@@ -178,135 +257,132 @@ export default async function HomePage() {
                           <ImageWatermark />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[10px] uppercase tracking-[0.24em] text-bronze/88">New listing</p>
+                          <p className="text-[10px] uppercase tracking-[0.24em] text-[#D9B36A]/88">New listing</p>
                           <h2 className="mt-1 line-clamp-2 text-sm font-semibold leading-5 text-white">
                             {vehicle.year} {vehicle.make} {vehicle.model}
                           </h2>
-                          <p className="mt-2 text-sm font-medium text-white">{formatCurrency(vehicle.price)}</p>
+                          <p className="mt-2 text-sm font-medium text-[#F0D296]">{formatCurrency(vehicle.price)}</p>
                           <p className="mt-1 text-xs text-white/70">{vehicle.mileage.toLocaleString()} km</p>
                         </div>
                       </Link>
                     ))}
                   </div>
                 </div>
-              </div>
-            ) : null}
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="rounded-[32px] border border-black/5 bg-white p-6 shadow-panel">
-          <div className="mb-4 flex items-center justify-between gap-4">
-            <p className="text-xs uppercase tracking-[0.28em] text-bronze">Recently sold through CarNest</p>
-            <Link href="/sold" className="text-sm font-medium text-ink/65 transition hover:text-bronze">
-              View sold vehicles
-            </Link>
-          </div>
-          {soldStripVehicles.length ? (
-            <div className="flex gap-4 overflow-x-auto pb-1">
-              {soldStripVehicles.map((vehicle) => (
-                <article
-                  key={vehicle.id}
-                  className="min-w-[260px] shrink-0 overflow-hidden rounded-[22px] border border-black/5 bg-white shadow-panel"
+      <section className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 bg-[#040404] pb-20">
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(15,15,15,0.92),rgba(10,10,10,0.92))] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.34)] md:p-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {TRUST_FEATURES.map((feature) => (
+                <div
+                  key={feature.title}
+                  className="flex items-center gap-4 rounded-[24px] border border-white/7 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-4 py-4"
                 >
-                  <div className="relative aspect-[4/3]">
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
+                    <FeatureIcon kind={feature.icon} className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-base font-semibold text-white">{feature.title}</p>
+                    <p className="mt-1 text-sm text-white/62">{feature.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-8 rounded-[32px] border border-white/8 bg-[linear-gradient(180deg,rgba(15,15,15,0.94),rgba(9,9,9,0.96))] p-4 shadow-[0_24px_64px_rgba(0,0,0,0.34)] md:p-6">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {stats.map((stat) => (
+                <div
+                  key={stat.label}
+                  className="flex items-center gap-4 rounded-[24px] border border-white/7 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] px-4 py-5"
+                >
+                  <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#D9B36A]/45 bg-[#D9B36A]/10 text-[#D9B36A]">
+                    <FeatureIcon kind={stat.icon} className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-4xl font-semibold tracking-[-0.03em] text-white">{stat.value}</p>
+                    <p className="mt-1 text-sm text-white/62">{stat.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <section className="mt-10">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Featured Listings</p>
+                <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] text-white">Recently Added</h2>
+              </div>
+              <Link href="/inventory" className="text-sm font-medium text-[#F0D296] transition hover:text-white">
+                View all cars
+              </Link>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              {featuredVehicles.map((vehicle) => (
+                <Link
+                  key={vehicle.id}
+                  href={`/inventory/${vehicle.id}`}
+                  className="group overflow-hidden rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(17,17,17,0.96),rgba(10,10,10,0.96))] shadow-[0_18px_42px_rgba(0,0,0,0.34)] transition hover:-translate-y-1 hover:border-[#D9B36A]/35"
+                >
+                  <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
                     <PublicVehicleImage
                       src={getVehicleImage(vehicle)}
                       alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
                       loading="lazy"
-                      sizes="260px"
-                      className="object-cover object-center"
+                      sizes="(max-width: 1279px) 50vw, 20vw"
+                      className="object-cover object-center transition duration-500 group-hover:scale-[1.04]"
                     />
+                    <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,rgba(0,0,0,0.1)_35%,rgba(0,0,0,0.55)_100%)]" />
                     <ImageWatermark />
                   </div>
-                  <div className="space-y-2 p-4">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-bronze">Sold</p>
-                      <h2 className="mt-1 text-sm font-semibold text-ink">
-                        {vehicle.year} {vehicle.make} {vehicle.model}
-                      </h2>
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold text-white">
+                      {vehicle.year} {vehicle.make} {vehicle.model}
+                    </h3>
+                    <p className="mt-3 text-2xl font-semibold text-[#F0D296]">{formatCurrency(vehicle.price)}</p>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-sm text-white/68">
+                      <span>{vehicle.mileage.toLocaleString()} km</span>
+                      <span className="inline-flex items-center gap-2 text-[#D9B36A]">
+                        <FeatureIcon kind="shield" className="h-4 w-4" />
+                        Verified
+                      </span>
                     </div>
                   </div>
-                </article>
+                </Link>
               ))}
             </div>
-          ) : soldVehiclesError ? (
-            <div className="rounded-[24px] border border-dashed border-black/10 bg-shell px-6 py-8 text-sm leading-6 text-ink/65">
-              <p>We’re having trouble loading live data right now. Please check your connection and try again.</p>
-              <div className="mt-4">
-                <Link href="/" className="text-sm font-medium text-ink underline">
-                  Retry
+          </section>
+
+          <section className="mt-12 overflow-hidden rounded-[36px] border border-white/8 bg-[linear-gradient(90deg,rgba(14,14,14,0.98)_0%,rgba(14,14,14,0.95)_58%,rgba(10,10,10,0.72)_100%)] shadow-[0_28px_70px_rgba(0,0,0,0.34)]">
+            <div className="grid gap-8 px-6 py-8 md:grid-cols-[minmax(0,1.1fr)_auto] md:items-center md:px-10 md:py-12">
+              <div>
+                <p className="text-sm uppercase tracking-[0.34em] text-[#D9B36A]">Ready to sell your car?</p>
+                <h2 className="mt-4 max-w-2xl text-4xl font-semibold tracking-[-0.04em] text-white md:text-5xl">
+                  List Your Car For Free Today
+                </h2>
+                <p className="mt-4 max-w-xl text-base leading-7 text-white/66">
+                  Reach serious buyers with a premium listing experience built for trust, speed, and direct owner conversations.
+                </p>
+              </div>
+              <div className="flex flex-col items-start gap-3 md:items-center">
+                <Link
+                  href="/sell"
+                  className="rounded-2xl bg-[#D9B36A] px-8 py-4 text-base font-semibold text-[#141414] shadow-[0_18px_38px_rgba(217,179,106,0.26)] transition hover:-translate-y-0.5 hover:bg-[#e3bf78]"
+                >
+                  List My Car
                 </Link>
+                <p className="text-sm text-white/54">Quick. Easy. Effective.</p>
               </div>
             </div>
-          ) : (
-            <div className="rounded-[24px] border border-dashed border-black/10 bg-shell px-6 py-8 text-sm leading-6 text-ink/65">
-              Recently sold vehicles will appear here as completed listings move through the CarNest marketplace.
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="rounded-[28px] border border-[#C6A87D]/14 bg-[#141414] px-5 py-5 text-white shadow-[0_20px_44px_rgba(0,0,0,0.12)]">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Private seller marketplace</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">
-                Private seller marketplace where inspections are arranged first and buyers transact directly with sellers when ready.
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Independent mechanic inspections welcome</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">Serious buyers are encouraged to inspect properly before proceeding.</p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-bronze">Warehouse-assisted verification</p>
-              <p className="mt-2 text-sm leading-6 text-white/72">Ownership verification is required for vehicles receiving warehouse support.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="mb-8 max-w-2xl">
-          <p className="text-sm uppercase tracking-[0.35em] text-bronze">How it works</p>
-          <h2 className="mt-3 font-display text-4xl text-ink">How it works</h2>
-          <p className="mt-3 text-sm leading-7 text-ink/65">
-            A calm private marketplace flow where inspections are arranged first and the transaction stays between buyer and seller.
-          </p>
-        </div>
-        <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))] xl:grid-cols-[repeat(3,minmax(0,1fr))_minmax(0,0.9fr)]">
-          {HOW_IT_WORKS_STEPS.map((step, index) => (
-            <div key={step.title} className="rounded-[24px] border border-black/5 bg-white px-5 py-5 shadow-panel">
-              <p className="text-xs uppercase tracking-[0.24em] text-bronze">Step {index + 1}</p>
-              <h3 className="mt-3 text-lg font-semibold text-ink">{step.title}</h3>
-              <p className="mt-3 text-sm leading-6 text-ink/62">{step.text}</p>
-            </div>
-          ))}
-          <div className="rounded-[24px] border border-[#C6A87D]/20 bg-[#141414] px-5 py-5 text-white shadow-[0_24px_60px_rgba(0,0,0,0.14)]">
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Optional</p>
-            <h3 className="mt-3 text-lg font-semibold">Warehouse assistance available</h3>
-            <p className="mt-3 text-sm leading-6 text-white/72">
-              Available for selected vehicles, CarNest can assist with presentation, storage, and inspection logistics while the vehicle remains privately owned.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-6 pb-16">
-        <div className="mb-8 max-w-3xl">
-          <p className="text-sm uppercase tracking-[0.35em] text-bronze">Marketplace value</p>
-          <h2 className="mt-3 font-display text-4xl text-ink">A better framework for buying and selling cars</h2>
-        </div>
-        <div className="grid gap-4 md:grid-cols-3">
-          {VALUE_CARDS.map((card) => (
-            <div key={card.title} className="rounded-[24px] border border-black/5 bg-white p-5 shadow-panel">
-              <h3 className="text-xl font-semibold text-ink">{card.title}</h3>
-              <p className="mt-3 max-w-sm text-sm leading-6 text-ink/65">{card.text}</p>
-            </div>
-          ))}
+          </section>
         </div>
       </section>
     </main>
