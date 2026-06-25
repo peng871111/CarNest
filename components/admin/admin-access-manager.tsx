@@ -47,6 +47,8 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [expandedAlerts, setExpandedAlerts] = useState<Record<string, boolean>>({});
+  const [showAllActivities, setShowAllActivities] = useState<Record<string, boolean>>({});
 
   const orderedUsers = useMemo(() => {
     const complianceAlertsByUserId = new Map(complianceAlerts.map((alert) => [alert.userId, alert]));
@@ -79,6 +81,20 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
         ...current[userId],
         ...next
       }
+    }));
+  }
+
+  function toggleAlert(alertId: string) {
+    setExpandedAlerts((current) => ({
+      ...current,
+      [alertId]: !current[alertId]
+    }));
+  }
+
+  function toggleAllActivities(alertId: string) {
+    setShowAllActivities((current) => ({
+      ...current,
+      [alertId]: !current[alertId]
     }));
   }
 
@@ -147,6 +163,11 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
             const complianceAlert = complianceAlertsByUserId.get(user.id);
             const hasOpenComplianceAlert =
               complianceAlert?.status === "open" || user.complianceStatus === "possible_unlicensed_trader";
+            const isAlertExpanded = complianceAlert ? Boolean(expandedAlerts[complianceAlert.id]) : false;
+            const isShowingAllActivities = complianceAlert ? Boolean(showAllActivities[complianceAlert.id]) : false;
+            const visibleActivities = complianceAlert
+              ? (isShowingAllActivities ? complianceAlert.activities : complianceAlert.activities.slice(0, 10))
+              : [];
 
             return (
               <div key={user.id} className="border-b border-black/5 px-6 py-6 last:border-b-0">
@@ -179,40 +200,76 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
 
                 {complianceAlert ? (
                   <div className="mt-5 rounded-[24px] border border-[#B42318]/10 bg-[#FEF3F2] px-5 py-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleAlert(complianceAlert.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          toggleAlert(complianceAlert.id);
+                        }
+                      }}
+                      className="flex cursor-pointer flex-wrap items-start justify-between gap-3"
+                      aria-expanded={isAlertExpanded}
+                    >
+                      <div className="flex-1">
                         <p className="text-xs uppercase tracking-[0.18em] text-[#B42318]">Compliance alert</p>
                         <p className="mt-2 text-sm text-ink/75">
                           Rolling 12-month activity count: <span className="font-semibold text-ink">{complianceAlert.activityCount}</span>
                         </p>
                       </div>
-                      <Link
-                        href="/admin/vehicles"
-                        className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15 hover:bg-shell"
-                      >
-                        Review pending listings
-                      </Link>
+                      <div className="flex items-center gap-3">
+                        <Link
+                          href="/admin/vehicles"
+                          onClick={(event) => event.stopPropagation()}
+                          className="rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-black/15 hover:bg-shell"
+                        >
+                          Review pending listings
+                        </Link>
+                        <span
+                          className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#B42318]/12 bg-white/80 text-[#B42318] transition ${isAlertExpanded ? "rotate-180" : ""}`}
+                          aria-hidden="true"
+                        >
+                          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4">
+                            <path d="m5 7.5 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-4 space-y-2">
-                      {complianceAlert.activities.length ? (
-                        complianceAlert.activities.map((activity) => (
-                          <div
-                            key={`${complianceAlert.id}-${activity.vehicleId}-${activity.qualifyingAt}`}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/5 bg-white/80 px-4 py-3 text-sm text-ink/75"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-medium text-ink">{formatComplianceEventType(activity.eventType)}</span>
-                              <Link href={`/admin/vehicles/${activity.vehicleId}`} className="text-ink underline-offset-4 hover:underline">
-                                {activity.vehicleId}
-                              </Link>
-                            </div>
-                            <span>{formatComplianceDate(activity.qualifyingAt)}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-ink/65">No qualifying listing activity has been logged yet.</p>
-                      )}
-                    </div>
+                    {isAlertExpanded ? (
+                      <div className="mt-4 space-y-2">
+                        {visibleActivities.length ? (
+                          <>
+                            {visibleActivities.map((activity) => (
+                              <div
+                                key={`${complianceAlert.id}-${activity.vehicleId}-${activity.qualifyingAt}`}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-black/5 bg-white/80 px-4 py-3 text-sm text-ink/75"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-ink">{formatComplianceEventType(activity.eventType)}</span>
+                                  <Link href={`/admin/vehicles/${activity.vehicleId}`} className="text-ink underline-offset-4 hover:underline">
+                                    {activity.vehicleId}
+                                  </Link>
+                                </div>
+                                <span>{formatComplianceDate(activity.qualifyingAt)}</span>
+                              </div>
+                            ))}
+                            {complianceAlert.activities.length > 10 ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleAllActivities(complianceAlert.id)}
+                                className="w-full rounded-2xl border border-black/10 bg-white/80 px-5 py-3 text-sm font-semibold text-ink transition hover:bg-white"
+                              >
+                                {isShowingAllActivities ? "Show fewer activities" : "View all activities"}
+                              </button>
+                            ) : null}
+                          </>
+                        ) : (
+                          <p className="text-sm text-ink/65">No qualifying listing activity has been logged yet.</p>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
