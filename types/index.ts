@@ -132,6 +132,7 @@ export type AdminAccountingPaymentMethod =
   | "debit_card"
   | "eftpos";
 export type AdminAccountingEntryStatus = "paid" | "unpaid" | "partially_paid";
+export type AdminAccountingGstMode = "inclusive" | "exclusive" | "none";
 export type VehicleActivityType =
   | "offer_created"
   | "vehicle_submitted"
@@ -582,6 +583,7 @@ export interface AdminAccountingEntry {
   category: string;
   paymentMethod: AdminAccountingPaymentMethod;
   gstIncluded: boolean;
+  gstCalculationMode?: AdminAccountingGstMode;
   relatedVehicleId?: string;
   relatedVehicleRecordId?: string;
   relatedDisplayReference?: string;

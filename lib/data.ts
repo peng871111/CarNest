@@ -24,6 +24,7 @@ import { getVehicleDisplayReference } from "@/lib/utils";
 import {
   AccountType,
   AdminAccountingEntry,
+  AdminAccountingGstMode,
   AdminAccountingEntryStatus,
   AdminAccountingEntryType,
   AdminAccountingPaymentMethod,
@@ -1247,6 +1248,11 @@ function normalizeAdminAccountingEntryStatus(value: unknown): AdminAccountingEnt
   return value === "unpaid" || value === "partially_paid" ? value : "paid";
 }
 
+function normalizeAdminAccountingGstMode(value: unknown, gstIncluded: boolean): AdminAccountingGstMode {
+  if (!gstIncluded) return "none";
+  return value === "exclusive" ? "exclusive" : "inclusive";
+}
+
 function normalizeContactMessageCategory(value: unknown): ContactMessageCategory {
   return value === "SELLING MY CAR"
     || value === "BUYING A CAR"
@@ -1267,6 +1273,7 @@ export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "i
     category: "",
     paymentMethod: "bank_transfer",
     gstIncluded: true,
+    gstCalculationMode: "inclusive",
     relatedVehicleId: "",
     relatedVehicleRecordId: "",
     relatedDisplayReference: "",
@@ -1848,6 +1855,7 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
 
 function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unknown>): AdminAccountingEntry {
   const base = createEmptyAdminAccountingEntry();
+  const gstIncluded = data.gstIncluded !== false;
 
   return {
     id,
@@ -1857,7 +1865,8 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     amount: Number(data.amount ?? 0),
     category: typeof data.category === "string" ? data.category : "",
     paymentMethod: normalizeAdminAccountingPaymentMethod(data.paymentMethod),
-    gstIncluded: data.gstIncluded !== false,
+    gstIncluded,
+    gstCalculationMode: normalizeAdminAccountingGstMode(data.gstCalculationMode, gstIncluded),
     relatedVehicleId: typeof data.relatedVehicleId === "string" ? data.relatedVehicleId : "",
     relatedVehicleRecordId: typeof data.relatedVehicleRecordId === "string" ? data.relatedVehicleRecordId : "",
     relatedDisplayReference: typeof data.relatedDisplayReference === "string" ? data.relatedDisplayReference : "",
@@ -4264,6 +4273,7 @@ export async function saveAdminAccountingEntry(
     category: sanitizeSingleLineText(input.category),
     paymentMethod: normalizeAdminAccountingPaymentMethod(input.paymentMethod),
     gstIncluded: input.gstIncluded !== false,
+    gstCalculationMode: normalizeAdminAccountingGstMode(input.gstCalculationMode, input.gstIncluded !== false),
     relatedVehicleId: sanitizeSingleLineText(input.relatedVehicleId ?? ""),
     relatedVehicleRecordId: sanitizeSingleLineText(input.relatedVehicleRecordId ?? ""),
     relatedDisplayReference: sanitizeSingleLineText(input.relatedDisplayReference ?? ""),

@@ -39,6 +39,7 @@ import { hasAdminPermission } from "@/lib/permissions";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import {
   AdminAccountingEntry,
+  AdminAccountingGstMode,
   AdminAccountingPaymentMethod,
   CustomerProfile,
   Vehicle,
@@ -107,6 +108,11 @@ const EXPORT_PERIOD_OPTIONS: Array<{ value: AccountingPeriodOption; label: strin
   { value: "this_month", label: "Monthly" },
   { value: "this_year", label: "Yearly" },
   { value: "custom", label: "Custom Date Range" }
+];
+
+const GST_MODE_OPTIONS: Array<{ value: Exclude<AdminAccountingGstMode, "none">; label: string }> = [
+  { value: "inclusive", label: "GST Inclusive (Supplier Purchase)" },
+  { value: "exclusive", label: "GST Exclusive (Customer Invoice)" }
 ];
 
 type SearchableVehicleOption = {
@@ -191,6 +197,49 @@ function sortAccountingEntries(entries: AdminAccountingEntry[]) {
   });
 }
 
+function roundCurrencyAmount(value: number) {
+  return Math.round((Number.isFinite(value) ? value : 0) * 100) / 100;
+}
+
+function parseAccountingAmountInput(value: string) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? Math.max(parsed, 0) : 0;
+}
+
+function normalizeDraftGstMode(entry: Pick<AdminAccountingEntry, "gstIncluded" | "gstCalculationMode">): AdminAccountingGstMode {
+  if (entry.gstIncluded === false) return "none";
+  return entry.gstCalculationMode === "exclusive" ? "exclusive" : "inclusive";
+}
+
+function buildStoredAmountFromInput(inputAmount: number, mode: AdminAccountingGstMode) {
+  if (mode === "exclusive") {
+    return roundCurrencyAmount(inputAmount * 1.1);
+  }
+
+  return roundCurrencyAmount(inputAmount);
+}
+
+function getEditableAmountFromEntry(entry: Pick<AdminAccountingEntry, "amount" | "gstIncluded" | "gstCalculationMode">) {
+  const mode = normalizeDraftGstMode(entry);
+  if (mode === "exclusive") {
+    return roundCurrencyAmount(getAccountingEntryNetPortion({ amount: entry.amount, gstIncluded: true }));
+  }
+
+  return roundCurrencyAmount(entry.amount);
+}
+
+function formatAmountInputValue(value: number) {
+  if (!value) return "";
+  return roundCurrencyAmount(value).toString();
+}
+
+function getGstModeDisplayLabel(entry: Pick<AdminAccountingEntry, "gstIncluded" | "gstCalculationMode">) {
+  const mode = normalizeDraftGstMode(entry);
+  if (mode === "exclusive") return "GST exclusive";
+  if (mode === "inclusive") return "GST inclusive";
+  return "No GST";
+}
+
 function SummaryCard({
   label,
   value,
@@ -239,6 +288,7 @@ export function AdminAccountingPanel() {
   const [errorMessage, setErrorMessage] = useState("");
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState(createEmptyAdminAccountingEntry());
+  const [amountInput, setAmountInput] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [vehicleSearchOpen, setVehicleSearchOpen] = useState(false);
   const [expandedDateGroups, setExpandedDateGroups] = useState<Record<string, boolean>>({});
@@ -475,12 +525,46 @@ export function AdminAccountingPanel() {
   const filteredReportSummary = useMemo(() => buildAccountingReportSummary(filteredEntries), [filteredEntries]);
   const exportSummary = useMemo(() => buildAccountingReportSummary(exportEntries), [exportEntries]);
   const gstPreview = useMemo(
-    () => ({
-      gross: draft.amount,
-      gst: getAccountingEntryGstPortion(draft),
-      net: getAccountingEntryNetPortion(draft)
-    }),
-    [draft]
+    () => {
+      const mode = normalizeDraftGstMode(draft);
+      const inputAmount = parseAccountingAmountInput(amountInput);
+
+      if (mode === "exclusive") {
+        const gst = roundCurrencyAmount(inputAmount * 0.1);
+        const total = roundCurrencyAmount(inputAmount + gst);
+        return {
+          primaryLabel: "Net amount",
+          primaryValue: inputAmount,
+          gstLabel: "GST amount",
+          gstValue: gst,
+          secondaryLabel: "Total amount",
+          secondaryValue: total
+        };
+      }
+
+      if (mode === "inclusive") {
+        const gst = roundCurrencyAmount(inputAmount / 11);
+        const net = roundCurrencyAmount(inputAmount - gst);
+        return {
+          primaryLabel: "Gross amount",
+          primaryValue: inputAmount,
+          gstLabel: "GST amount",
+          gstValue: gst,
+          secondaryLabel: "Net amount",
+          secondaryValue: net
+        };
+      }
+
+      return {
+        primaryLabel: "Amount",
+        primaryValue: inputAmount,
+        gstLabel: "GST amount",
+        gstValue: 0,
+        secondaryLabel: "Net amount",
+        secondaryValue: inputAmount
+      };
+    },
+    [amountInput, draft]
   );
 
   const groupedEntries = useMemo(() => {
@@ -506,20 +590,23 @@ export function AdminAccountingPanel() {
   }
 
   function resetDraft() {
-    setDraft(createEmptyAdminAccountingEntry());
+    const emptyDraft = createEmptyAdminAccountingEntry();
+    setDraft(emptyDraft);
+    setAmountInput(formatAmountInputValue(getEditableAmountFromEntry(emptyDraft)));
     setEditingEntryId(null);
     setVehicleSearch("");
     setVehicleSearchOpen(false);
   }
 
   function startEdit(entry: AdminAccountingEntry) {
-    setDraft({
+    const nextDraft = {
       type: entry.type,
       date: entry.date,
       amount: entry.amount,
       category: entry.category,
       paymentMethod: entry.paymentMethod,
       gstIncluded: entry.gstIncluded,
+      gstCalculationMode: normalizeDraftGstMode(entry),
       relatedVehicleId: entry.relatedVehicleId || "",
       relatedVehicleRecordId: entry.relatedVehicleRecordId || "",
       relatedDisplayReference: entry.relatedDisplayReference || "",
@@ -534,12 +621,29 @@ export function AdminAccountingPanel() {
       updatedByName: entry.updatedByName || "",
       createdAt: entry.createdAt || "",
       updatedAt: entry.updatedAt || ""
-    });
+    };
+    setDraft(nextDraft);
+    setAmountInput(formatAmountInputValue(getEditableAmountFromEntry(nextDraft)));
     setEditingEntryId(entry.id);
     setVehicleSearch("");
     setVehicleSearchOpen(false);
     setNotice("");
     setErrorMessage("");
+  }
+
+  function updateDraftAmount(nextInput: string, nextMode?: AdminAccountingGstMode) {
+    setAmountInput(nextInput);
+    setDraft((current) => {
+      const mode = nextMode ?? normalizeDraftGstMode(current);
+      const parsedAmount = parseAccountingAmountInput(nextInput);
+
+      return {
+        ...current,
+        amount: buildStoredAmountFromInput(parsedAmount, mode),
+        gstIncluded: mode !== "none",
+        gstCalculationMode: mode
+      };
+    });
   }
 
   function selectVehicleOption(option: SearchableVehicleOption) {
@@ -778,13 +882,19 @@ export function AdminAccountingPanel() {
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Amount</label>
+              <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">
+                {normalizeDraftGstMode(draft) === "exclusive"
+                  ? "Net amount (before GST)"
+                  : normalizeDraftGstMode(draft) === "inclusive"
+                    ? "Gross amount (includes GST)"
+                    : "Amount"}
+              </label>
               <input
                 type="number"
                 min="0"
                 step="0.01"
-                value={draft.amount || ""}
-                onChange={(event) => setDraft((current) => ({ ...current, amount: Number(event.target.value || 0) }))}
+                value={amountInput}
+                onChange={(event) => updateDraftAmount(event.target.value)}
                 className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D]"
               />
             </div>
@@ -883,27 +993,51 @@ export function AdminAccountingPanel() {
                 ) : null}
               </div>
             </div>
-            <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink md:col-span-2">
-              <input
-                type="checkbox"
-                checked={draft.gstIncluded}
-                onChange={(event) => setDraft((current) => ({ ...current, gstIncluded: event.target.checked }))}
-                className="h-4 w-4 rounded border-black/20 text-ink"
-              />
-              <span>Amount includes GST</span>
-            </label>
+            <div className="grid gap-4 md:col-span-2 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+              <label className="flex items-center gap-3 rounded-2xl border border-black/10 bg-shell px-4 py-3 text-sm text-ink">
+                <input
+                  type="checkbox"
+                  checked={normalizeDraftGstMode(draft) !== "none"}
+                  onChange={(event) => {
+                    const nextMode: AdminAccountingGstMode = event.target.checked
+                      ? draft.gstCalculationMode === "exclusive"
+                        ? "exclusive"
+                        : "inclusive"
+                      : "none";
+                    updateDraftAmount(amountInput, nextMode);
+                  }}
+                  className="h-4 w-4 rounded border-black/20 text-ink"
+                />
+                <span>Apply GST</span>
+              </label>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">GST mode</label>
+                <select
+                  value={normalizeDraftGstMode(draft) === "exclusive" ? "exclusive" : "inclusive"}
+                  onChange={(event) => updateDraftAmount(event.target.value, event.target.value as Exclude<AdminAccountingGstMode, "none">)}
+                  disabled={normalizeDraftGstMode(draft) === "none"}
+                  className="min-h-[44px] w-full rounded-2xl border border-black/10 bg-white px-3 py-2.5 text-sm text-ink outline-none transition focus:border-[#C6A87D] disabled:bg-shell disabled:text-ink/45"
+                >
+                  {GST_MODE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
             <div className="grid gap-3 rounded-[22px] border border-black/6 bg-shell px-4 py-4 text-sm text-ink md:col-span-2 md:grid-cols-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">Gross amount</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.gross)}</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.primaryLabel}</p>
+                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.primaryValue)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">GST payable</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.gst)}</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.gstLabel}</p>
+                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.gstValue)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">Net amount</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.net)}</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.secondaryLabel}</p>
+                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.secondaryValue)}</p>
               </div>
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -1001,7 +1135,7 @@ export function AdminAccountingPanel() {
                               </div>
                               <div className="text-right text-xs text-ink/55">
                                 <p className="font-semibold text-ink">{entry.createdByName || "CarNest Admin"}</p>
-                                <p className="mt-1">{entry.gstIncluded ? "GST inclusive" : "No GST"}</p>
+                                <p className="mt-1">{getGstModeDisplayLabel(entry)}</p>
                                 <p className="mt-2">
                                   Created {entry.createdAt ? new Date(entry.createdAt).toLocaleString("en-AU") : "pending"}
                                 </p>
