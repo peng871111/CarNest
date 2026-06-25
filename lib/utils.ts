@@ -13,6 +13,15 @@ export function formatCurrency(value: number) {
   }).format(value);
 }
 
+export function formatAccountingCurrency(value: number) {
+  return new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
 export function formatLocation(suburb?: string, postcode?: string, state?: string) {
   return [suburb, postcode, state].filter(Boolean).join(", ") || "Location withheld";
 }

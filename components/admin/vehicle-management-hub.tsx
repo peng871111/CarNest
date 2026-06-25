@@ -20,7 +20,7 @@ import {
 } from "@/lib/data";
 import { uploadVehicleActivityImages } from "@/lib/storage";
 import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
-import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { formatAccountingCurrency, formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AdminAccountingEntry, AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
 type VehicleManagementView = "customers" | "vehicles" | "warehouse" | "listings";
@@ -1505,10 +1505,10 @@ export function VehicleManagementHub({
           </div>
           {showVehicleSummary ? (
             <div className="grid gap-3 md:grid-cols-4">
-              <InfoStat label="Active listing income" value={formatCurrency(workspaceMetrics.activeListingIncome)} helper="Actual CarNest income entries linked to active listings" />
-              <InfoStat label="Warehouse income" value={formatCurrency(workspaceMetrics.warehouseManagedIncome)} helper="Actual CarNest income linked to warehouse-managed vehicles" />
-              <InfoStat label="Receivables" value={formatCurrency(workspaceMetrics.outstandingReceivables)} helper="Outstanding money still owed to CarNest" />
-              <InfoStat label="GST payable est." value={formatCurrency(workspaceMetrics.gstPayableEstimate)} helper="GST-inclusive accounting entries only" />
+              <InfoStat label="Active listing income" value={formatAccountingCurrency(workspaceMetrics.activeListingIncome)} helper="Actual CarNest income entries linked to active listings" />
+              <InfoStat label="Warehouse income" value={formatAccountingCurrency(workspaceMetrics.warehouseManagedIncome)} helper="Actual CarNest income linked to warehouse-managed vehicles" />
+              <InfoStat label="Receivables" value={formatAccountingCurrency(workspaceMetrics.outstandingReceivables)} helper="Outstanding money still owed to CarNest" />
+              <InfoStat label="GST payable est." value={formatAccountingCurrency(workspaceMetrics.gstPayableEstimate)} helper="GST-inclusive accounting entries only" />
             </div>
           ) : null}
         </section>

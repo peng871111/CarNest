@@ -10,7 +10,7 @@ import {
   type AccountingPeriodOption,
   type AccountingReportSummary
 } from "@/lib/admin-accounting-utils";
-import { formatCurrency } from "@/lib/utils";
+import { formatAccountingCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
 
 export type AccountingExportFormat = "xlsx" | "pdf" | "csv";
@@ -80,14 +80,14 @@ function buildDetailedRows(entries: AdminAccountingEntry[]) {
 
 function buildSummaryRows(summary: AccountingReportSummary) {
   return [
-    ["Total Income", formatCurrency(summary.totalIncome)],
-    ["Total Expenses", formatCurrency(summary.totalExpense)],
-    ["Net Profit / Loss", formatCurrency(summary.netCashflow)],
-    ["GST Collected", formatCurrency(summary.gstCollected)],
-    ["GST Paid", formatCurrency(summary.gstPaid)],
-    ["GST Payable", formatCurrency(summary.gstPayable)],
-    ["Outstanding Receivables", formatCurrency(summary.receivables)],
-    ["Outstanding Payables", formatCurrency(summary.payables)]
+    ["Total Income", formatAccountingCurrency(summary.totalIncome)],
+    ["Total Expenses", formatAccountingCurrency(summary.totalExpense)],
+    ["Net Profit / Loss", formatAccountingCurrency(summary.netCashflow)],
+    ["GST Collected", formatAccountingCurrency(summary.gstCollected)],
+    ["GST Paid", formatAccountingCurrency(summary.gstPaid)],
+    ["GST Payable", formatAccountingCurrency(summary.gstPayable)],
+    ["Outstanding Receivables", formatAccountingCurrency(summary.receivables)],
+    ["Outstanding Payables", formatAccountingCurrency(summary.payables)]
   ];
 }
 
@@ -108,10 +108,10 @@ function buildPaymentMethodSummaryRows(summary: AccountingReportSummary) {
   });
 
   return [
-    ["Cash Total", formatCurrency(totals.cash)],
-    ["Bank Transfer Total", formatCurrency(totals.bankTransfer)],
-    ["Credit Card Total", formatCurrency(totals.creditCard)],
-    ["Other Total", formatCurrency(totals.other)]
+    ["Cash Total", formatAccountingCurrency(totals.cash)],
+    ["Bank Transfer Total", formatAccountingCurrency(totals.bankTransfer)],
+    ["Credit Card Total", formatAccountingCurrency(totals.creditCard)],
+    ["Other Total", formatAccountingCurrency(totals.other)]
   ];
 }
 
@@ -131,9 +131,9 @@ export async function exportAccountingCsv(entries: AdminAccountingEntry[], perio
     ...summary.paymentMethodBreakdown.map((item) =>
       [
         getAccountingPaymentMethodLabel(item.paymentMethod),
-        formatCurrency(item.totalIncome),
-        formatCurrency(item.totalExpense),
-        formatCurrency(item.netCashflow)
+        formatAccountingCurrency(item.totalIncome),
+        formatAccountingCurrency(item.totalExpense),
+        formatAccountingCurrency(item.netCashflow)
       ]
         .map(escapeCsvValue)
         .join(",")
@@ -142,7 +142,7 @@ export async function exportAccountingCsv(entries: AdminAccountingEntry[], perio
     "Expense Category Breakdown",
     ["Category", "Total Expense"].map(escapeCsvValue).join(","),
     ...summary.expenseCategoryBreakdown.map((item) =>
-      [item.category, formatCurrency(item.totalExpense)].map(escapeCsvValue).join(",")
+      [item.category, formatAccountingCurrency(item.totalExpense)].map(escapeCsvValue).join(",")
     ),
     "",
     "Vehicle Profit Report",
@@ -151,9 +151,9 @@ export async function exportAccountingCsv(entries: AdminAccountingEntry[], perio
       [
         [item.displayReference, item.vehicleTitle].filter(Boolean).join(" · ") || "General business entry",
         item.customerName || "",
-        formatCurrency(item.totalIncome),
-        formatCurrency(item.totalExpense),
-        formatCurrency(item.netProfit)
+        formatAccountingCurrency(item.totalIncome),
+        formatAccountingCurrency(item.totalExpense),
+        formatAccountingCurrency(item.netProfit)
       ]
         .map(escapeCsvValue)
         .join(",")
@@ -164,9 +164,9 @@ export async function exportAccountingCsv(entries: AdminAccountingEntry[], perio
     ...summary.customerProfitBreakdown.map((item) =>
       [
         item.customerName,
-        formatCurrency(item.totalIncome),
-        formatCurrency(item.totalExpense),
-        formatCurrency(item.profitContribution)
+        formatAccountingCurrency(item.totalIncome),
+        formatAccountingCurrency(item.totalExpense),
+        formatAccountingCurrency(item.profitContribution)
       ]
         .map(escapeCsvValue)
         .join(",")
@@ -245,7 +245,7 @@ export async function exportAccountingXlsx(entries: AdminAccountingEntry[], peri
   summary.paymentMethodBreakdown.forEach((item) => {
     summarySheet.addRow({
       metric: getAccountingPaymentMethodLabel(item.paymentMethod),
-      value: `${formatCurrency(item.totalIncome)} / ${formatCurrency(item.totalExpense)} / ${formatCurrency(item.netCashflow)}`
+      value: `${formatAccountingCurrency(item.totalIncome)} / ${formatAccountingCurrency(item.totalExpense)} / ${formatAccountingCurrency(item.netCashflow)}`
     });
   });
   summarySheet.addRow({});
@@ -254,7 +254,7 @@ export async function exportAccountingXlsx(entries: AdminAccountingEntry[], peri
   summary.expenseCategoryBreakdown.forEach((item) => {
     summarySheet.addRow({
       metric: item.category,
-      value: formatCurrency(item.totalExpense)
+      value: formatAccountingCurrency(item.totalExpense)
     });
   });
 
@@ -364,19 +364,19 @@ export async function exportAccountingPdf(entries: AdminAccountingEntry[], perio
   addLine("Payment Method Breakdown", { bold: true, size: 13 });
   summary.paymentMethodBreakdown.forEach((item) => {
     addLine(
-      `${getAccountingPaymentMethodLabel(item.paymentMethod)} — Income ${formatCurrency(item.totalIncome)} · Expense ${formatCurrency(item.totalExpense)} · Net ${formatCurrency(item.netCashflow)}`
+      `${getAccountingPaymentMethodLabel(item.paymentMethod)} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Net ${formatAccountingCurrency(item.netCashflow)}`
     );
   });
   y -= 6;
   addLine("Expense Category Breakdown", { bold: true, size: 13 });
   summary.expenseCategoryBreakdown.forEach((item) => {
-    addLine(`${item.category}: ${formatCurrency(item.totalExpense)}`);
+    addLine(`${item.category}: ${formatAccountingCurrency(item.totalExpense)}`);
   });
   y -= 6;
   addLine("Vehicle Profit Report", { bold: true, size: 13 });
   summary.vehicleProfitBreakdown.forEach((item) => {
     addLine(
-      `${[item.displayReference, item.vehicleTitle].filter(Boolean).join(" · ") || "General business entry"} — Income ${formatCurrency(item.totalIncome)} · Expense ${formatCurrency(item.totalExpense)} · Profit ${formatCurrency(item.netProfit)}`,
+      `${[item.displayReference, item.vehicleTitle].filter(Boolean).join(" · ") || "General business entry"} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Profit ${formatAccountingCurrency(item.netProfit)}`,
       { bold: true }
     );
     if (item.customerName) {
@@ -387,15 +387,15 @@ export async function exportAccountingPdf(entries: AdminAccountingEntry[], perio
   addLine("Customer Report", { bold: true, size: 13 });
   summary.customerProfitBreakdown.forEach((item) => {
     addLine(
-      `${item.customerName} — Income ${formatCurrency(item.totalIncome)} · Expense ${formatCurrency(item.totalExpense)} · Profit ${formatCurrency(item.profitContribution)}`
+      `${item.customerName} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Profit ${formatAccountingCurrency(item.profitContribution)}`
     );
   });
   y -= 6;
   addLine("Detailed Transactions", { bold: true, size: 13 });
   detailRows.forEach((row) => {
-    addLine(`${row.date} · ${row.type} · ${row.category} · ${formatCurrency(row.amount)}`, { bold: true });
+    addLine(`${row.date} · ${row.type} · ${row.category} · ${formatAccountingCurrency(row.amount)}`, { bold: true });
     addLine(
-      `${row.paymentMethod} · ${row.status} · GST ${formatCurrency(row.gstAmount)} · Net ${formatCurrency(row.netAmount)}`,
+      `${row.paymentMethod} · ${row.status} · GST ${formatAccountingCurrency(row.gstAmount)} · Net ${formatAccountingCurrency(row.netAmount)}`,
       { size: 10, color: rgb(0.35, 0.35, 0.38) }
     );
     addLine(

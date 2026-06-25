@@ -10,7 +10,7 @@ import {
 } from "@/lib/admin-accounting-utils";
 import { getAdminAccountingEntriesData } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
-import { formatCurrency } from "@/lib/utils";
+import { formatAccountingCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
 
 function getLinkedAccountingEntries(
@@ -110,11 +110,11 @@ export function VehicleAccountingSummary({
       <div className="rounded-[18px] border border-black/6 bg-shell px-4 py-3">
         <p className="text-[10px] uppercase tracking-[0.18em] text-bronze">Accounting preview</p>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs text-ink/62">
-          <span>Income {formatCurrency(summary.income)}</span>
-          <span>Expense {formatCurrency(summary.expense)}</span>
-          <span>Net {formatCurrency(summary.netProfit)}</span>
-          <span>Receivables {formatCurrency(summary.receivables)}</span>
-          <span>Payables {formatCurrency(summary.payables)}</span>
+          <span>Income {formatAccountingCurrency(summary.income)}</span>
+          <span>Expense {formatAccountingCurrency(summary.expense)}</span>
+          <span>Net {formatAccountingCurrency(summary.netProfit)}</span>
+          <span>Receivables {formatAccountingCurrency(summary.receivables)}</span>
+          <span>Payables {formatAccountingCurrency(summary.payables)}</span>
         </div>
       </div>
     );
@@ -124,12 +124,12 @@ export function VehicleAccountingSummary({
     <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
       <p className="text-xs uppercase tracking-[0.25em] text-bronze">Accounting preview</p>
       <div className="mt-4 flex flex-wrap gap-4">
-        <SummaryValue label="Income" value={formatCurrency(summary.income)} />
-        <SummaryValue label="Expense" value={formatCurrency(summary.expense)} />
-        <SummaryValue label="Net profit" value={formatCurrency(summary.netProfit)} />
-        <SummaryValue label="Receivables" value={formatCurrency(summary.receivables)} />
-        <SummaryValue label="Payables" value={formatCurrency(summary.payables)} />
-        <SummaryValue label="GST est." value={formatCurrency(summary.gstEstimate)} />
+        <SummaryValue label="Income" value={formatAccountingCurrency(summary.income)} />
+        <SummaryValue label="Expense" value={formatAccountingCurrency(summary.expense)} />
+        <SummaryValue label="Net profit" value={formatAccountingCurrency(summary.netProfit)} />
+        <SummaryValue label="Receivables" value={formatAccountingCurrency(summary.receivables)} />
+        <SummaryValue label="Payables" value={formatAccountingCurrency(summary.payables)} />
+        <SummaryValue label="GST est." value={formatAccountingCurrency(summary.gstEstimate)} />
       </div>
     </div>
   );

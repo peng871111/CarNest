@@ -13,7 +13,7 @@ import {
 } from "@/lib/admin-accounting-utils";
 import { getAdminAccountingEntriesData } from "@/lib/data";
 import { hasAdminPermission } from "@/lib/permissions";
-import { formatCurrency } from "@/lib/utils";
+import { formatAccountingCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
 
 function MetricCard({ label, value, helper }: { label: string; value: string; helper?: string }) {
@@ -93,32 +93,32 @@ export function AdminOverviewMetrics() {
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
       <MetricCard
         label="Today Net Cashflow"
-        value={loading ? "Loading..." : formatCurrency(metrics.today.netCashflow)}
-        helper={loading ? "Checking today’s entries..." : `${formatCurrency(metrics.today.totalIncome)} income · ${formatCurrency(metrics.today.totalExpense)} expense`}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.today.netCashflow)}
+        helper={loading ? "Checking today’s entries..." : `${formatAccountingCurrency(metrics.today.totalIncome)} income · ${formatAccountingCurrency(metrics.today.totalExpense)} expense`}
       />
       <MetricCard
         label="Month Net Cashflow"
-        value={loading ? "Loading..." : formatCurrency(metrics.month.netCashflow)}
-        helper={loading ? "Calculating month-to-date..." : `${formatCurrency(metrics.month.totalIncome)} income · ${formatCurrency(metrics.month.totalExpense)} expense`}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.month.netCashflow)}
+        helper={loading ? "Calculating month-to-date..." : `${formatAccountingCurrency(metrics.month.totalIncome)} income · ${formatAccountingCurrency(metrics.month.totalExpense)} expense`}
       />
       <MetricCard
         label="Year-To-Date Net"
-        value={loading ? "Loading..." : formatCurrency(metrics.year.netCashflow)}
-        helper={loading ? "Calculating year-to-date..." : `${formatCurrency(metrics.year.totalIncome)} income · ${formatCurrency(metrics.year.totalExpense)} expense`}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.year.netCashflow)}
+        helper={loading ? "Calculating year-to-date..." : `${formatAccountingCurrency(metrics.year.totalIncome)} income · ${formatAccountingCurrency(metrics.year.totalExpense)} expense`}
       />
       <MetricCard
         label="Total Receivables"
-        value={loading ? "Loading..." : formatCurrency(metrics.receivables)}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.receivables)}
         helper="Outstanding money owed to CarNest"
       />
       <MetricCard
         label="Total Payables"
-        value={loading ? "Loading..." : formatCurrency(metrics.payables)}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.payables)}
         helper="Outstanding money CarNest still owes"
       />
       <MetricCard
         label="GST Payable Estimate"
-        value={loading ? "Loading..." : formatCurrency(metrics.gstPayable)}
+        value={loading ? "Loading..." : formatAccountingCurrency(metrics.gstPayable)}
         helper="GST-inclusive income less GST-inclusive expenses"
       />
     </div>

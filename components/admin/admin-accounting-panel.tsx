@@ -36,7 +36,7 @@ import {
 } from "@/lib/data";
 import { useAuth } from "@/lib/auth";
 import { hasAdminPermission } from "@/lib/permissions";
-import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
+import { formatAccountingCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import {
   AdminAccountingEntry,
   AdminAccountingGstMode,
@@ -731,7 +731,7 @@ export function AdminAccountingPanel() {
 
   async function handleDeleteEntry(entry: AdminAccountingEntry) {
     if (!actor) return;
-    const confirmed = window.confirm(`Delete the accounting entry "${entry.category || entry.type}" for ${formatCurrency(entry.amount)}?`);
+      const confirmed = window.confirm(`Delete the accounting entry "${entry.category || entry.type}" for ${formatAccountingCurrency(entry.amount)}?`);
     if (!confirmed) return;
 
     try {
@@ -793,23 +793,23 @@ export function AdminAccountingPanel() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard
           label="Daily"
-          value={loading ? "Loading..." : formatCurrency(todaySummary.netCashflow)}
-          helper={loading ? "Calculating today’s local cashflow..." : `${formatCurrency(todaySummary.totalIncome)} income · ${formatCurrency(todaySummary.totalExpense)} expense`}
+          value={loading ? "Loading..." : formatAccountingCurrency(todaySummary.netCashflow)}
+          helper={loading ? "Calculating today’s local cashflow..." : `${formatAccountingCurrency(todaySummary.totalIncome)} income · ${formatAccountingCurrency(todaySummary.totalExpense)} expense`}
         />
         <SummaryCard
           label="Monthly"
-          value={loading ? "Loading..." : formatCurrency(monthSummary.netCashflow)}
-          helper={loading ? "Calculating this month..." : `${formatCurrency(monthSummary.totalIncome)} income · ${formatCurrency(monthSummary.totalExpense)} expense · GST est. ${formatCurrency(monthSummary.gstPayable)}`}
+          value={loading ? "Loading..." : formatAccountingCurrency(monthSummary.netCashflow)}
+          helper={loading ? "Calculating this month..." : `${formatAccountingCurrency(monthSummary.totalIncome)} income · ${formatAccountingCurrency(monthSummary.totalExpense)} expense · GST est. ${formatAccountingCurrency(monthSummary.gstPayable)}`}
         />
         <SummaryCard
           label="Year To Date"
-          value={loading ? "Loading..." : formatCurrency(yearSummary.netCashflow)}
-          helper={loading ? "Calculating year-to-date..." : `${formatCurrency(yearSummary.totalIncome)} income · ${formatCurrency(yearSummary.totalExpense)} expense`}
+          value={loading ? "Loading..." : formatAccountingCurrency(yearSummary.netCashflow)}
+          helper={loading ? "Calculating year-to-date..." : `${formatAccountingCurrency(yearSummary.totalIncome)} income · ${formatAccountingCurrency(yearSummary.totalExpense)} expense`}
         />
         <SummaryCard
           label="Outstanding"
-          value={loading ? "Loading..." : formatCurrency(outstandingSummary.receivables - outstandingSummary.payables)}
-          helper={loading ? "Checking receivables and payables..." : `${formatCurrency(outstandingSummary.receivables)} receivables · ${formatCurrency(outstandingSummary.payables)} payables`}
+          value={loading ? "Loading..." : formatAccountingCurrency(outstandingSummary.receivables - outstandingSummary.payables)}
+          helper={loading ? "Checking receivables and payables..." : `${formatAccountingCurrency(outstandingSummary.receivables)} receivables · ${formatAccountingCurrency(outstandingSummary.payables)} payables`}
         />
       </div>
 
@@ -1029,15 +1029,15 @@ export function AdminAccountingPanel() {
             <div className="grid gap-3 rounded-[22px] border border-black/6 bg-shell px-4 py-4 text-sm text-ink md:col-span-2 md:grid-cols-3">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.primaryLabel}</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.primaryValue)}</p>
+                <p className="mt-1 font-semibold text-ink">{formatAccountingCurrency(gstPreview.primaryValue)}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.gstLabel}</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.gstValue)}</p>
+                <p className="mt-1 font-semibold text-ink">{formatAccountingCurrency(gstPreview.gstValue)}</p>
               </div>
               <div>
                 <p className="text-[10px] uppercase tracking-[0.16em] text-ink/48">{gstPreview.secondaryLabel}</p>
-                <p className="mt-1 font-semibold text-ink">{formatCurrency(gstPreview.secondaryValue)}</p>
+                <p className="mt-1 font-semibold text-ink">{formatAccountingCurrency(gstPreview.secondaryValue)}</p>
               </div>
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -1084,13 +1084,13 @@ export function AdminAccountingPanel() {
                       <p className="text-sm font-semibold text-ink">{formatMelbourneDateHeading(group.dateKey)}</p>
                       <div className="mt-2 flex flex-wrap gap-2 text-xs">
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-700">
-                          Income {formatCurrency(group.summary.totalIncome)}
+                          Income {formatAccountingCurrency(group.summary.totalIncome)}
                         </span>
                         <span className="rounded-full bg-rose-50 px-2.5 py-1 font-semibold text-rose-700">
-                          Expense {formatCurrency(group.summary.totalExpense)}
+                          Expense {formatAccountingCurrency(group.summary.totalExpense)}
                         </span>
                         <span className="rounded-full bg-ink/5 px-2.5 py-1 font-semibold text-ink">
-                          Net {formatCurrency(group.summary.netCashflow)}
+                          Net {formatAccountingCurrency(group.summary.netCashflow)}
                         </span>
                       </div>
                     </div>
@@ -1112,7 +1112,7 @@ export function AdminAccountingPanel() {
                                     {getEntryTypeLabel(entry.type)}
                                   </span>
                                   <p className="text-sm font-semibold text-ink">
-                                    {entry.category || getEntryTypeLabel(entry.type)} · {formatCurrency(entry.amount)}
+                                    {entry.category || getEntryTypeLabel(entry.type)} · {formatAccountingCurrency(entry.amount)}
                                   </p>
                                 </div>
                                 <p className="mt-1 text-xs text-ink/56">
@@ -1122,9 +1122,9 @@ export function AdminAccountingPanel() {
                                   {entry.relatedDisplayReference || "Business expense"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}{entry.relatedCustomerName ? ` · ${entry.relatedCustomerName}` : ""}
                                 </p>
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/62">
-                                  <span>Gross {formatCurrency(entry.amount)}</span>
-                                  <span>GST {formatCurrency(getAccountingEntryGstPortion(entry))}</span>
-                                  <span>Net {formatCurrency(getAccountingEntryNetPortion(entry))}</span>
+                                  <span>Gross {formatAccountingCurrency(entry.amount)}</span>
+                                  <span>GST {formatAccountingCurrency(getAccountingEntryGstPortion(entry))}</span>
+                                  <span>Net {formatAccountingCurrency(getAccountingEntryNetPortion(entry))}</span>
                                   {ageLabel ? (
                                     <span className={isOverdue ? "font-semibold text-amber-700" : ""}>
                                       {ageLabel}{daysOutstanding != null ? ` · ${daysOutstanding} day${daysOutstanding === 1 ? "" : "s"} outstanding` : ""}
@@ -1240,12 +1240,12 @@ export function AdminAccountingPanel() {
         ) : null}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <ReportKpiCard label="Total Income" value={formatCurrency(exportSummary.totalIncome)} />
-          <ReportKpiCard label="Total Expenses" value={formatCurrency(exportSummary.totalExpense)} />
-          <ReportKpiCard label="Net Profit / Loss" value={formatCurrency(exportSummary.netCashflow)} />
-          <ReportKpiCard label="GST Collected" value={formatCurrency(exportSummary.gstCollected)} />
-          <ReportKpiCard label="GST Paid" value={formatCurrency(exportSummary.gstPaid)} />
-          <ReportKpiCard label="GST Payable" value={formatCurrency(exportSummary.gstPayable)} />
+          <ReportKpiCard label="Total Income" value={formatAccountingCurrency(exportSummary.totalIncome)} />
+          <ReportKpiCard label="Total Expenses" value={formatAccountingCurrency(exportSummary.totalExpense)} />
+          <ReportKpiCard label="Net Profit / Loss" value={formatAccountingCurrency(exportSummary.netCashflow)} />
+          <ReportKpiCard label="GST Collected" value={formatAccountingCurrency(exportSummary.gstCollected)} />
+          <ReportKpiCard label="GST Paid" value={formatAccountingCurrency(exportSummary.gstPaid)} />
+          <ReportKpiCard label="GST Payable" value={formatAccountingCurrency(exportSummary.gstPayable)} />
           <ReportKpiCard label="Vehicle Reports" value={String(exportSummary.vehicleProfitBreakdown.length)} />
           <ReportKpiCard label="Payment Methods" value={String(exportSummary.paymentMethodBreakdown.length)} />
         </div>
@@ -1415,10 +1415,10 @@ export function AdminAccountingPanel() {
                     </p>
                     <p className="mt-1 truncate text-xs text-ink/56">{item.customerName || "No customer linked"}</p>
                   </div>
-                  <p className="text-sm font-medium text-emerald-700">{formatCurrency(item.totalIncome)}</p>
-                  <p className="text-sm font-medium text-rose-700">{formatCurrency(item.totalExpense)}</p>
+                  <p className="text-sm font-medium text-emerald-700">{formatAccountingCurrency(item.totalIncome)}</p>
+                  <p className="text-sm font-medium text-rose-700">{formatAccountingCurrency(item.totalExpense)}</p>
                   <p className={`text-sm font-semibold ${item.netProfit >= 0 ? "text-ink" : "text-amber-700"}`}>
-                    {formatCurrency(item.netProfit)}
+                    {formatAccountingCurrency(item.netProfit)}
                   </p>
                 </div>
               ))}
