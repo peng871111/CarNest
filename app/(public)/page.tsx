@@ -229,9 +229,8 @@ export default async function HomePage() {
 
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               {featuredVehicles.map((vehicle) => (
-                <Link
+                <div
                   key={vehicle.id}
-                  href={`/inventory/${vehicle.id}`}
                   className="group overflow-hidden rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(17,17,17,0.96),rgba(10,10,10,0.96))] shadow-[0_18px_42px_rgba(0,0,0,0.34)] transition hover:-translate-y-1 hover:border-[#D9B36A]/35"
                 >
                   <div className="relative aspect-[4/3] overflow-hidden bg-black/40">
@@ -259,7 +258,7 @@ export default async function HomePage() {
                       ) : null}
                     </div>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           </section>
