@@ -59,6 +59,8 @@ function VehicleOutline() {
       <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.7" />
       <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.7" />
       <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.8" />
+      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampLeft} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.6" />
+      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampRight} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.6" />
       {BUYER_BODY_MAP_WHEELS.map((wheel) => (
         <g key={`${wheel.cx}-${wheel.cy}`}>
           <circle cx={wheel.cx} cy={wheel.cy} r={wheel.outerR} fill="none" stroke="#BDAE9B" strokeWidth="2.4" />

@@ -736,7 +736,9 @@ export async function generateVehicleReportPdf(
     [
       BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft,
       BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight,
-      BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass
+      BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass,
+      BUYER_BODY_MAP_OUTLINE_PATHS.rearLampLeft,
+      BUYER_BODY_MAP_OUTLINE_PATHS.rearLampRight
     ].forEach((path) => {
       page.drawSvgPath(path, {
         x: mapOriginX,
