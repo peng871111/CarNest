@@ -26,6 +26,8 @@ import {
 import {
   VEHICLE_CONDITION_CATEGORY_HELPERS,
   VEHICLE_CONDITION_CATEGORY_LABELS,
+  VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS,
+  VEHICLE_CONDITION_SCORED_CATEGORY_KEYS,
   VEHICLE_CONDITION_SCORE_SELECT_OPTIONS
 } from "@/lib/vehicle-condition-config";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
@@ -77,6 +79,8 @@ const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["cat
 const VEHICLE_FUEL_TYPE_OPTIONS = ["Petrol", "Diesel", "Hybrid", "Plug-in Hybrid", "Full Electric"] as const;
 const VEHICLE_TRANSMISSION_OPTIONS = ["AT", "CVT", "MT", "DCT"] as const;
 const VEHICLE_DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD"] as const;
+const SCORED_CONDITION_CATEGORY_KEYS = [...VEHICLE_CONDITION_SCORED_CATEGORY_KEYS];
+const NOTES_ONLY_CONDITION_CATEGORY_KEYS = new Set<VehicleConditionCategoryKey>(VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS);
 
 function toDraft(record: WarehouseIntakeRecord): Omit<WarehouseIntakeRecord, "id"> {
   const { id: _id, ...draft } = record;
@@ -429,12 +433,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const categoryScores = draft.vehicleReport.conditionCategories;
   const conditionOverviewReady = Boolean(
     draft.vehicleId
-    && categoryScores.documentationRecords.score
-    && categoryScores.exteriorBody.score
-    && categoryScores.mechanicalFunction.score
-    && categoryScores.interiorCondition.score
+    && SCORED_CONDITION_CATEGORY_KEYS.every((key) => categoryScores[key].score)
   );
-  const listingEligibilityWarning = Object.values(categoryScores).some((item) => {
+  const listingEligibilityWarning = SCORED_CONDITION_CATEGORY_KEYS.some((key) => {
+    const item = categoryScores[key];
     const numericScore = Number(item.score || 0);
     return Number.isFinite(numericScore) && numericScore > 0 && numericScore < 2.5;
   })
@@ -1476,27 +1478,36 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   Object.keys(VEHICLE_CONDITION_CATEGORY_LABELS) as VehicleConditionCategoryKey[]
                 ).map((key) => {
                   const category = draft.vehicleReport.conditionCategories[key];
+                  const isNotesOnly = NOTES_ONLY_CONDITION_CATEGORY_KEYS.has(key);
                   return (
                     <div key={key} className="rounded-[24px] border border-black/6 bg-shell p-5">
                       <div className="grid gap-4 md:grid-cols-[220px_minmax(0,1fr)] md:items-start">
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-ink">{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</p>
                           <FieldNote>{VEHICLE_CONDITION_CATEGORY_HELPERS[key]}</FieldNote>
-                          <SelectInput
-                            value={category.score}
-                            onChange={(event) => updateConditionCategory(key, { score: event.target.value as VehicleConditionScore | "" })}
-                          >
-                            <option value="">Select score</option>
-                            {VEHICLE_CONDITION_SCORE_SELECT_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))}
-                          </SelectInput>
+                          {isNotesOnly ? (
+                            <FieldNote>Internal notes only. This section is no longer scored or shown to buyers.</FieldNote>
+                          ) : (
+                            <SelectInput
+                              value={category.score}
+                              onChange={(event) => updateConditionCategory(key, { score: event.target.value as VehicleConditionScore | "" })}
+                            >
+                              <option value="">Select score</option>
+                              {VEHICLE_CONDITION_SCORE_SELECT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </SelectInput>
+                          )}
                         </div>
                         <div className="space-y-2">
                           <FieldLabel>Optional notes</FieldLabel>
                           <TextAreaInput
                             className="min-h-[104px]"
-                            placeholder={`Capture ${VEHICLE_CONDITION_CATEGORY_LABELS[key].toLowerCase()} notes for buyers.`}
+                            placeholder={
+                              isNotesOnly
+                                ? `Capture internal ${VEHICLE_CONDITION_CATEGORY_LABELS[key].toLowerCase()} notes for admin reference.`
+                                : `Capture ${VEHICLE_CONDITION_CATEGORY_LABELS[key].toLowerCase()} notes for buyers.`
+                            }
                             value={category.notes}
                             onChange={(event) => updateConditionCategory(key, { notes: event.target.value })}
                           />
@@ -1826,7 +1837,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Summary</p>
-                  <p className="mt-2 text-sm text-ink/72">{conditionOverviewReady ? "Available for signed-in buyers" : "Visible after all four condition categories are scored"}</p>
+                  <p className="mt-2 text-sm text-ink/72">{conditionOverviewReady ? "Available for signed-in buyers" : "Visible after Exterior & Body and Interior Condition are scored"}</p>
                 </div>
               </div>
               {listingEligibilityWarning ? (
@@ -1920,10 +1931,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Documentation:</span> {draft.photos.length ? "In progress" : "Pending / to be supplied later"}</p>
               <p><span className="font-semibold text-ink">Service fees:</span> {draft.serviceItems.length ? `${draft.serviceItems.length} item${draft.serviceItems.length === 1 ? "" : "s"} · $${serviceFeeTotals.gstInclusiveTotal.toFixed(2)} incl GST` : "None yet"}</p>
               <p><span className="font-semibold text-ink">Ownership proof:</span> {draft.vehicleDetails.ownershipProof ? "Uploaded" : "Pending / to be supplied later"}</p>
-              <p><span className="font-semibold text-ink">Documentation &amp; Records:</span> {categoryScores.documentationRecords.score || "Pending"}</p>
               <p><span className="font-semibold text-ink">Exterior &amp; Body:</span> {categoryScores.exteriorBody.score || "Pending"}</p>
-              <p><span className="font-semibold text-ink">Mechanical &amp; Function:</span> {categoryScores.mechanicalFunction.score || "Pending"}</p>
               <p><span className="font-semibold text-ink">Interior Condition:</span> {categoryScores.interiorCondition.score || "Pending"}</p>
+              <p><span className="font-semibold text-ink">Documentation &amp; Records notes:</span> {categoryScores.documentationRecords.notes.trim() ? "Added" : "None"}</p>
+              <p><span className="font-semibold text-ink">Mechanical &amp; Function notes:</span> {categoryScores.mechanicalFunction.notes.trim() ? "Added" : "None"}</p>
               <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
               <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>

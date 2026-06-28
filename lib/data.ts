@@ -783,12 +783,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
       ? data.vehicleReportSummary as Record<string, unknown>
       : null;
   const serializedConditionCategories = serializeVehicleConditionCategories(vehicleReportSummaryInput?.conditionCategories);
-  const hasStructuredConditionOverview = Boolean(
-    serializedConditionCategories.documentationRecords.score
-    && serializedConditionCategories.exteriorBody.score
-    && serializedConditionCategories.mechanicalFunction.score
-    && serializedConditionCategories.interiorCondition.score
-  );
+  const hasStructuredConditionOverview = hasRequiredVehicleConditionScores(serializedConditionCategories);
 
   return {
     id,
@@ -1055,6 +1050,10 @@ function normalizeVehicleConditionScore(value: unknown): VehicleConditionScore |
   return typeof value === "string" && VEHICLE_CONDITION_SCORE_VALUES.has(value as VehicleConditionScore)
     ? value as VehicleConditionScore
     : "";
+}
+
+function hasRequiredVehicleConditionScores(categories: VehicleConditionCategoryAssessments) {
+  return Boolean(categories.exteriorBody.score && categories.interiorCondition.score);
 }
 
 function createEmptyVehicleConditionAssessment(): VehicleConditionAssessment {
@@ -5196,16 +5195,8 @@ function buildWarehouseIntakeWritePayload(
         ?? input.vehicleReport?.conditionCategories?.interiorCondition?.notes
         ?? ""
       ),
-      mechanicalCondition: sanitizeMultilineText(
-        input.vehicleReport?.mechanicalCondition
-        ?? input.vehicleReport?.conditionCategories?.mechanicalFunction?.notes
-        ?? ""
-      ),
-      serviceRecordCondition: sanitizeMultilineText(
-        input.vehicleReport?.serviceRecordCondition
-        ?? input.vehicleReport?.conditionCategories?.documentationRecords?.notes
-        ?? ""
-      ),
+      mechanicalCondition: sanitizeMultilineText(input.vehicleReport?.mechanicalCondition ?? ""),
+      serviceRecordCondition: sanitizeMultilineText(input.vehicleReport?.serviceRecordCondition ?? ""),
       keyCondition: sanitizeMultilineText(input.vehicleReport?.keyCondition ?? ""),
       damageConditionNotes: sanitizeMultilineText(input.vehicleReport?.damageConditionNotes ?? "")
     } satisfies WarehouseIntakeRecord["vehicleReport"],
@@ -5282,13 +5273,7 @@ async function resolveVehicleReportDamageImages(input: Pick<WarehouseIntakeRecor
 function hasVehicleReportSummary(
   input: Pick<WarehouseIntakeRecord, "vehicleReport">
 ) {
-  const categories = input.vehicleReport.conditionCategories;
-  return Boolean(
-    categories.documentationRecords.score
-    && categories.exteriorBody.score
-    && categories.mechanicalFunction.score
-    && categories.interiorCondition.score
-  );
+  return hasRequiredVehicleConditionScores(input.vehicleReport.conditionCategories);
 }
 
 async function syncVehicleReportMetadataToPublicListing(

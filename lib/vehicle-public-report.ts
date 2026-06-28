@@ -74,7 +74,7 @@ export function buildBuyerFacingAdditionalChecks(vehicle: Vehicle) {
     { label: "PPSR", value: summary?.ppsrStatus || "Not recorded" },
     { label: "WOVR", value: summary?.accidentDeclaration || "Not recorded" },
     { label: "Recall Check", value: "Not recorded" },
-    { label: "Service Book", value: summary?.serviceRecordCondition || vehicle.serviceHistory || "Not recorded" },
+    { label: "Service Book", value: vehicle.serviceHistory || "Not recorded" },
     { label: "Spare Key", value: summary?.keyCondition || vehicle.keyCount || "Not recorded" },
     { label: "Compliance Plate", value: summary?.ownershipVerificationStatus || "Not recorded" }
   ];

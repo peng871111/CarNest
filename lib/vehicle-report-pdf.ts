@@ -435,7 +435,7 @@ function getContainedImageRect(
 
 function buildAdditionalChecks(record: WarehouseIntakeRecord, supportsUnicode: boolean) {
   const serviceBook = sanitizeText(
-    record.vehicleReport.serviceRecordCondition || record.vehicleDetails.serviceHistory,
+    record.vehicleDetails.serviceHistory,
     "Not recorded",
     supportsUnicode
   );
@@ -461,7 +461,6 @@ function buildInspectorNotes(record: WarehouseIntakeRecord, supportsUnicode: boo
     record.vehicleReport.interiorCondition ? `Interior: ${record.vehicleReport.interiorCondition}` : "",
     record.vehicleReport.wheelCondition ? `Wheels: ${record.vehicleReport.wheelCondition}` : "",
     record.vehicleReport.panelRepairNotes ? `Panel repair notes: ${record.vehicleReport.panelRepairNotes}` : "",
-    record.vehicleReport.mechanicalCondition ? `Mechanical note: ${record.vehicleReport.mechanicalCondition}` : "",
     record.vehicleReport.damageConditionNotes ? `Damage note: ${record.vehicleReport.damageConditionNotes}` : "",
     record.intakeNotes ? `Inspection note: ${record.intakeNotes}` : ""
   ].filter(Boolean);
@@ -1046,7 +1045,7 @@ export async function generateVehicleReportPdf(
     supportsUnicode
   );
   const serviceHistoryText = sanitizeText(
-    [record.vehicleDetails.serviceHistory, record.vehicleReport.serviceRecordCondition].filter(Boolean).join(" | "),
+    record.vehicleDetails.serviceHistory,
     "No service history notes recorded.",
     supportsUnicode
   );

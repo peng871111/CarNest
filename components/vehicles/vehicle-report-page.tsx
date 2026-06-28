@@ -64,7 +64,7 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
   const generatedAt = vehicle.vehicleReportGeneratedAt
     ? new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(vehicle.vehicleReportGeneratedAt))
     : "";
-  const serviceHistoryText = [vehicle.serviceHistory, summary?.serviceRecordCondition].filter(Boolean).join(" | ") || "No service history notes recorded.";
+  const serviceHistoryText = vehicle.serviceHistory || "No service history notes recorded.";
 
   const vehicleInfo = [
     { label: "Year", value: vehicle.year },

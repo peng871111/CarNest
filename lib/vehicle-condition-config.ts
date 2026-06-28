@@ -18,6 +18,16 @@ export const VEHICLE_CONDITION_SCORE_SELECT_OPTIONS: Array<{ value: VehicleCondi
   { value: "2.5", label: "2.5 – Minimum Standard" }
 ];
 
+export const VEHICLE_CONDITION_SCORED_CATEGORY_KEYS = [
+  "exteriorBody",
+  "interiorCondition"
+] as const satisfies readonly VehicleConditionCategoryKey[];
+
+export const VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS = [
+  "documentationRecords",
+  "mechanicalFunction"
+] as const satisfies readonly VehicleConditionCategoryKey[];
+
 export const VEHICLE_CONDITION_CATEGORY_LABELS: Record<VehicleConditionCategoryKey, string> = {
   documentationRecords: "Documentation & Records",
   exteriorBody: "Exterior & Body",
