@@ -2,6 +2,12 @@
 
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import {
+  BUYER_BODY_MAP_OUTLINE_PATHS,
+  BUYER_BODY_MAP_PANEL_GEOMETRY,
+  BUYER_BODY_MAP_VIEWBOX,
+  BUYER_BODY_MAP_WHEELS
+} from "@/lib/buyer-body-map-artwork";
 import { VEHICLE_BODY_PANEL_LABELS, VEHICLE_BODY_PANEL_ORDER } from "@/lib/vehicle-condition-config";
 import { type VehicleBodyPanelCondition, type VehicleBodyPanelKey, type VehicleBodyPanelMap, type WarehouseIntakeRecord } from "@/types";
 
@@ -62,30 +68,6 @@ const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
   [/“|”/g, "\""],
   [/‘|’/g, "'"]
 ];
-
-const PANEL_GEOMETRY: Array<{ key: VehicleBodyPanelKey; labelX: number; labelY: number; path: string }> = [
-  { key: "frontBumper", labelX: 160, labelY: 86, path: "M108 54 Q160 18 212 54 L196 88 Q160 70 124 88 Z" },
-  { key: "bonnet", labelX: 160, labelY: 146, path: "M118 94 Q160 62 202 94 L194 196 Q160 212 126 196 Z" },
-  { key: "leftFrontGuard", labelX: 78, labelY: 144, path: "M78 98 Q94 94 110 104 L118 194 Q102 206 84 200 L62 134 Q62 110 78 98 Z" },
-  { key: "rightFrontGuard", labelX: 242, labelY: 144, path: "M242 98 Q226 94 210 104 L202 194 Q218 206 236 200 L258 134 Q258 110 242 98 Z" },
-  { key: "roof", labelX: 160, labelY: 292, path: "M122 214 Q160 186 198 214 L190 364 Q160 386 130 364 Z" },
-  { key: "leftFrontDoor", labelX: 86, labelY: 260, path: "M82 206 Q104 206 122 218 L130 306 Q108 314 88 306 L68 262 Q66 226 82 206 Z" },
-  { key: "rightFrontDoor", labelX: 234, labelY: 260, path: "M238 206 Q216 206 198 218 L190 306 Q212 314 232 306 L252 262 Q254 226 238 206 Z" },
-  { key: "leftRearDoor", labelX: 86, labelY: 352, path: "M88 316 Q110 316 128 324 L134 392 Q114 404 94 398 L72 360 Q72 330 88 316 Z" },
-  { key: "rightRearDoor", labelX: 234, labelY: 352, path: "M232 316 Q210 316 192 324 L186 392 Q206 404 226 398 L248 360 Q248 330 232 316 Z" },
-  { key: "leftRearQuarter", labelX: 90, labelY: 446, path: "M94 406 Q116 410 132 424 L138 486 Q120 500 98 498 L76 462 Q72 426 94 406 Z" },
-  { key: "rightRearQuarter", labelX: 230, labelY: 446, path: "M226 406 Q204 410 188 424 L182 486 Q200 500 222 498 L244 462 Q248 426 226 406 Z" },
-  { key: "bootLid", labelX: 160, labelY: 458, path: "M126 390 Q160 372 194 390 L200 488 Q160 516 120 488 Z" },
-  { key: "rearBumper", labelX: 160, labelY: 556, path: "M124 500 Q160 530 196 500 L214 554 Q160 586 106 554 Z" }
-];
-
-const BODY_OUTLINE_PATHS = {
-  shell: "M116 46 Q160 12 204 46 L252 114 Q266 136 264 174 L254 250 L252 356 L246 438 Q244 470 224 494 L198 524 Q186 540 184 564 L136 564 Q134 540 122 524 L96 494 Q76 470 74 438 L68 356 L66 250 L56 174 Q54 136 68 114 Z",
-  frontArc: "M120 90 Q160 62 200 90",
-  roofArc: "M126 206 Q160 186 194 206",
-  rearArc: "M132 392 Q160 374 188 392",
-  bumperArc: "M124 500 Q160 526 196 500"
-} as const;
 
 const DAMAGE_MARKER_MAP: Record<VehicleBodyPanelCondition, { code: string | null; fill: [number, number, number]; stroke: [number, number, number] }> = {
   original: { code: null, fill: [0.99, 0.99, 0.985], stroke: [0.84, 0.79, 0.72] },
@@ -712,9 +694,9 @@ export async function generateVehicleReportPdf(
       height: 262
     };
     const legendX = x + 280;
-    const mapScale = Math.min(mapFrame.width / 320, mapFrame.height / 610);
-    const mapOriginX = mapFrame.x + (mapFrame.width - 320 * mapScale) / 2;
-    const mapOriginY = mapFrame.y + (mapFrame.height - 610 * mapScale) / 2;
+    const mapScale = Math.min(mapFrame.width / BUYER_BODY_MAP_VIEWBOX.width, mapFrame.height / BUYER_BODY_MAP_VIEWBOX.height);
+    const mapOriginX = mapFrame.x + (mapFrame.width - BUYER_BODY_MAP_VIEWBOX.width * mapScale) / 2;
+    const mapOriginY = mapFrame.y + (mapFrame.height - BUYER_BODY_MAP_VIEWBOX.height * mapScale) / 2;
     const damagePanels = getDamagePanels(record.vehicleReport.bodyMap);
 
     page.drawRectangle({
@@ -727,7 +709,7 @@ export async function generateVehicleReportPdf(
       borderWidth: 1
     });
 
-    page.drawSvgPath(BODY_OUTLINE_PATHS.shell, {
+    page.drawSvgPath(BUYER_BODY_MAP_OUTLINE_PATHS.shell, {
       x: mapOriginX,
       y: mapOriginY,
       scale: mapScale,
@@ -736,7 +718,11 @@ export async function generateVehicleReportPdf(
       borderWidth: 2
     });
 
-    [BODY_OUTLINE_PATHS.frontArc, BODY_OUTLINE_PATHS.roofArc, BODY_OUTLINE_PATHS.rearArc, BODY_OUTLINE_PATHS.bumperArc].forEach((path) => {
+    [
+      BUYER_BODY_MAP_OUTLINE_PATHS.bonnetBreak,
+      BUYER_BODY_MAP_OUTLINE_PATHS.roofBreak,
+      BUYER_BODY_MAP_OUTLINE_PATHS.sillBreak
+    ].forEach((path) => {
       page.drawSvgPath(path, {
         x: mapOriginX,
         y: mapOriginY,
@@ -748,22 +734,38 @@ export async function generateVehicleReportPdf(
     });
 
     [
-      { x: 44, y: 132, width: 22, height: 84 },
-      { x: 254, y: 132, width: 22, height: 84 },
-      { x: 42, y: 356, width: 22, height: 94 },
-      { x: 256, y: 356, width: 22, height: 94 }
-    ].forEach((wheel) => {
-      page.drawRectangle({
-        x: mapOriginX + wheel.x * mapScale,
-        y: mapOriginY + wheel.y * mapScale,
-        width: wheel.width * mapScale,
-        height: wheel.height * mapScale,
-        color: rgb(0.18, 0.18, 0.18),
-        opacity: 0.14
+      BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft,
+      BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight,
+      BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass
+    ].forEach((path) => {
+      page.drawSvgPath(path, {
+        x: mapOriginX,
+        y: mapOriginY,
+        scale: mapScale,
+        color: rgb(0.997, 0.993, 0.985),
+        borderColor: rgb(0.83, 0.79, 0.73),
+        borderWidth: 1.2
       });
     });
 
-    PANEL_GEOMETRY.forEach((panel) => {
+    BUYER_BODY_MAP_WHEELS.forEach((wheel) => {
+      page.drawCircle({
+        x: mapOriginX + wheel.cx * mapScale,
+        y: mapOriginY + wheel.cy * mapScale,
+        size: wheel.outerR * mapScale,
+        borderColor: rgb(0.74, 0.69, 0.62),
+        borderWidth: 1.8
+      });
+      page.drawCircle({
+        x: mapOriginX + wheel.cx * mapScale,
+        y: mapOriginY + wheel.cy * mapScale,
+        size: wheel.innerR * mapScale,
+        borderColor: rgb(0.81, 0.76, 0.69),
+        borderWidth: 1.3
+      });
+    });
+
+    BUYER_BODY_MAP_PANEL_GEOMETRY.forEach((panel) => {
       const condition = record.vehicleReport.bodyMap?.[panel.key] ?? "original";
       const style = DAMAGE_MARKER_MAP[condition];
       page.drawSvgPath(panel.path, {
@@ -776,8 +778,8 @@ export async function generateVehicleReportPdf(
       });
 
       if (style.code) {
-        const markerX = mapOriginX + panel.labelX * mapScale;
-        const markerY = mapOriginY + panel.labelY * mapScale;
+        const markerX = mapOriginX + panel.markerX * mapScale;
+        const markerY = mapOriginY + panel.markerY * mapScale;
         page.drawRectangle({
           x: markerX - 14,
           y: markerY - 8,
