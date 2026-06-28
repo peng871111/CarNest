@@ -4,8 +4,21 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { AuthGateModal } from "@/components/auth/auth-gate-modal";
 import { useAuth } from "@/lib/auth";
-import { VEHICLE_CONDITION_CATEGORY_LABELS } from "@/lib/vehicle-condition-config";
+import {
+  formatBuyerFacingConditionScore,
+  getBuyerFacingConditionScores,
+  hasBuyerFacingConditionSummary
+} from "@/lib/vehicle-public-report";
 import type { VehiclePublicReportSummary } from "@/types";
+
+function ScoreLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-[#E5D9CA] bg-white/80 px-3 py-2.5">
+      <span className="text-sm font-medium text-[#5E5245]">{label}</span>
+      <span className="text-sm font-semibold text-[#1F1F1D]">{value}</span>
+    </div>
+  );
+}
 
 export function VehicleReportAccess({
   vehicleId,
@@ -25,15 +38,8 @@ export function VehicleReportAccess({
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [opening, setOpening] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const categoryEntries = reportSummary?.conditionCategories
-    ? [
-        ["documentationRecords", reportSummary.conditionCategories.documentationRecords.score],
-        ["exteriorBody", reportSummary.conditionCategories.exteriorBody.score],
-        ["mechanicalFunction", reportSummary.conditionCategories.mechanicalFunction.score],
-        ["interiorCondition", reportSummary.conditionCategories.interiorCondition.score]
-      ] as const
-    : [];
-  const hasValidReport = Boolean(reportAvailable && categoryEntries.length && categoryEntries.every(([, score]) => score?.trim()));
+  const scores = getBuyerFacingConditionScores(reportSummary);
+  const hasValidReport = hasBuyerFacingConditionSummary({ reportAvailable, vehicleReportSummary: reportSummary });
 
   async function handleOpenReport() {
     if (!hasValidReport) return;
@@ -58,63 +64,51 @@ export function VehicleReportAccess({
     return null;
   }
 
+  const updatedLabel = generatedAt
+    ? `Updated ${new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}`
+    : "";
+
   return (
     <>
       {compact ? (
-        <div className="mt-6 border-t border-black/6 pt-6">
+        <div className="mt-6 rounded-[28px] border border-[#DCCDBA]/50 bg-[linear-gradient(180deg,#fffdf9_0%,#f7f1e7_100%)] p-5">
           <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-ink/45">CarNest Verified Condition</p>
-              <div className="mt-3 space-y-2">
-                {categoryEntries.map(([key, score]) => (
-                  <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
-                    <p className="text-sm font-medium text-ink/76">{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</p>
-                    <p className="text-sm font-semibold text-ink">{score} / 5.0</p>
-                  </div>
-                ))}
+              <p className="text-xs uppercase tracking-[0.22em] text-[#B8893F]">CarNest Vehicle Condition Summary</p>
+              <div className="mt-3 space-y-2.5">
+                <ScoreLine label="Exterior Condition" value={formatBuyerFacingConditionScore(scores.exterior)} />
+                <ScoreLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} />
               </div>
-              {generatedAt ? (
-                <p className="mt-2 text-xs text-ink/50">
-                  Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
-                </p>
-              ) : null}
+              {updatedLabel ? <p className="mt-3 text-xs text-[#77695A]">{updatedLabel}</p> : null}
             </div>
             <div className="sm:pt-0.5 sm:text-right">
               <button
                 type="button"
                 onClick={() => void handleOpenReport()}
                 disabled={loading || opening}
-                className="text-sm font-semibold text-ink underline decoration-black/20 underline-offset-4 transition hover:text-bronze hover:decoration-bronze disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full bg-[#1B1B1A] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#2A2825] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary →"}
+                {loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary"}
               </button>
             </div>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
         </div>
       ) : (
-        <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.25em] text-bronze">CarNest Condition Summary</p>
-          <h2 className="mt-2 text-2xl font-semibold text-ink">View verified vehicle condition summary</h2>
-          <div className="mt-4 space-y-2 text-sm text-ink/70">
-            {categoryEntries.map(([key, score]) => (
-              <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-                <span>{VEHICLE_CONDITION_CATEGORY_LABELS[key]}</span>
-                <span className="font-semibold text-ink">{score} / 5.0</span>
-              </div>
-            ))}
-            {generatedAt ? (
-              <span className="rounded-full border border-black/8 bg-shell px-3 py-1.5 font-medium text-ink/72">
-                Updated {new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(generatedAt))}
-              </span>
-            ) : null}
+        <div className="rounded-[32px] border border-[#DCCDBA]/50 bg-[linear-gradient(180deg,#fffdf9_0%,#f7f1e7_100%)] p-6 shadow-panel">
+          <p className="text-xs uppercase tracking-[0.24em] text-[#B8893F]">CarNest Vehicle Condition Summary</p>
+          <h2 className="mt-2 text-2xl font-semibold text-[#1F1F1D]">View the buyer-facing condition report</h2>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <ScoreLine label="Exterior Condition" value={formatBuyerFacingConditionScore(scores.exterior)} />
+            <ScoreLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} />
           </div>
+          {updatedLabel ? <p className="mt-4 text-sm text-[#77695A]">{updatedLabel}</p> : null}
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => void handleOpenReport()}
               disabled={loading || opening || !reportAvailable}
-              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-full bg-[#1B1B1A] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#2A2825] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? "Checking account..." : opening ? "Opening summary..." : "Open Condition Summary"}
             </button>

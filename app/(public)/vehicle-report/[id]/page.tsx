@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { VehicleReportPage } from "@/components/vehicles/vehicle-report-page";
 import { getVehicleById } from "@/lib/data";
+import { hasBuyerFacingConditionSummary } from "@/lib/vehicle-public-report";
 
 export const dynamic = "force-dynamic";
 
@@ -22,12 +23,7 @@ export default async function VehicleReportRoute({ params }: { params: Promise<{
     );
   }
 
-  const hasStructuredConditionOverview = Boolean(
-    vehicle?.vehicleReportSummary?.conditionCategories?.documentationRecords?.score
-    && vehicle?.vehicleReportSummary?.conditionCategories?.exteriorBody?.score
-    && vehicle?.vehicleReportSummary?.conditionCategories?.mechanicalFunction?.score
-    && vehicle?.vehicleReportSummary?.conditionCategories?.interiorCondition?.score
-  );
+  const hasStructuredConditionOverview = hasBuyerFacingConditionSummary(vehicle);
 
   if (
     !vehicle
