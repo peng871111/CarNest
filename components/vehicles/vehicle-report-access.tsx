@@ -11,11 +11,22 @@ import {
 } from "@/lib/vehicle-public-report";
 import type { VehiclePublicReportSummary } from "@/types";
 
-function ScoreLine({ label, value }: { label: string; value: string }) {
+function SummaryLine({
+  label,
+  value,
+  compact
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+}) {
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-2xl border border-[#E5D9CA] bg-white/80 px-3 py-2.5">
-      <span className="text-sm font-medium text-[#5E5245]">{label}</span>
-      <span className="text-sm font-semibold text-[#1F1F1D]">{value}</span>
+    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-4">
+      <div className="flex items-end gap-3 overflow-hidden">
+        <span className={compact ? "shrink-0 text-sm font-medium text-[#4F453A]" : "shrink-0 text-base font-medium text-[#4F453A]"}>{label}</span>
+        <span className="mb-1 w-full border-b border-dotted border-[#D7C9B6]" />
+      </div>
+      <span className={compact ? "text-sm font-semibold text-[#1F1F1D]" : "text-base font-semibold text-[#1F1F1D]"}>{value}</span>
     </div>
   );
 }
@@ -71,46 +82,49 @@ export function VehicleReportAccess({
   return (
     <>
       {compact ? (
-        <div className="mt-6 rounded-[28px] border border-[#DCCDBA]/50 bg-[linear-gradient(180deg,#fffdf9_0%,#f7f1e7_100%)] p-5">
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-6">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-[#B8893F]">CarNest Vehicle Condition Summary</p>
-              <div className="mt-3 space-y-2.5">
-                <ScoreLine label="Exterior Condition" value={formatBuyerFacingConditionScore(scores.exterior)} />
-                <ScoreLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} />
-              </div>
-              {updatedLabel ? <p className="mt-3 text-xs text-[#77695A]">{updatedLabel}</p> : null}
+        <div className="mt-6 rounded-[28px] border border-[#DDD1C2]/65 bg-[linear-gradient(180deg,#fffdfa_0%,#f6f0e7_100%)] p-5 shadow-[0_18px_40px_rgba(31,24,18,0.06)]">
+          <div className="max-w-xl">
+            <div className="border-t border-[#E4D9CA]" />
+            <p className="pt-4 text-[11px] uppercase tracking-[0.28em] text-[#B8893F]">CarNest Verified Condition</p>
+            <div className="mt-5 space-y-4">
+              <SummaryLine label="Exterior & Body" value={formatBuyerFacingConditionScore(scores.exterior)} compact />
+              <SummaryLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} compact />
             </div>
-            <div className="sm:pt-0.5 sm:text-right">
+            {updatedLabel ? <p className="mt-5 text-xs text-[#77695A]">{updatedLabel}</p> : null}
+            <div className="mt-5 border-t border-[#E4D9CA] pt-5">
               <button
                 type="button"
                 onClick={() => void handleOpenReport()}
                 disabled={loading || opening}
-                className="rounded-full bg-[#1B1B1A] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#2A2825] disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-between rounded-[18px] border border-[#D8D8D8] bg-white px-4 py-3 text-sm font-medium text-[#1B1B1A] transition hover:border-[#C8C8C8] hover:bg-[#FCFCFC] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary"}
+                <span>{loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary"}</span>
+                <span aria-hidden="true" className="text-base text-[#55514C]">→</span>
               </button>
             </div>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
         </div>
       ) : (
-        <div className="rounded-[32px] border border-[#DCCDBA]/50 bg-[linear-gradient(180deg,#fffdf9_0%,#f7f1e7_100%)] p-6 shadow-panel">
-          <p className="text-xs uppercase tracking-[0.24em] text-[#B8893F]">CarNest Vehicle Condition Summary</p>
-          <h2 className="mt-2 text-2xl font-semibold text-[#1F1F1D]">View the buyer-facing condition report</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <ScoreLine label="Exterior Condition" value={formatBuyerFacingConditionScore(scores.exterior)} />
-            <ScoreLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} />
+        <div className="rounded-[32px] border border-[#DDD1C2]/65 bg-[linear-gradient(180deg,#fffdfa_0%,#f6f0e7_100%)] p-7 shadow-panel">
+          <div className="max-w-2xl">
+            <div className="border-t border-[#E4D9CA]" />
+            <p className="pt-5 text-xs uppercase tracking-[0.3em] text-[#B8893F]">CarNest Verified Condition</p>
+            <div className="mt-6 space-y-4">
+              <SummaryLine label="Exterior & Body" value={formatBuyerFacingConditionScore(scores.exterior)} />
+              <SummaryLine label="Interior Condition" value={formatBuyerFacingConditionScore(scores.interior)} />
+            </div>
           </div>
-          {updatedLabel ? <p className="mt-4 text-sm text-[#77695A]">{updatedLabel}</p> : null}
-          <div className="mt-5 flex flex-wrap items-center gap-3">
+          {updatedLabel ? <p className="mt-6 text-sm text-[#77695A]">{updatedLabel}</p> : null}
+          <div className="mt-6 border-t border-[#E4D9CA] pt-6">
             <button
               type="button"
               onClick={() => void handleOpenReport()}
               disabled={loading || opening || !reportAvailable}
-              className="rounded-full bg-[#1B1B1A] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#2A2825] disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-between rounded-[20px] border border-[#D8D8D8] bg-white px-5 py-4 text-sm font-medium text-[#1B1B1A] transition hover:border-[#C8C8C8] hover:bg-[#FCFCFC] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Checking account..." : opening ? "Opening summary..." : "Open Condition Summary"}
+              <span>{loading ? "Checking account..." : opening ? "Opening summary..." : "View Condition Summary"}</span>
+              <span aria-hidden="true" className="text-base text-[#55514C]">→</span>
             </button>
           </div>
           {errorMessage ? <p className="mt-3 text-sm text-amber-700">{errorMessage}</p> : null}
