@@ -209,18 +209,27 @@ async function loadBodyMapReferencePngBytes() {
         }
 
         const svgText = await response.text();
-        const match = svgText.match(/href="data:image\/png;base64,([^"]+)"/i);
-        if (!match?.[1]) {
-          return null;
-        }
+        const objectUrl = URL.createObjectURL(new Blob([svgText], { type: "image/svg+xml;charset=utf-8" }));
 
-        const base64 = match[1];
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) {
-          bytes[index] = binary.charCodeAt(index);
+        try {
+          const image = await loadImageFromObjectUrl(objectUrl);
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, image.naturalWidth || BUYER_BODY_MAP_VIEWBOX.width);
+          canvas.height = Math.max(1, image.naturalHeight || BUYER_BODY_MAP_VIEWBOX.height);
+
+          const context = canvas.getContext("2d");
+          if (!context) {
+            throw new Error("Unable to initialize body map canvas.");
+          }
+
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          const blob = await canvasToBlob(canvas, "image/png", 1);
+          return new Uint8Array(await blob.arrayBuffer());
+        } finally {
+          URL.revokeObjectURL(objectUrl);
         }
-        return bytes;
       })
       .catch(() => null);
   }
