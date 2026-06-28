@@ -2,10 +2,9 @@
 
 import { useMemo, useState } from "react";
 import {
-  BUYER_BODY_MAP_OUTLINE_PATHS,
-  BUYER_BODY_MAP_PANEL_GEOMETRY,
+  BUYER_BODY_MAP_PANEL_AREAS,
+  BUYER_BODY_MAP_REFERENCE_SVG_PATH,
   BUYER_BODY_MAP_VIEWBOX,
-  BUYER_BODY_MAP_WHEELS
 } from "@/lib/buyer-body-map-artwork";
 import { VEHICLE_BODY_PANEL_CONDITION_LABELS, VEHICLE_BODY_PANEL_CONDITION_OPTIONS, VEHICLE_BODY_PANEL_LABELS } from "@/lib/vehicle-condition-config";
 import type { VehicleBodyPanelCondition, VehicleBodyPanelKey, VehicleBodyPanelMap } from "@/types";
@@ -40,37 +39,6 @@ function Legend() {
   );
 }
 
-function VehicleOutline() {
-  return (
-    <>
-      <path
-        d={BUYER_BODY_MAP_OUTLINE_PATHS.shell}
-        fill="#FBF7F1"
-        stroke="#C9BAA7"
-        strokeWidth="3"
-      />
-      {[
-        BUYER_BODY_MAP_OUTLINE_PATHS.bonnetBreak,
-        BUYER_BODY_MAP_OUTLINE_PATHS.roofBreak,
-        BUYER_BODY_MAP_OUTLINE_PATHS.sillBreak
-      ].map((path) => (
-        <path key={path} d={path} fill="none" stroke="#D8CCBD" strokeWidth="2" />
-      ))}
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.7" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.7" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.8" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampLeft} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.6" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampRight} fill="#FFFDF9" stroke="#D8CCBD" strokeWidth="1.6" />
-      {BUYER_BODY_MAP_WHEELS.map((wheel) => (
-        <g key={`${wheel.cx}-${wheel.cy}`}>
-          <circle cx={wheel.cx} cy={wheel.cy} r={wheel.outerR} fill="none" stroke="#BDAE9B" strokeWidth="2.4" />
-          <circle cx={wheel.cx} cy={wheel.cy} r={wheel.innerR} fill="none" stroke="#CFC2B1" strokeWidth="1.8" />
-        </g>
-      ))}
-    </>
-  );
-}
-
 export function VehicleConditionBodyMap({
   bodyMap,
   editable = false,
@@ -99,8 +67,15 @@ export function VehicleConditionBodyMap({
       <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="rounded-[28px] border border-black/6 bg-shell/80 p-4 sm:p-6">
           <svg viewBox={`0 0 ${BUYER_BODY_MAP_VIEWBOX.width} ${BUYER_BODY_MAP_VIEWBOX.height}`} className="mx-auto block w-full max-w-[22rem] overflow-visible">
-            <VehicleOutline />
-            {BUYER_BODY_MAP_PANEL_GEOMETRY.map((panel) => {
+            <image
+              href={BUYER_BODY_MAP_REFERENCE_SVG_PATH}
+              x="0"
+              y="0"
+              width={BUYER_BODY_MAP_VIEWBOX.width}
+              height={BUYER_BODY_MAP_VIEWBOX.height}
+              preserveAspectRatio="xMidYMid meet"
+            />
+            {BUYER_BODY_MAP_PANEL_AREAS.map((panel) => {
               const condition = bodyMap[panel.key] ?? "original";
               const isSelected = editable && validSelectedPanel === panel.key;
               const style = PANEL_STYLES[condition];
@@ -110,13 +85,17 @@ export function VehicleConditionBodyMap({
                   onClick={() => editable && setSelectedPanel(panel.key)}
                   className={editable ? "cursor-pointer" : ""}
                 >
-                  <path
-                    d={panel.path}
-                    fill={style.fill}
+                  <rect
+                    x={panel.x}
+                    y={panel.y}
+                    width={panel.width}
+                    height={panel.height}
+                    rx={panel.rx}
+                    fill={condition === "original" ? "transparent" : style.fill}
+                    fillOpacity={condition === "original" ? 0 : 0.18}
                     stroke={isSelected ? "#1F1F1D" : style.stroke}
-                    strokeWidth={isSelected ? 3.5 : 2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
+                    strokeOpacity={condition === "original" && !isSelected ? 0 : 0.92}
+                    strokeWidth={isSelected ? 3 : 1.6}
                   />
                 </g>
               );

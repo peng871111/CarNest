@@ -3,10 +3,9 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import {
-  BUYER_BODY_MAP_OUTLINE_PATHS,
-  BUYER_BODY_MAP_PANEL_GEOMETRY,
+  BUYER_BODY_MAP_PANEL_AREAS,
+  BUYER_BODY_MAP_REFERENCE_SVG_PATH,
   BUYER_BODY_MAP_VIEWBOX,
-  BUYER_BODY_MAP_WHEELS
 } from "@/lib/buyer-body-map-artwork";
 import { VEHICLE_BODY_PANEL_LABELS, VEHICLE_BODY_PANEL_ORDER } from "@/lib/vehicle-condition-config";
 import { type VehicleBodyPanelCondition, type VehicleBodyPanelKey, type VehicleBodyPanelMap, type WarehouseIntakeRecord } from "@/types";
@@ -82,6 +81,7 @@ type EmbeddedPdfImage =
   | Awaited<ReturnType<PDFDocument["embedPng"]>>;
 
 let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
+let bodyMapReferencePngBytesPromise: Promise<Uint8Array | null> | null = null;
 
 function loadImageFromObjectUrl(objectUrl: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
@@ -194,6 +194,38 @@ async function optimizePdfImageBytes(bytes: Uint8Array) {
       URL.revokeObjectURL(objectUrl);
     }
   }
+}
+
+async function loadBodyMapReferencePngBytes() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (!bodyMapReferencePngBytesPromise) {
+    bodyMapReferencePngBytesPromise = fetch(BUYER_BODY_MAP_REFERENCE_SVG_PATH)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load body map reference SVG.");
+        }
+
+        const svgText = await response.text();
+        const match = svgText.match(/href="data:image\/png;base64,([^"]+)"/i);
+        if (!match?.[1]) {
+          return null;
+        }
+
+        const base64 = match[1];
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+      })
+      .catch(() => null);
+  }
+
+  return bodyMapReferencePngBytesPromise;
 }
 
 function normalizePdfText(value: string, supportsUnicode: boolean) {
@@ -673,7 +705,7 @@ export async function generateVehicleReportPdf(
     cursorY = y - 18;
   };
 
-  const drawBodyMapSection = () => {
+  const drawBodyMapSection = async () => {
     const noteText = sanitizeText(
       record.vehicleReport.damageConditionNotes || record.vehicleReport.panelRepairNotes,
       "No body damage notes recorded.",
@@ -709,75 +741,20 @@ export async function generateVehicleReportPdf(
       borderWidth: 1
     });
 
-    page.drawSvgPath(BUYER_BODY_MAP_OUTLINE_PATHS.shell, {
-      x: mapOriginX,
-      y: mapOriginY,
-      scale: mapScale,
-      color: rgb(0.985, 0.98, 0.972),
-      borderColor: rgb(0.76, 0.72, 0.67),
-      borderWidth: 2
-    });
-
-    [
-      BUYER_BODY_MAP_OUTLINE_PATHS.bonnetBreak,
-      BUYER_BODY_MAP_OUTLINE_PATHS.roofBreak,
-      BUYER_BODY_MAP_OUTLINE_PATHS.sillBreak
-    ].forEach((path) => {
-      page.drawSvgPath(path, {
+    const bodyMapReferencePngBytes = await loadBodyMapReferencePngBytes();
+    if (bodyMapReferencePngBytes) {
+      const embeddedBodyMap = await pdfDoc.embedPng(bodyMapReferencePngBytes);
+      page.drawImage(embeddedBodyMap, {
         x: mapOriginX,
         y: mapOriginY,
-        scale: mapScale,
-        color: undefined,
-        borderColor: rgb(0.83, 0.79, 0.73),
-        borderWidth: 1.2
+        width: BUYER_BODY_MAP_VIEWBOX.width * mapScale,
+        height: BUYER_BODY_MAP_VIEWBOX.height * mapScale
       });
-    });
+    }
 
-    [
-      BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft,
-      BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight,
-      BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass,
-      BUYER_BODY_MAP_OUTLINE_PATHS.rearLampLeft,
-      BUYER_BODY_MAP_OUTLINE_PATHS.rearLampRight
-    ].forEach((path) => {
-      page.drawSvgPath(path, {
-        x: mapOriginX,
-        y: mapOriginY,
-        scale: mapScale,
-        color: rgb(0.997, 0.993, 0.985),
-        borderColor: rgb(0.83, 0.79, 0.73),
-        borderWidth: 1.2
-      });
-    });
-
-    BUYER_BODY_MAP_WHEELS.forEach((wheel) => {
-      page.drawCircle({
-        x: mapOriginX + wheel.cx * mapScale,
-        y: mapOriginY + wheel.cy * mapScale,
-        size: wheel.outerR * mapScale,
-        borderColor: rgb(0.74, 0.69, 0.62),
-        borderWidth: 1.8
-      });
-      page.drawCircle({
-        x: mapOriginX + wheel.cx * mapScale,
-        y: mapOriginY + wheel.cy * mapScale,
-        size: wheel.innerR * mapScale,
-        borderColor: rgb(0.81, 0.76, 0.69),
-        borderWidth: 1.3
-      });
-    });
-
-    BUYER_BODY_MAP_PANEL_GEOMETRY.forEach((panel) => {
+    BUYER_BODY_MAP_PANEL_AREAS.forEach((panel) => {
       const condition = record.vehicleReport.bodyMap?.[panel.key] ?? "original";
       const style = DAMAGE_MARKER_MAP[condition];
-      page.drawSvgPath(panel.path, {
-        x: mapOriginX,
-        y: mapOriginY,
-        scale: mapScale,
-        color: rgb(style.fill[0], style.fill[1], style.fill[2]),
-        borderColor: rgb(style.stroke[0], style.stroke[1], style.stroke[2]),
-        borderWidth: condition === "original" ? 1 : 1.6
-      });
 
       if (style.code) {
         const markerX = mapOriginX + panel.markerX * mapScale;
@@ -1067,7 +1044,7 @@ export async function generateVehicleReportPdf(
 
   drawHeroSection();
   drawInfoGridSection("Vehicle Information", vehicleFields);
-  drawBodyMapSection();
+  await drawBodyMapSection();
   drawInfoGridSection("Additional Checks", buildAdditionalChecks(record, supportsUnicode));
   drawTextSection("Features / Equipment", featuresText);
   drawTextSection("Service History", serviceHistoryText);

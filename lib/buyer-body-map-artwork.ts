@@ -1,113 +1,35 @@
 import type { VehicleBodyPanelKey } from "@/types";
 
+export const BUYER_BODY_MAP_REFERENCE_SVG_PATH = "/body-maps/carnest-reference-embedded-body-map.svg";
+
 export const BUYER_BODY_MAP_VIEWBOX = {
-  width: 320,
-  height: 610
+  width: 515,
+  height: 675
 } as const;
 
-export type BuyerBodyMapPanelGeometry = {
+export type BuyerBodyMapPanelArea = {
   key: VehicleBodyPanelKey;
   markerX: number;
   markerY: number;
-  path: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rx: number;
 };
 
-export const BUYER_BODY_MAP_PANEL_GEOMETRY: BuyerBodyMapPanelGeometry[] = [
-  {
-    key: "frontBumper",
-    markerX: 160,
-    markerY: 54,
-    path: "M108 39 C140 29 180 29 212 39 C217 40 219 43 219 47 L219 58 C219 62 216 64 211 63 C179 56 141 56 109 63 C104 64 101 62 101 58 L101 47 C101 43 103 40 108 39 Z"
-  },
-  {
-    key: "bonnet",
-    markerX: 160,
-    markerY: 196,
-    path: "M111 104 C123 95 136 90 160 88 C184 90 197 95 209 104 L218 154 C217 188 212 222 199 250 L189 283 L131 283 L121 250 C108 222 103 188 102 154 Z"
-  },
-  {
-    key: "leftFrontGuard",
-    markerX: 82,
-    markerY: 186,
-    path: "M82 112 C69 118 60 127 55 147 L54 235 C55 248 60 253 71 255 L93 255 L108 206 L104 134 C101 120 95 114 82 112 Z"
-  },
-  {
-    key: "rightFrontGuard",
-    markerX: 238,
-    markerY: 186,
-    path: "M238 112 C251 118 260 127 265 147 L266 235 C265 248 260 253 249 255 L227 255 L212 206 L216 134 C219 120 225 114 238 112 Z"
-  },
-  {
-    key: "roof",
-    markerX: 160,
-    markerY: 354,
-    path: "M128 299 C139 290 149 286 160 284 C171 286 181 290 192 299 L196 439 C184 450 173 456 160 458 C147 456 136 450 124 439 Z"
-  },
-  {
-    key: "leftFrontDoor",
-    markerX: 101,
-    markerY: 323,
-    path: "M74 252 C78 248 83 246 88 246 L128 246 L128 389 L85 389 C76 388 72 384 71 376 L70 268 C70 260 71 255 74 252 Z"
-  },
-  {
-    key: "rightFrontDoor",
-    markerX: 219,
-    markerY: 323,
-    path: "M246 252 C242 248 237 246 232 246 L192 246 L192 389 L235 389 C244 388 248 384 249 376 L250 268 C250 260 249 255 246 252 Z"
-  },
-  {
-    key: "leftRearDoor",
-    markerX: 101,
-    markerY: 438,
-    path: "M85 389 L128 389 L132 505 L94 507 C82 506 78 503 77 496 L76 402 C76 394 78 391 85 389 Z"
-  },
-  {
-    key: "rightRearDoor",
-    markerX: 219,
-    markerY: 438,
-    path: "M235 389 L192 389 L188 505 L226 507 C238 506 242 503 243 496 L244 402 C244 394 242 391 235 389 Z"
-  },
-  {
-    key: "leftRearQuarter",
-    markerX: 96,
-    markerY: 536,
-    path: "M92 505 L132 505 L139 546 L127 596 L110 596 C93 592 83 585 77 571 L72 523 C72 513 79 507 92 505 Z"
-  },
-  {
-    key: "rightRearQuarter",
-    markerX: 224,
-    markerY: 536,
-    path: "M228 505 L188 505 L181 546 L193 596 L210 596 C227 592 237 585 243 571 L248 523 C248 513 241 507 228 505 Z"
-  },
-  {
-    key: "bootLid",
-    markerX: 160,
-    markerY: 500,
-    path: "M126 440 C136 432 148 428 160 427 C172 428 184 432 194 440 L205 520 C192 532 178 539 160 541 C142 539 128 532 115 520 Z"
-  },
-  {
-    key: "rearBumper",
-    markerX: 160,
-    markerY: 580,
-    path: "M124 548 C136 543 148 540 160 540 C172 540 184 543 196 548 L206 594 C190 602 176 605 160 606 C144 605 130 602 114 594 Z"
-  }
-];
-
-export const BUYER_BODY_MAP_OUTLINE_PATHS = {
-  shell: "M113 92 C124 83 136 78 148 76 L172 76 C184 78 196 83 207 92 L220 114 C228 128 231 141 232 157 L232 183 C231 218 223 246 213 271 C207 286 199 299 198 320 L198 442 C198 467 205 488 214 521 C219 541 220 555 218 572 L214 596 C212 605 206 608 196 608 L124 608 C114 608 108 605 106 596 L102 572 C100 555 101 541 106 521 C115 488 122 467 122 442 L122 320 C121 299 113 286 107 271 C97 246 89 218 88 183 L88 157 C89 141 92 128 100 114 Z",
-  frontGlassLeft: "M121 114 C126 109 133 108 140 108 C144 108 145 110 145 114 L143 126 C142 130 139 132 134 132 L124 130 C120 128 119 126 119 122 Z",
-  frontGlassRight: "M199 114 C194 109 187 108 180 108 C176 108 175 110 175 114 L177 126 C178 130 181 132 186 132 L196 130 C200 128 201 126 201 122 Z",
-  rearGlass: "M128 444 C136 436 148 431 160 430 C172 431 184 436 192 444 L188 498 C180 505 171 509 160 510 C149 509 140 505 132 498 Z",
-  rearLampLeft: "M126 554 C130 550 138 550 144 552 L148 581 C145 586 138 587 131 585 C127 584 125 581 125 576 Z",
-  rearLampRight: "M194 554 C190 550 182 550 176 552 L172 581 C175 586 182 587 189 585 C193 584 195 581 195 576 Z",
-  bonnetBreak: "M102 184 C121 177 139 173 160 172 C181 173 199 177 218 184",
-  roofBreak: "M124 299 C136 291 148 287 160 286 C172 287 184 291 196 299",
-  sillBreak: "M124 442 C136 452 148 457 160 458 C172 457 184 452 196 442"
-} as const;
-
-export const BUYER_BODY_MAP_WHEELS = [
-  { cx: 52, cy: 186, outerR: 27, innerR: 20 },
-  { cx: 268, cy: 186, outerR: 27, innerR: 20 },
-  { cx: 56, cy: 509, outerR: 27, innerR: 20 },
-  { cx: 264, cy: 509, outerR: 27, innerR: 20 }
+export const BUYER_BODY_MAP_PANEL_AREAS: BuyerBodyMapPanelArea[] = [
+  { key: "frontBumper", markerX: 257.5, markerY: 27.5, x: 170, y: 0, width: 175, height: 55, rx: 12 },
+  { key: "bonnet", markerX: 257.5, markerY: 170, x: 155, y: 90, width: 205, height: 160, rx: 26 },
+  { key: "roof", markerX: 257.5, markerY: 377.5, x: 180, y: 250, width: 155, height: 255, rx: 45 },
+  { key: "bootLid", markerX: 257.5, markerY: 552.5, x: 165, y: 505, width: 185, height: 95, rx: 22 },
+  { key: "rearBumper", markerX: 257.5, markerY: 635, x: 170, y: 605, width: 175, height: 60, rx: 12 },
+  { key: "leftFrontGuard", markerX: 120, markerY: 162.5, x: 75, y: 75, width: 90, height: 175, rx: 35 },
+  { key: "rightFrontGuard", markerX: 395, markerY: 162.5, x: 350, y: 75, width: 90, height: 175, rx: 35 },
+  { key: "leftFrontDoor", markerX: 135, markerY: 365, x: 85, y: 250, width: 100, height: 230, rx: 18 },
+  { key: "rightFrontDoor", markerX: 380, markerY: 365, x: 330, y: 250, width: 100, height: 230, rx: 18 },
+  { key: "leftRearDoor", markerX: 135, markerY: 527.5, x: 80, y: 480, width: 110, height: 95, rx: 18 },
+  { key: "rightRearDoor", markerX: 380, markerY: 527.5, x: 325, y: 480, width: 110, height: 95, rx: 18 },
+  { key: "leftRearQuarter", markerX: 127.5, markerY: 620, x: 75, y: 575, width: 105, height: 90, rx: 18 },
+  { key: "rightRearQuarter", markerX: 387.5, markerY: 620, x: 335, y: 575, width: 105, height: 90, rx: 18 }
 ] as const;

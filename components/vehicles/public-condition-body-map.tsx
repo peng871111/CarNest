@@ -1,10 +1,9 @@
 "use client";
 
 import {
-  BUYER_BODY_MAP_OUTLINE_PATHS,
-  BUYER_BODY_MAP_PANEL_GEOMETRY,
-  BUYER_BODY_MAP_VIEWBOX,
-  BUYER_BODY_MAP_WHEELS
+  BUYER_BODY_MAP_PANEL_AREAS,
+  BUYER_BODY_MAP_REFERENCE_SVG_PATH,
+  BUYER_BODY_MAP_VIEWBOX
 } from "@/lib/buyer-body-map-artwork";
 import { VEHICLE_BODY_PANEL_LABELS, VEHICLE_BODY_PANEL_ORDER } from "@/lib/vehicle-condition-config";
 import type { VehicleBodyPanelCondition, VehicleBodyPanelKey, VehicleBodyPanelMap } from "@/types";
@@ -33,37 +32,6 @@ const DAMAGE_MARKER_MAP: Record<VehicleBodyPanelCondition, { code: string | null
   repaired_damage: { code: "R", fill: "#EEE6F7", stroke: "#8A73B2" }
 };
 
-function VehicleOutline() {
-  return (
-    <>
-      <path
-        d={BUYER_BODY_MAP_OUTLINE_PATHS.shell}
-        fill="#FCFAF7"
-        stroke="#C5B69F"
-        strokeWidth="3"
-      />
-      {[
-        BUYER_BODY_MAP_OUTLINE_PATHS.bonnetBreak,
-        BUYER_BODY_MAP_OUTLINE_PATHS.roofBreak,
-        BUYER_BODY_MAP_OUTLINE_PATHS.sillBreak
-      ].map((path) => (
-        <path key={path} d={path} fill="none" stroke="#D7CCBE" strokeWidth="2" />
-      ))}
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassLeft} fill="#FFFDF9" stroke="#D7CCBE" strokeWidth="1.7" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.frontGlassRight} fill="#FFFDF9" stroke="#D7CCBE" strokeWidth="1.7" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearGlass} fill="#FFFDF9" stroke="#D7CCBE" strokeWidth="1.8" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampLeft} fill="#FFFDF9" stroke="#D7CCBE" strokeWidth="1.6" />
-      <path d={BUYER_BODY_MAP_OUTLINE_PATHS.rearLampRight} fill="#FFFDF9" stroke="#D7CCBE" strokeWidth="1.6" />
-      {BUYER_BODY_MAP_WHEELS.map((wheel) => (
-        <g key={`${wheel.cx}-${wheel.cy}`}>
-          <circle cx={wheel.cx} cy={wheel.cy} r={wheel.outerR} fill="none" stroke="#BDAE9B" strokeWidth="2.4" />
-          <circle cx={wheel.cx} cy={wheel.cy} r={wheel.innerR} fill="none" stroke="#CFC2B1" strokeWidth="1.8" />
-        </g>
-      ))}
-    </>
-  );
-}
-
 function getDamagePanels(bodyMap?: VehicleBodyPanelMap | null) {
   if (!bodyMap) return [] as VehicleBodyPanelKey[];
   return VEHICLE_BODY_PANEL_ORDER.filter((key) => (bodyMap[key] ?? "original") !== "original");
@@ -84,22 +52,33 @@ export function PublicConditionBodyMap({
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_18rem] xl:items-start">
         <div className="rounded-[28px] border border-[#D8CCBD]/70 bg-white/80 p-4 sm:p-6">
           <svg viewBox={`0 0 ${BUYER_BODY_MAP_VIEWBOX.width} ${BUYER_BODY_MAP_VIEWBOX.height}`} className="mx-auto block w-full max-w-[24rem]">
-            <VehicleOutline />
-            {BUYER_BODY_MAP_PANEL_GEOMETRY.map((panel) => {
+            <image
+              href={BUYER_BODY_MAP_REFERENCE_SVG_PATH}
+              x="0"
+              y="0"
+              width={BUYER_BODY_MAP_VIEWBOX.width}
+              height={BUYER_BODY_MAP_VIEWBOX.height}
+              preserveAspectRatio="xMidYMid meet"
+            />
+            {BUYER_BODY_MAP_PANEL_AREAS.map((panel) => {
               const condition = bodyMap?.[panel.key] ?? "original";
               const marker = DAMAGE_MARKER_MAP[condition];
               return (
                 <g key={panel.key}>
-                  <path
-                    d={panel.path}
-                    fill={marker.fill}
-                    stroke={marker.stroke}
-                    strokeWidth={condition === "original" ? 1.3 : 2}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                  />
                   {marker.code ? (
                     <>
+                      <rect
+                        x={panel.x}
+                        y={panel.y}
+                        width={panel.width}
+                        height={panel.height}
+                        rx={panel.rx}
+                        fill={marker.fill}
+                        fillOpacity="0.12"
+                        stroke={marker.stroke}
+                        strokeOpacity="0.75"
+                        strokeWidth="1.5"
+                      />
                       <rect
                         x={panel.markerX - 15}
                         y={panel.markerY - 9}
@@ -142,7 +121,7 @@ export function PublicConditionBodyMap({
         <div className="rounded-[28px] border border-[#D8CCBD]/70 bg-white/85 p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#B8893F]">Inspection Legend</p>
           <div className="mt-4 space-y-2.5">
-              {INSPECTION_LEGEND.map(([code, label]) => (
+            {INSPECTION_LEGEND.map(([code, label]) => (
               <div key={code} className="grid grid-cols-[2.4rem_minmax(0,1fr)] items-center gap-3">
                 <span className="inline-flex justify-center rounded-full border border-[#D1A75F]/55 bg-[#191919] px-2 py-1 text-[11px] font-semibold tracking-[0.1em] text-[#E0BD77]">
                   {code}
@@ -155,7 +134,7 @@ export function PublicConditionBodyMap({
           <div className="mt-5 border-t border-[#E2D8CA] pt-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8F7A5C]">Panel Reference</p>
             <div className="mt-3 flex flex-wrap gap-2">
-              {BUYER_BODY_MAP_PANEL_GEOMETRY.map((panel) => (
+              {BUYER_BODY_MAP_PANEL_AREAS.map((panel) => (
                 <span
                   key={panel.key}
                   className="rounded-full border border-[#E1D5C6] bg-[#FBF7F0] px-2.5 py-1 text-[11px] font-medium text-[#665747]"
