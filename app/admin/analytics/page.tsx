@@ -742,72 +742,62 @@ export default function AdminAnalyticsPage() {
         description="Track current warehouse carrying cost for active vehicles, then review sold warehouse turnover month by month from the same configured warehouse baseline."
         defaultOpen
       >
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
-          <section className="rounded-[28px] border border-black/5 bg-shell/70 p-5">
+        <section className="rounded-[28px] border border-black/5 bg-shell/70 p-6 shadow-panel">
+          <div className="max-w-3xl">
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">Configuration</p>
             <p className="mt-2 text-sm leading-6 text-ink/65">
               Storage calculations use the warehouse analytics start date of {settings.analyticsStartDate}. If the intake date is earlier, the calculation begins from that exact start date. With today set to 30 June 2026, storage-day metrics remain at zero until 1 July 2026 unless you change the start date.
             </p>
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              <label className="space-y-2">
-                <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse operating cost/day</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={settings.warehouseOperatingCostPerDay}
-                  onChange={(event) => setSettings((current) => ({ ...current, warehouseOperatingCostPerDay: Number(event.target.value || 0) }))}
-                  className="min-h-[46px] w-full rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse capacity</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={settings.warehouseCapacity}
-                  onChange={(event) => setSettings((current) => ({ ...current, warehouseCapacity: Number(event.target.value || 0) }))}
-                  className="min-h-[46px] w-full rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
-                />
-              </label>
-              <label className="space-y-2">
-                <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse analytics start date</span>
-                <input
-                  type="date"
-                  value={settings.analyticsStartDate}
-                  onChange={(event) => setSettings((current) => ({ ...current, analyticsStartDate: event.target.value }))}
-                  className="min-h-[46px] w-full rounded-[18px] border border-black/10 bg-white px-4 py-3 text-sm text-ink outline-none transition focus:border-bronze"
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void handleSaveSettings()}
-                disabled={!canEditWarehouseSettings || savingSettings}
-                className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {savingSettings ? "Saving..." : "Save warehouse analytics settings"}
-              </button>
-              {!canEditWarehouseSettings ? (
-                <p className="text-sm text-ink/55">You need vehicle-management permission to update these warehouse settings.</p>
-              ) : null}
-              {settingsNotice ? <p className="text-sm text-emerald-700">{settingsNotice}</p> : null}
-              {settingsError ? <p className="text-sm text-red-700">{settingsError}</p> : null}
-            </div>
-          </section>
-
-          <section className="rounded-[28px] border border-black/5 bg-shell/70 p-5">
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Calculation notes</p>
-            <div className="mt-4 space-y-3 text-sm leading-6 text-ink/68">
-              <p>Current cost per vehicle per day uses only current active warehouse vehicles that are live, unsold, and not archived.</p>
-              <p>Days in storage for the current warehouse cost table reuse the same listing-age calculation already shown on Vehicle Listings for active listings.</p>
-              <p>Monthly sold-vehicle storage cost uses the same warehouse daily cost logic, with historical active count when it can be derived. Otherwise the current cost per vehicle per day is used and marked as Estimated.</p>
-              <p>If a sold warehouse vehicle does not have a warehouse intake date, its days to sell and storage cost display as “Not available”.</p>
-            </div>
-          </section>
-        </div>
+          </div>
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="space-y-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse operating cost/day</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={settings.warehouseOperatingCostPerDay}
+                onChange={(event) => setSettings((current) => ({ ...current, warehouseOperatingCostPerDay: Number(event.target.value || 0) }))}
+                className="h-12 w-full rounded-[18px] border border-black/10 bg-white px-4 text-sm text-ink outline-none transition focus:border-bronze"
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse capacity</span>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={settings.warehouseCapacity}
+                onChange={(event) => setSettings((current) => ({ ...current, warehouseCapacity: Number(event.target.value || 0) }))}
+                className="h-12 w-full rounded-[18px] border border-black/10 bg-white px-4 text-sm text-ink outline-none transition focus:border-bronze"
+              />
+            </label>
+            <label className="space-y-2">
+              <span className="text-[11px] uppercase tracking-[0.18em] text-ink/45">Warehouse analytics start date</span>
+              <input
+                type="date"
+                value={settings.analyticsStartDate}
+                onChange={(event) => setSettings((current) => ({ ...current, analyticsStartDate: event.target.value }))}
+                className="h-12 w-full rounded-[18px] border border-black/10 bg-white px-4 text-sm text-ink outline-none transition focus:border-bronze"
+              />
+            </label>
+          </div>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => void handleSaveSettings()}
+              disabled={!canEditWarehouseSettings || savingSettings}
+              className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingSettings ? "Saving..." : "Save warehouse analytics settings"}
+            </button>
+            {!canEditWarehouseSettings ? (
+              <p className="text-sm text-ink/55">You need vehicle-management permission to update these warehouse settings.</p>
+            ) : null}
+            {settingsNotice ? <p className="text-sm text-emerald-700">{settingsNotice}</p> : null}
+            {settingsError ? <p className="text-sm text-red-700">{settingsError}</p> : null}
+          </div>
+        </section>
 
         <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-5">
           <SummaryCard label="Current warehouse vehicles" value={warehouseReport.summary.currentWarehouseVehicles} />
