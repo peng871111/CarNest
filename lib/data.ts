@@ -28,6 +28,7 @@ import {
   AdminAccountingEntryStatus,
   AdminAccountingEntryType,
   AdminAccountingPaymentMethod,
+  AdminWarehouseAnalyticsSettings,
   AdminAuditActionType,
   AdminAuditRecordType,
   AdminPermissions,
@@ -1290,6 +1291,27 @@ export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "i
   };
 }
 
+function normalizeAdminWarehouseAnalyticsNumber(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
+}
+
+function normalizeAdminWarehouseAnalyticsStartDate(value: unknown) {
+  const normalized = sanitizeSingleLineText(typeof value === "string" ? value : "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : "2026-07-01";
+}
+
+export function createDefaultAdminWarehouseAnalyticsSettings(): AdminWarehouseAnalyticsSettings {
+  return {
+    warehouseOperatingCostPerDay: 44,
+    warehouseCapacity: 40,
+    analyticsStartDate: "2026-07-01",
+    updatedAt: "",
+    updatedByUid: "",
+    updatedByName: ""
+  };
+}
+
 export function createEmptyCustomerProfile(): Omit<CustomerProfile, "id"> {
   return {
     fullName: "",
@@ -1880,6 +1902,22 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     updatedByName: typeof data.updatedByName === "string" ? data.updatedByName : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
+  };
+}
+
+function serializeAdminWarehouseAnalyticsSettings(
+  data: Record<string, unknown> | null | undefined
+): AdminWarehouseAnalyticsSettings {
+  const base = createDefaultAdminWarehouseAnalyticsSettings();
+  const value = data ?? {};
+
+  return {
+    warehouseOperatingCostPerDay: normalizeAdminWarehouseAnalyticsNumber(value.warehouseOperatingCostPerDay, base.warehouseOperatingCostPerDay),
+    warehouseCapacity: normalizeAdminWarehouseAnalyticsNumber(value.warehouseCapacity, base.warehouseCapacity),
+    analyticsStartDate: normalizeAdminWarehouseAnalyticsStartDate(value.analyticsStartDate),
+    updatedAt: serializeDate(value.updatedAt),
+    updatedByUid: typeof value.updatedByUid === "string" ? value.updatedByUid : "",
+    updatedByName: typeof value.updatedByName === "string" ? value.updatedByName : ""
   };
 }
 
@@ -4254,6 +4292,81 @@ export async function getVehicleRecordsData() {
 
 export async function getAdminAccountingEntriesData() {
   return await getCollection<AdminAccountingEntry>("adminAccountingEntries", [], serializeAdminAccountingEntryDoc);
+}
+
+export async function getAdminWarehouseAnalyticsSettings() {
+  const fallback = createDefaultAdminWarehouseAnalyticsSettings();
+
+  if (!isFirebaseConfigured) {
+    return {
+      settings: fallback,
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "adminSettings", "warehouseAnalytics")));
+    return {
+      settings: snapshot.exists() ? serializeAdminWarehouseAnalyticsSettings(snapshot.data()) : fallback,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      settings: fallback,
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function saveAdminWarehouseAnalyticsSettings(
+  input: Partial<AdminWarehouseAnalyticsSettings>,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage warehouse analytics settings.");
+
+  const payload = serializeAdminWarehouseAnalyticsSettings(input as Record<string, unknown>);
+
+  if (!isFirebaseConfigured) {
+    return {
+      settings: {
+        ...payload,
+        updatedAt: new Date().toISOString(),
+        updatedByUid: actor.id,
+        updatedByName: getActorDisplayName(actor)
+      } satisfies AdminWarehouseAnalyticsSettings,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "adminSettings", "warehouseAnalytics"),
+    sanitizeFirestoreWriteData({
+      warehouseOperatingCostPerDay: payload.warehouseOperatingCostPerDay,
+      warehouseCapacity: payload.warehouseCapacity,
+      analyticsStartDate: payload.analyticsStartDate,
+      updatedAt: serverTimestamp(),
+      updatedByUid: actor.id,
+      updatedByName: getActorDisplayName(actor)
+    }),
+    { merge: true }
+  );
+
+  const savedSnapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "adminSettings", "warehouseAnalytics")));
+
+  return {
+    settings: savedSnapshot.exists()
+      ? serializeAdminWarehouseAnalyticsSettings(savedSnapshot.data())
+      : {
+          ...payload,
+          updatedAt: new Date().toISOString(),
+          updatedByUid: actor.id,
+          updatedByName: getActorDisplayName(actor)
+        },
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
 }
 
 export async function saveAdminAccountingEntry(

@@ -146,6 +146,15 @@ export type VehicleActivityType =
   | "admin_note_added"
   | "warehouse_activity_added";
 
+export interface AdminWarehouseAnalyticsSettings {
+  warehouseOperatingCostPerDay: number;
+  warehouseCapacity: number;
+  analyticsStartDate: string;
+  updatedAt?: string;
+  updatedByUid?: string;
+  updatedByName?: string;
+}
+
 export interface VehicleImageAsset {
   thumbnailUrl: string;
   fullUrl: string;
