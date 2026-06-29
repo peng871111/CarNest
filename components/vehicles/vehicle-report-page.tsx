@@ -132,10 +132,6 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
                 {[vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").trim()}
               </h1>
               <p className="mt-3 text-sm text-white/64">{getVehicleDisplayReference(vehicle)}</p>
-              {generatedAt ? <p className="mt-4 text-sm text-white/74">Report generated {generatedAt}</p> : null}
-              <p className="mt-5 max-w-2xl text-base leading-7 text-white/78">
-                Premium buyer-facing inspection overview designed to highlight the vehicle’s exterior presentation, interior presentation, and mapped body condition notes.
-              </p>
             </div>
 
             <div className="grid gap-4">
@@ -204,12 +200,9 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
           <p className="text-sm leading-7 text-[#3E352C]">{inspectorNotes}</p>
         </SectionCard>
 
-        <SectionCard kicker="Inspector Signature" title="Inspection Record">
-          <div className="grid gap-4 md:grid-cols-2">
-            <DetailItem label="Inspection Record" value="Digital sign-off recorded in the CarNest inspection workflow" />
-            <DetailItem label="Report Date" value={generatedAt || "Pending"} />
-          </div>
-        </SectionCard>
+        <div className="max-w-sm">
+          <DetailItem label="Report Date" value={generatedAt || "Pending"} />
+        </div>
 
         <SectionCard kicker="Important Notice" title="Buyer Guidance">
           <div className="space-y-3 text-sm leading-7 text-[#5F5346]">
