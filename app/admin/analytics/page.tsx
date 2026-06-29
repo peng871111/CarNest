@@ -7,13 +7,13 @@ import {
   buildWarehouseAnalyticsReport,
   sortCurrentWarehouseRows,
   type WarehouseCurrentVehicleRow,
-  type WarehouseRankingRow,
+  type WarehouseMonthlySoldDetailRow,
+  type WarehouseMonthlySoldSummaryRow,
   type WarehouseVehicleTableSort,
 } from "@/lib/admin-warehouse-analytics";
 import { useAuth } from "@/lib/auth";
 import {
   createDefaultAdminWarehouseAnalyticsSettings,
-  getAdminAccountingEntriesData,
   getAdminWarehouseAnalyticsSettings,
   getContactMessagesData,
   getDealerApplicationsData,
@@ -42,7 +42,6 @@ import type {
   VehicleViewEvent,
   VehicleRecord,
   WarehouseIntakeRecord,
-  AdminAccountingEntry,
 } from "@/types";
 
 type RankedListing = {
@@ -359,32 +358,55 @@ function CurrentVehicleStorageTable({ rows }: { rows: WarehouseCurrentVehicleRow
   );
 }
 
-function CurrentHoldingTable({ rows }: { rows: WarehouseCurrentVehicleRow[] }) {
+function MonthlySoldVehicleSummaryTable({
+  rows,
+  selectedMonthKey,
+  onSelectMonth,
+}: {
+  rows: WarehouseMonthlySoldSummaryRow[];
+  selectedMonthKey: string;
+  onSelectMonth: (monthKey: string) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full text-left text-sm">
         <thead className="border-b border-black/10 text-xs uppercase tracking-[0.18em] text-ink/45">
           <tr>
-            <th className="px-4 py-3 font-medium">Vehicle</th>
-            <th className="px-4 py-3 font-medium">Days in storage</th>
-            <th className="px-4 py-3 font-medium">Total storage cost</th>
-            <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Month</th>
+            <th className="px-4 py-3 font-medium">Vehicles sold</th>
+            <th className="px-4 py-3 font-medium">Average days to sell</th>
+            <th className="px-4 py-3 font-medium">Fastest sold vehicle</th>
+            <th className="px-4 py-3 font-medium">Slowest sold vehicle</th>
+            <th className="px-4 py-3 font-medium">Estimated total storage cost</th>
+            <th className="px-4 py-3 font-medium">Average storage cost / sold vehicle</th>
           </tr>
         </thead>
         <tbody>
           {rows.length ? rows.map((row) => (
-            <tr key={row.vehicleId} className="border-b border-black/5">
+            <tr
+              key={row.monthKey}
+              className={cn(
+                "cursor-pointer border-b border-black/5 transition",
+                row.monthKey === selectedMonthKey ? "bg-shell/80" : "hover:bg-shell/50"
+              )}
+              onClick={() => onSelectMonth(row.monthKey)}
+            >
               <td className="px-4 py-4">
-                <p className="font-medium text-ink">{row.title}</p>
-                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">{row.reference}</p>
+                <p className="font-medium text-ink">{row.monthLabel}</p>
+                {row.monthKey === selectedMonthKey ? (
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-bronze">Selected month</p>
+                ) : null}
               </td>
-              <td className="px-4 py-4 text-ink/75">{row.daysInStorage ?? "Not available"}</td>
-              <td className="px-4 py-4 font-medium text-ink">{formatMaybeAccountingCurrency(row.totalAccumulatedStorageCost)}</td>
-              <td className="px-4 py-4 text-ink/75">{row.listingStatus}</td>
+              <td className="px-4 py-4 text-ink/75">{row.vehiclesSold}</td>
+              <td className="px-4 py-4 text-ink/75">{row.averageDaysToSell === null ? "Not available" : row.averageDaysToSell.toFixed(1)}</td>
+              <td className="px-4 py-4 text-ink/75">{row.fastestSoldVehicleLabel}</td>
+              <td className="px-4 py-4 text-ink/75">{row.slowestSoldVehicleLabel}</td>
+              <td className="px-4 py-4 font-medium text-ink">{formatStorageCost(row.estimatedTotalStorageCost, row.usesEstimatedStorageCost)}</td>
+              <td className="px-4 py-4 text-ink/75">{formatStorageCost(row.averageStorageCostPerSoldVehicle, row.usesEstimatedStorageCost)}</td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={4} className="px-4 py-6 text-sm text-ink/60">No active warehouse vehicles available for ranking.</td>
+              <td colSpan={7} className="px-4 py-6 text-sm text-ink/60">No sold warehouse vehicles are available yet.</td>
             </tr>
           )}
         </tbody>
@@ -393,12 +415,10 @@ function CurrentHoldingTable({ rows }: { rows: WarehouseCurrentVehicleRow[] }) {
   );
 }
 
-function SoldVehicleRankingTable({
+function MonthlySoldVehicleDetailsTable({
   rows,
-  includeDates,
 }: {
-  rows: WarehouseRankingRow[];
-  includeDates?: boolean;
+  rows: WarehouseMonthlySoldDetailRow[];
 }) {
   return (
     <div className="overflow-x-auto">
@@ -406,11 +426,11 @@ function SoldVehicleRankingTable({
         <thead className="border-b border-black/10 text-xs uppercase tracking-[0.18em] text-ink/45">
           <tr>
             <th className="px-4 py-3 font-medium">Vehicle</th>
-            {includeDates ? <th className="px-4 py-3 font-medium">Warehouse intake date</th> : null}
-            {includeDates ? <th className="px-4 py-3 font-medium">Sold date</th> : null}
+            <th className="px-4 py-3 font-medium">Rego</th>
+            <th className="px-4 py-3 font-medium">Sold date</th>
             <th className="px-4 py-3 font-medium">Days to sell</th>
             <th className="px-4 py-3 font-medium">Estimated storage cost</th>
-            <th className="px-4 py-3 font-medium">Actual CarNest platform revenue</th>
+            <th className="px-4 py-3 font-medium">Listing ID / CN number</th>
           </tr>
         </thead>
         <tbody>
@@ -420,15 +440,15 @@ function SoldVehicleRankingTable({
                 <p className="font-medium text-ink">{row.title}</p>
                 <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">{row.reference}</p>
               </td>
-              {includeDates ? <td className="px-4 py-4 text-ink/75">{row.warehouseIntakeDate}</td> : null}
-              {includeDates ? <td className="px-4 py-4 text-ink/75">{row.soldDate}</td> : null}
+              <td className="px-4 py-4 text-ink/75">{row.rego || "Not available"}</td>
+              <td className="px-4 py-4 text-ink/75">{row.soldDate}</td>
               <td className="px-4 py-4 text-ink/75">{row.daysToSell ?? "Not available"}</td>
-              <td className="px-4 py-4 font-medium text-ink">{formatStorageCost(row.totalStorageCost, row.estimatedUsingCurrentCost)}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeAccountingCurrency(row.platformRevenue)}</td>
+              <td className="px-4 py-4 font-medium text-ink">{formatStorageCost(row.estimatedStorageCost, row.estimatedUsingCurrentCost)}</td>
+              <td className="px-4 py-4 text-ink/75">{row.reference}</td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={includeDates ? 6 : 4} className="px-4 py-6 text-sm text-ink/60">No sold warehouse vehicles are available for this ranking yet.</td>
+              <td colSpan={6} className="px-4 py-6 text-sm text-ink/60">No sold warehouse vehicles for this month.</td>
             </tr>
           )}
         </tbody>
@@ -444,7 +464,6 @@ export default function AdminAnalyticsPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [vehicleRecords, setVehicleRecords] = useState<VehicleRecord[]>([]);
   const [warehouseIntakes, setWarehouseIntakes] = useState<WarehouseIntakeRecord[]>([]);
-  const [accountingEntries, setAccountingEntries] = useState<AdminAccountingEntry[]>([]);
   const [dealerApplications, setDealerApplications] = useState<DealerApplication[]>([]);
   const [offers, setOffers] = useState<Offer[]>([]);
   const [enquiries, setEnquiries] = useState<ContactMessage[]>([]);
@@ -456,6 +475,7 @@ export default function AdminAnalyticsPage() {
   const [settingsNotice, setSettingsNotice] = useState("");
   const [settingsError, setSettingsError] = useState("");
   const [currentVehicleSort, setCurrentVehicleSort] = useState<WarehouseVehicleTableSort>("longest_storage");
+  const [selectedSoldMonthKey, setSelectedSoldMonthKey] = useState("");
   const [dataWarnings, setDataWarnings] = useState<string[]>([]);
 
   useEffect(() => {
@@ -469,7 +489,6 @@ export default function AdminAnalyticsPage() {
         vehiclesResult,
         vehicleRecordsResult,
         warehouseIntakesResult,
-        accountingEntriesResult,
         dealerApplicationsResult,
         offersResult,
         enquiriesResult,
@@ -482,7 +501,6 @@ export default function AdminAnalyticsPage() {
         getVehiclesData(),
         getVehicleRecordsData(),
         getWarehouseIntakesData(),
-        getAdminAccountingEntriesData(),
         getDealerApplicationsData(),
         getOffersData(),
         getContactMessagesData(),
@@ -498,7 +516,6 @@ export default function AdminAnalyticsPage() {
       setVehicles(vehiclesResult.items);
       setVehicleRecords(vehicleRecordsResult.items);
       setWarehouseIntakes(warehouseIntakesResult.items);
-      setAccountingEntries(accountingEntriesResult.items);
       setDealerApplications(dealerApplicationsResult.items);
       setOffers(offersResult.items);
       setEnquiries(enquiriesResult.items);
@@ -512,7 +529,6 @@ export default function AdminAnalyticsPage() {
           vehiclesResult.error,
           vehicleRecordsResult.error,
           warehouseIntakesResult.error,
-          accountingEntriesResult.error,
           dealerApplicationsResult.error,
           offersResult.error,
           enquiriesResult.error,
@@ -533,13 +549,35 @@ export default function AdminAnalyticsPage() {
 
   const canEditWarehouseSettings = hasAdminPermission(appUser, "manageVehicles");
   const warehouseReport = useMemo(
-    () => buildWarehouseAnalyticsReport(vehicles, vehicleRecords, warehouseIntakes, accountingEntries, settings),
-    [vehicles, vehicleRecords, warehouseIntakes, accountingEntries, settings]
+    () => buildWarehouseAnalyticsReport(vehicles, vehicleRecords, warehouseIntakes, settings),
+    [vehicles, vehicleRecords, warehouseIntakes, settings]
   );
   const sortedCurrentWarehouseVehicles = useMemo(
     () => sortCurrentWarehouseRows(warehouseReport.currentVehicles, currentVehicleSort),
     [currentVehicleSort, warehouseReport.currentVehicles]
   );
+  const selectedMonthDetails = useMemo(
+    () => warehouseReport.monthlySoldVehicleDetailsByMonth[selectedSoldMonthKey] ?? [],
+    [selectedSoldMonthKey, warehouseReport.monthlySoldVehicleDetailsByMonth]
+  );
+
+  useEffect(() => {
+    const newestMonthKey = warehouseReport.monthlySoldVehicleSummary[0]?.monthKey ?? "";
+    if (!newestMonthKey) {
+      if (selectedSoldMonthKey) {
+        setSelectedSoldMonthKey("");
+      }
+      return;
+    }
+
+    const selectedMonthStillExists = warehouseReport.monthlySoldVehicleSummary.some(
+      (row) => row.monthKey === selectedSoldMonthKey
+    );
+
+    if (!selectedSoldMonthKey || !selectedMonthStillExists) {
+      setSelectedSoldMonthKey(newestMonthKey);
+    }
+  }, [selectedSoldMonthKey, warehouseReport.monthlySoldVehicleSummary]);
 
   const vehiclesById = useMemo(() => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])), [vehicles]);
   const liveListings = useMemo(
@@ -701,7 +739,7 @@ export default function AdminAnalyticsPage() {
       <CollapsibleSection
         label="Warehouse Analytics"
         title="Warehouse Vehicle Management Cost Analysis"
-        description="Track current warehouse carrying cost, longest-held vehicles, fastest turnover, and sold-vehicle management cost from the configured warehouse baseline."
+        description="Track current warehouse carrying cost for active vehicles, then review sold warehouse turnover month by month from the same configured warehouse baseline."
         defaultOpen
       >
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
@@ -765,8 +803,8 @@ export default function AdminAnalyticsPage() {
             <div className="mt-4 space-y-3 text-sm leading-6 text-ink/68">
               <p>Current cost per vehicle per day uses only current active warehouse vehicles that are live, unsold, and not archived.</p>
               <p>Days in storage for the current warehouse cost table reuse the same listing-age calculation already shown on Vehicle Listings for active listings.</p>
-              <p>Sold-vehicle storage cost uses the warehouse operating cost and historical active count when a count can be derived. Otherwise the current cost per vehicle per day is used and marked as Estimated.</p>
-              <p>Actual CarNest platform revenue appears only when accounting income entries exist for the listing or linked vehicle record. Otherwise the table shows “Not available”.</p>
+              <p>Monthly sold-vehicle storage cost uses the same warehouse daily cost logic, with historical active count when it can be derived. Otherwise the current cost per vehicle per day is used and marked as Estimated.</p>
+              <p>If a sold warehouse vehicle does not have a warehouse intake date, its days to sell and storage cost display as “Not available”.</p>
             </div>
           </section>
         </div>
@@ -805,28 +843,23 @@ export default function AdminAnalyticsPage() {
           <CurrentVehicleStorageTable rows={sortedCurrentWarehouseVehicles} />
         </WarehouseTableCard>
 
-        <div className="mt-6 grid gap-5 xl:grid-cols-2">
+        <div className="mt-6 grid gap-5">
           <WarehouseTableCard
-            title="Longest Holding Vehicles"
-            description="Current active warehouse vehicles ranked by storage days descending."
+            title="Monthly Sold Vehicle Summary"
+            description="Sold warehouse vehicles grouped by sold month, newest month first. Select a month to refresh the detail table below."
           >
-            <CurrentHoldingTable rows={warehouseReport.longestHoldingVehicles} />
+            <MonthlySoldVehicleSummaryTable
+              rows={warehouseReport.monthlySoldVehicleSummary}
+              selectedMonthKey={selectedSoldMonthKey}
+              onSelectMonth={setSelectedSoldMonthKey}
+            />
           </WarehouseTableCard>
 
           <WarehouseTableCard
-            title="Fastest Turnover Vehicles"
-            description="Sold warehouse vehicles ranked by days to sell ascending."
+            title="Monthly Sold Vehicle Details"
+            description="Sold warehouse vehicles for the selected month only."
           >
-            <SoldVehicleRankingTable rows={warehouseReport.fastestTurnoverVehicles} includeDates />
-          </WarehouseTableCard>
-        </div>
-
-        <div className="mt-6">
-          <WarehouseTableCard
-            title="Lowest Management Cost Sold Vehicles"
-            description="Sold warehouse vehicles ranked by estimated storage cost ascending."
-          >
-            <SoldVehicleRankingTable rows={warehouseReport.lowestManagementCostSoldVehicles} />
+            <MonthlySoldVehicleDetailsTable rows={selectedMonthDetails} />
           </WarehouseTableCard>
         </div>
       </CollapsibleSection>

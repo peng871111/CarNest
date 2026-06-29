@@ -1,5 +1,4 @@
 import type {
-  AdminAccountingEntry,
   AdminWarehouseAnalyticsSettings,
   Vehicle,
   VehicleRecord,
@@ -27,18 +26,28 @@ export interface WarehouseCurrentVehicleRow {
   rowTone: "default" | "warning" | "alert" | "critical";
 }
 
-export interface WarehouseRankingRow {
+export interface WarehouseMonthlySoldSummaryRow {
+  monthKey: string;
+  monthLabel: string;
+  vehiclesSold: number;
+  averageDaysToSell: number | null;
+  fastestSoldVehicleLabel: string;
+  slowestSoldVehicleLabel: string;
+  estimatedTotalStorageCost: number | null;
+  averageStorageCostPerSoldVehicle: number | null;
+  usesEstimatedStorageCost: boolean;
+}
+
+export interface WarehouseMonthlySoldDetailRow {
+  monthKey: string;
   vehicleId: string;
   vehicleRecordId: string;
   title: string;
   reference: string;
   rego: string;
-  warehouseIntakeDate: string;
   soldDate: string;
   daysToSell: number | null;
-  totalStorageCost: number | null;
-  listingStatus: string;
-  platformRevenue: number | null;
+  estimatedStorageCost: number | null;
   estimatedUsingCurrentCost: boolean;
 }
 
@@ -57,9 +66,8 @@ export interface WarehouseAnalyticsSummary {
 export interface WarehouseAnalyticsReport {
   summary: WarehouseAnalyticsSummary;
   currentVehicles: WarehouseCurrentVehicleRow[];
-  longestHoldingVehicles: WarehouseCurrentVehicleRow[];
-  fastestTurnoverVehicles: WarehouseRankingRow[];
-  lowestManagementCostSoldVehicles: WarehouseRankingRow[];
+  monthlySoldVehicleSummary: WarehouseMonthlySoldSummaryRow[];
+  monthlySoldVehicleDetailsByMonth: Record<string, WarehouseMonthlySoldDetailRow[]>;
 }
 
 type WarehouseLifecycle = {
@@ -82,7 +90,6 @@ type WarehouseVehicleContext = {
   reference: string;
   rego: string;
   listedDays: number | null;
-  accountingPlatformRevenue: number | null;
   listingStatus: string;
 };
 
@@ -102,6 +109,19 @@ function formatDateInput(date: Date | null) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
+}
+
+function formatMonthKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${year}-${month}`;
+}
+
+function formatMonthLabel(date: Date) {
+  return new Intl.DateTimeFormat("en-AU", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
 }
 
 function diffWholeDays(later: Date, earlier: Date) {
@@ -146,7 +166,7 @@ function getDaysBetweenIsoDates(startDate?: string, endDate?: string) {
 function isCurrentWarehouseListing(vehicle: Vehicle, vehicleRecord: VehicleRecord | null) {
   if (!isWarehouseManaged(vehicle) || vehicle.deleted) return false;
   if (vehicle.status !== "approved") return false;
-  if (vehicle.sellerStatus !== "ACTIVE" && vehicle.sellerStatus !== "UNDER_OFFER") return false;
+  if (vehicle.sellerStatus !== "ACTIVE") return false;
   if (vehicleRecord?.status === "archived" || vehicleRecord?.status === "sold" || vehicleRecord?.status === "withdrawn") return false;
   return true;
 }
@@ -166,23 +186,6 @@ function buildListingStatus(vehicle: Vehicle, vehicleRecord: VehicleRecord | nul
   if (vehicle.status !== "approved") return "Pending";
   if (vehicleRecord?.status === "archived") return "Archived";
   return "Active";
-}
-
-function buildRevenueMaps(accountingEntries: AdminAccountingEntry[]) {
-  const byVehicleId = new Map<string, number>();
-  const byVehicleRecordId = new Map<string, number>();
-
-  for (const entry of accountingEntries) {
-    if (entry.type !== "income") continue;
-    if (entry.relatedVehicleId) {
-      byVehicleId.set(entry.relatedVehicleId, (byVehicleId.get(entry.relatedVehicleId) ?? 0) + entry.amount);
-    }
-    if (entry.relatedVehicleRecordId) {
-      byVehicleRecordId.set(entry.relatedVehicleRecordId, (byVehicleRecordId.get(entry.relatedVehicleRecordId) ?? 0) + entry.amount);
-    }
-  }
-
-  return { byVehicleId, byVehicleRecordId };
 }
 
 function resolveWarehouseLifecycle(
@@ -278,7 +281,6 @@ export function buildWarehouseAnalyticsReport(
   vehicles: Vehicle[],
   vehicleRecords: VehicleRecord[],
   intakes: WarehouseIntakeRecord[],
-  accountingEntries: AdminAccountingEntry[],
   settings: AdminWarehouseAnalyticsSettings,
   today = new Date()
 ): WarehouseAnalyticsReport {
@@ -286,7 +288,6 @@ export function buildWarehouseAnalyticsReport(
   const vehicleRecordsByListingId = new Map(vehicleRecords.filter((record) => record.publicListingId).map((record) => [record.publicListingId as string, record]));
   const intakesByVehicleId = new Map<string, WarehouseIntakeRecord[]>();
   const intakesByVehicleRecordId = new Map<string, WarehouseIntakeRecord[]>();
-  const revenueMaps = buildRevenueMaps(accountingEntries);
 
   for (const intake of intakes) {
     if (intake.vehicleId) {
@@ -311,9 +312,6 @@ export function buildWarehouseAnalyticsReport(
       const lifecycle = resolveWarehouseLifecycle(vehicle, dedupedIntakes, analyticsStartDate, today, isCurrentActive);
       const listingEndDate = vehicle.soldAt || today.toISOString();
       const listedDays = getDaysBetweenIsoDates(getVehicleListedAt(vehicle), listingEndDate);
-      const accountingPlatformRevenue = revenueMaps.byVehicleRecordId.get(vehicleRecord?.id ?? "")
-        ?? revenueMaps.byVehicleId.get(vehicle.id)
-        ?? null;
 
       return {
         vehicle,
@@ -324,7 +322,6 @@ export function buildWarehouseAnalyticsReport(
         reference: vehicle.displayReference || vehicleRecord?.displayReference || vehicle.id,
         rego: vehicle.rego || vehicleRecord?.registrationPlate || "Not available",
         listedDays,
-        accountingPlatformRevenue,
         listingStatus: buildListingStatus(vehicle, vehicleRecord ?? null),
       } satisfies WarehouseVehicleContext;
     });
@@ -356,35 +353,85 @@ export function buildWarehouseAnalyticsReport(
   });
 
   const soldWarehouseContexts = warehouseContexts.filter((context) => Boolean(context.lifecycle.soldDate));
-  const soldVehicleRows = soldWarehouseContexts.map((context) => {
+  const soldVehicleRowsWithDates = soldWarehouseContexts.map((context) => {
     const soldDate = context.lifecycle.soldDate;
-    const daysToSell = context.listedDays;
+    const daysToSell = soldDate && context.lifecycle.warehouseIntakeDate && context.lifecycle.effectiveStartDate
+      ? diffWholeDays(soldDate, context.lifecycle.effectiveStartDate)
+      : null;
     const historicalActiveCount = soldDate ? resolveHistoricalActiveVehicleCount(warehouseContexts, soldDate) : null;
     const soldCostPerVehiclePerDay = historicalActiveCount
       ? settings.warehouseOperatingCostPerDay / historicalActiveCount
       : currentCostPerVehiclePerDay;
-    const totalStorageCost = soldCostPerVehiclePerDay !== null && daysToSell !== null
+    const estimatedStorageCost = soldCostPerVehiclePerDay !== null && daysToSell !== null
       ? soldCostPerVehiclePerDay * daysToSell
       : null;
-    const platformRevenue = context.accountingPlatformRevenue && context.accountingPlatformRevenue > 0
-      ? context.accountingPlatformRevenue
-      : null;
+    const monthKey = soldDate ? formatMonthKey(soldDate) : "unknown";
 
     return {
-      vehicleId: context.vehicle.id,
-      vehicleRecordId: context.vehicleRecord?.id || "",
-      title: context.title,
-      reference: context.reference,
-      rego: context.rego,
-      warehouseIntakeDate: context.lifecycle.warehouseIntakeDateLabel,
-      soldDate: context.lifecycle.soldDateLabel,
-      daysToSell,
-      totalStorageCost,
-      listingStatus: context.listingStatus,
-      platformRevenue,
-      estimatedUsingCurrentCost: historicalActiveCount === null,
-    } satisfies WarehouseRankingRow;
+      soldDateValue: soldDate,
+      row: {
+        monthKey,
+        vehicleId: context.vehicle.id,
+        vehicleRecordId: context.vehicleRecord?.id || "",
+        title: context.title,
+        reference: context.reference,
+        rego: context.rego,
+        soldDate: context.lifecycle.soldDateLabel,
+        daysToSell,
+        estimatedStorageCost,
+        estimatedUsingCurrentCost: historicalActiveCount === null,
+      } satisfies WarehouseMonthlySoldDetailRow,
+    };
   });
+
+  const soldVehicleRows = soldVehicleRowsWithDates.map((entry) => entry.row);
+
+  const monthlySoldVehicleDetailsByMonth = soldVehicleRows.reduce<Record<string, WarehouseMonthlySoldDetailRow[]>>((accumulator, row) => {
+    accumulator[row.monthKey] = [...(accumulator[row.monthKey] ?? []), row];
+    return accumulator;
+  }, {});
+
+  for (const monthKey of Object.keys(monthlySoldVehicleDetailsByMonth)) {
+    monthlySoldVehicleDetailsByMonth[monthKey] = [...monthlySoldVehicleDetailsByMonth[monthKey]].sort((left, right) => {
+      const leftDate = soldVehicleRowsWithDates.find((entry) => entry.row.vehicleId === left.vehicleId)?.soldDateValue ?? null;
+      const rightDate = soldVehicleRowsWithDates.find((entry) => entry.row.vehicleId === right.vehicleId)?.soldDateValue ?? null;
+      if (leftDate && rightDate) return rightDate.getTime() - leftDate.getTime();
+      if (rightDate) return 1;
+      if (leftDate) return -1;
+      return left.title.localeCompare(right.title);
+    });
+  }
+
+  const monthlySoldVehicleSummary = Object.entries(monthlySoldVehicleDetailsByMonth)
+    .map(([monthKey, rows]) => {
+      const monthDate = parseIsoDate(`${monthKey}-01T00:00:00`);
+      const rowsWithDays = rows.filter((row) => row.daysToSell !== null);
+      const rowsWithCost = rows.filter((row) => row.estimatedStorageCost !== null);
+      const fastestSoldVehicle = [...rowsWithDays].sort((left, right) => compareNullableNumber(left.daysToSell, right.daysToSell, "asc"))[0];
+      const slowestSoldVehicle = [...rowsWithDays].sort((left, right) => compareNullableNumber(left.daysToSell, right.daysToSell, "desc"))[0];
+      const estimatedTotalStorageCost = rowsWithCost.length
+        ? rowsWithCost.reduce((sum, row) => sum + (row.estimatedStorageCost ?? 0), 0)
+        : null;
+      const averageStorageCostPerSoldVehicle = rowsWithCost.length && estimatedTotalStorageCost !== null
+        ? estimatedTotalStorageCost / rowsWithCost.length
+        : null;
+      const averageDaysToSell = rowsWithDays.length
+        ? rowsWithDays.reduce((sum, row) => sum + (row.daysToSell ?? 0), 0) / rowsWithDays.length
+        : null;
+
+      return {
+        monthKey,
+        monthLabel: monthDate ? formatMonthLabel(monthDate) : monthKey,
+        vehiclesSold: rows.length,
+        averageDaysToSell,
+        fastestSoldVehicleLabel: fastestSoldVehicle?.title ?? "Not available",
+        slowestSoldVehicleLabel: slowestSoldVehicle?.title ?? "Not available",
+        estimatedTotalStorageCost,
+        averageStorageCostPerSoldVehicle,
+        usesEstimatedStorageCost: rows.some((row) => row.estimatedUsingCurrentCost && row.estimatedStorageCost !== null),
+      } satisfies WarehouseMonthlySoldSummaryRow;
+    })
+    .sort((left, right) => right.monthKey.localeCompare(left.monthKey));
 
   const averageStorageDays = currentVehicles.length
     ? currentVehicles.reduce((sum, row) => sum + (row.daysInStorage ?? 0), 0) / currentVehicles.length
@@ -410,8 +457,7 @@ export function buildWarehouseAnalyticsReport(
       longestHoldingVehicleLabel: longestHoldingVehicle ? longestHoldingVehicle.title : "Not available",
     },
     currentVehicles: sortCurrentWarehouseRows(currentVehicles, "longest_storage"),
-    longestHoldingVehicles: [...currentVehicles].sort((left, right) => compareNullableNumber(left.daysInStorage, right.daysInStorage, "desc")),
-    fastestTurnoverVehicles: [...soldVehicleRows].sort((left, right) => compareNullableNumber(left.daysToSell, right.daysToSell, "asc")),
-    lowestManagementCostSoldVehicles: [...soldVehicleRows].sort((left, right) => compareNullableNumber(left.totalStorageCost, right.totalStorageCost, "asc")),
+    monthlySoldVehicleSummary,
+    monthlySoldVehicleDetailsByMonth,
   };
 }
