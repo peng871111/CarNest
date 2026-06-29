@@ -12,9 +12,7 @@ export type WarehouseVehicleTableSort =
   | "longest_storage"
   | "highest_storage_cost"
   | "lowest_storage_cost"
-  | "newest_arrival"
-  | "highest_net_profit"
-  | "lowest_net_profit";
+  | "newest_arrival";
 
 export interface WarehouseCurrentVehicleRow {
   vehicleId: string;
@@ -22,14 +20,10 @@ export interface WarehouseCurrentVehicleRow {
   title: string;
   reference: string;
   rego: string;
-  warehouseIntakeDate: string;
   daysInStorage: number | null;
   dailyStorageCost: number | null;
   totalAccumulatedStorageCost: number | null;
-  askingPrice: number | null;
   listingStatus: string;
-  platformRevenue: number | null;
-  netProfitAfterStorage: number | null;
   rowTone: "default" | "warning" | "alert" | "critical";
 }
 
@@ -41,14 +35,10 @@ export interface WarehouseRankingRow {
   rego: string;
   warehouseIntakeDate: string;
   soldDate: string;
-  daysInStorage: number | null;
   daysToSell: number | null;
   totalStorageCost: number | null;
-  askingPrice: number | null;
-  sellingPrice: number | null;
   listingStatus: string;
   platformRevenue: number | null;
-  netProfitAfterStorage: number | null;
   estimatedUsingCurrentCost: boolean;
 }
 
@@ -76,7 +66,6 @@ type WarehouseLifecycle = {
   warehouseIntakeDate: Date | null;
   warehouseIntakeDateLabel: string;
   effectiveStartDate: Date | null;
-  effectiveStartDateLabel: string;
   knownEndDate: Date | null;
   soldDate: Date | null;
   soldDateLabel: string;
@@ -92,23 +81,10 @@ type WarehouseVehicleContext = {
   title: string;
   reference: string;
   rego: string;
-  askingPrice: number | null;
-  sellingPrice: number | null;
-  currentPlatformRevenue: number | null;
-  soldPlatformRevenue: number | null;
+  listedDays: number | null;
+  accountingPlatformRevenue: number | null;
   listingStatus: string;
 };
-
-function parseNumericMoney(value?: string | number | null) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-
-  if (typeof value !== "string") return null;
-
-  const numeric = Number(value.replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(numeric) ? numeric : null;
-}
 
 function parseIsoDate(value?: string | null) {
   if (!value) return null;
@@ -153,6 +129,18 @@ function maxDateFromList(values: Array<Date | null>) {
 
 function isWarehouseManaged(vehicle: Vehicle) {
   return vehicle.listingType === "warehouse" || vehicle.storedInWarehouse || vehicle.isManagedByCarnest === true;
+}
+
+function getVehicleListedAt(vehicle: Vehicle) {
+  return vehicle.approvedAt || vehicle.createdAt || "";
+}
+
+function getDaysBetweenIsoDates(startDate?: string, endDate?: string) {
+  if (!startDate || !endDate) return null;
+  const startTime = new Date(startDate).getTime();
+  const endTime = new Date(endDate).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || endTime < startTime) return null;
+  return Math.max(Math.ceil((endTime - startTime) / DAY_MS), 0);
 }
 
 function isCurrentWarehouseListing(vehicle: Vehicle, vehicleRecord: VehicleRecord | null) {
@@ -220,7 +208,6 @@ function resolveWarehouseLifecycle(
     warehouseIntakeDate,
     warehouseIntakeDateLabel: formatDateInput(warehouseIntakeDate),
     effectiveStartDate,
-    effectiveStartDateLabel: formatDateInput(effectiveStartDate),
     knownEndDate,
     soldDate,
     soldDateLabel: formatDateInput(soldDate),
@@ -280,10 +267,6 @@ export function sortCurrentWarehouseRows(rows: WarehouseCurrentVehicleRow[], sor
         return compareNullableNumber(left.totalAccumulatedStorageCost, right.totalAccumulatedStorageCost, "asc");
       case "newest_arrival":
         return compareNullableNumber(left.daysInStorage, right.daysInStorage, "asc");
-      case "highest_net_profit":
-        return compareNullableNumber(left.netProfitAfterStorage, right.netProfitAfterStorage, "desc");
-      case "lowest_net_profit":
-        return compareNullableNumber(left.netProfitAfterStorage, right.netProfitAfterStorage, "asc");
       case "longest_storage":
       default:
         return compareNullableNumber(left.daysInStorage, right.daysInStorage, "desc");
@@ -300,7 +283,6 @@ export function buildWarehouseAnalyticsReport(
   today = new Date()
 ): WarehouseAnalyticsReport {
   const analyticsStartDate = parseIsoDate(settings.analyticsStartDate) ?? new Date("2026-07-01T00:00:00");
-  const vehicleRecordsById = new Map(vehicleRecords.map((record) => [record.id, record]));
   const vehicleRecordsByListingId = new Map(vehicleRecords.filter((record) => record.publicListingId).map((record) => [record.publicListingId as string, record]));
   const intakesByVehicleId = new Map<string, WarehouseIntakeRecord[]>();
   const intakesByVehicleRecordId = new Map<string, WarehouseIntakeRecord[]>();
@@ -327,20 +309,11 @@ export function buildWarehouseAnalyticsReport(
       const dedupedIntakes = Array.from(new Map(intakeList.map((intake) => [intake.id, intake])).values());
       const isCurrentActive = isCurrentWarehouseListing(vehicle, vehicleRecord);
       const lifecycle = resolveWarehouseLifecycle(vehicle, dedupedIntakes, analyticsStartDate, today, isCurrentActive);
-      const askingPrice = vehicle.price || parseNumericMoney(vehicleRecord?.askingPrice) || parseNumericMoney(vehicleRecord?.reservePrice);
-      const soldPrice = (vehicleRecord?.soldGrossTotal ?? 0) > 0
-        ? vehicleRecord?.soldGrossTotal ?? null
-        : null;
-      const currentPlatformRevenue = (vehicleRecord?.estimatedTotalIncome ?? 0) > 0
-        ? vehicleRecord?.estimatedTotalIncome ?? null
-        : revenueMaps.byVehicleRecordId.get(vehicleRecord?.id ?? "")
-          ?? revenueMaps.byVehicleId.get(vehicle.id)
-          ?? null;
-      const soldPlatformRevenue = (vehicleRecord?.realisedRevenue ?? 0) > 0
-        ? vehicleRecord?.realisedRevenue ?? null
-        : revenueMaps.byVehicleRecordId.get(vehicleRecord?.id ?? "")
-          ?? revenueMaps.byVehicleId.get(vehicle.id)
-          ?? null;
+      const listingEndDate = vehicle.soldAt || today.toISOString();
+      const listedDays = getDaysBetweenIsoDates(getVehicleListedAt(vehicle), listingEndDate);
+      const accountingPlatformRevenue = revenueMaps.byVehicleRecordId.get(vehicleRecord?.id ?? "")
+        ?? revenueMaps.byVehicleId.get(vehicle.id)
+        ?? null;
 
       return {
         vehicle,
@@ -350,10 +323,8 @@ export function buildWarehouseAnalyticsReport(
         title: buildVehicleTitle(vehicle, vehicleRecord ?? null),
         reference: vehicle.displayReference || vehicleRecord?.displayReference || vehicle.id,
         rego: vehicle.rego || vehicleRecord?.registrationPlate || "Not available",
-        askingPrice: askingPrice && Number.isFinite(askingPrice) ? askingPrice : null,
-        sellingPrice: soldPrice && Number.isFinite(soldPrice) ? soldPrice : null,
-        currentPlatformRevenue,
-        soldPlatformRevenue,
+        listedDays,
+        accountingPlatformRevenue,
         listingStatus: buildListingStatus(vehicle, vehicleRecord ?? null),
       } satisfies WarehouseVehicleContext;
     });
@@ -365,14 +336,9 @@ export function buildWarehouseAnalyticsReport(
     : null;
 
   const currentVehicles = currentWarehouseContexts.map((context) => {
-    const daysInStorage = context.lifecycle.effectiveStartDate
-      ? diffWholeDays(today, context.lifecycle.effectiveStartDate)
-      : null;
+    const daysInStorage = context.listedDays;
     const totalAccumulatedStorageCost = currentCostPerVehiclePerDay !== null && daysInStorage !== null
       ? currentCostPerVehiclePerDay * daysInStorage
-      : null;
-    const platformRevenue = context.currentPlatformRevenue && context.currentPlatformRevenue > 0
-      ? context.currentPlatformRevenue
       : null;
 
     return {
@@ -381,16 +347,10 @@ export function buildWarehouseAnalyticsReport(
       title: context.title,
       reference: context.reference,
       rego: context.rego,
-      warehouseIntakeDate: context.lifecycle.warehouseIntakeDateLabel,
       daysInStorage,
       dailyStorageCost: currentCostPerVehiclePerDay,
       totalAccumulatedStorageCost,
-      askingPrice: context.askingPrice,
       listingStatus: context.listingStatus,
-      platformRevenue,
-      netProfitAfterStorage: platformRevenue !== null && totalAccumulatedStorageCost !== null
-        ? platformRevenue - totalAccumulatedStorageCost
-        : null,
       rowTone: buildRowTone(daysInStorage),
     } satisfies WarehouseCurrentVehicleRow;
   });
@@ -398,9 +358,7 @@ export function buildWarehouseAnalyticsReport(
   const soldWarehouseContexts = warehouseContexts.filter((context) => Boolean(context.lifecycle.soldDate));
   const soldVehicleRows = soldWarehouseContexts.map((context) => {
     const soldDate = context.lifecycle.soldDate;
-    const daysToSell = soldDate && context.lifecycle.effectiveStartDate
-      ? diffWholeDays(soldDate, context.lifecycle.effectiveStartDate)
-      : null;
+    const daysToSell = context.listedDays;
     const historicalActiveCount = soldDate ? resolveHistoricalActiveVehicleCount(warehouseContexts, soldDate) : null;
     const soldCostPerVehiclePerDay = historicalActiveCount
       ? settings.warehouseOperatingCostPerDay / historicalActiveCount
@@ -408,8 +366,8 @@ export function buildWarehouseAnalyticsReport(
     const totalStorageCost = soldCostPerVehiclePerDay !== null && daysToSell !== null
       ? soldCostPerVehiclePerDay * daysToSell
       : null;
-    const platformRevenue = context.soldPlatformRevenue && context.soldPlatformRevenue > 0
-      ? context.soldPlatformRevenue
+    const platformRevenue = context.accountingPlatformRevenue && context.accountingPlatformRevenue > 0
+      ? context.accountingPlatformRevenue
       : null;
 
     return {
@@ -420,16 +378,10 @@ export function buildWarehouseAnalyticsReport(
       rego: context.rego,
       warehouseIntakeDate: context.lifecycle.warehouseIntakeDateLabel,
       soldDate: context.lifecycle.soldDateLabel,
-      daysInStorage: daysToSell,
       daysToSell,
       totalStorageCost,
-      askingPrice: context.askingPrice,
-      sellingPrice: context.sellingPrice,
       listingStatus: context.listingStatus,
       platformRevenue,
-      netProfitAfterStorage: platformRevenue !== null && totalStorageCost !== null
-        ? platformRevenue - totalStorageCost
-        : null,
       estimatedUsingCurrentCost: historicalActiveCount === null,
     } satisfies WarehouseRankingRow;
   });

@@ -62,8 +62,6 @@ const CURRENT_VEHICLE_SORT_OPTIONS: Array<{ value: WarehouseVehicleTableSort; la
   { value: "highest_storage_cost", label: "Highest storage cost" },
   { value: "lowest_storage_cost", label: "Lowest storage cost" },
   { value: "newest_arrival", label: "Newest arrival" },
-  { value: "highest_net_profit", label: "Highest net profit" },
-  { value: "lowest_net_profit", label: "Lowest net profit" },
 ];
 
 function toAverageLabel(total: number, divisor: number) {
@@ -307,10 +305,6 @@ function WarehouseTableCard({
   );
 }
 
-function formatMaybeCurrency(value: number | null) {
-  return value === null ? "Not available" : formatCurrency(value);
-}
-
 function formatMaybeAccountingCurrency(value: number | null) {
   return value === null ? "Not available" : formatAccountingCurrency(value);
 }
@@ -335,14 +329,10 @@ function CurrentVehicleStorageTable({ rows }: { rows: WarehouseCurrentVehicleRow
           <tr>
             <th className="px-4 py-3 font-medium">Vehicle</th>
             <th className="px-4 py-3 font-medium">Rego</th>
-            <th className="px-4 py-3 font-medium">Warehouse intake date</th>
             <th className="px-4 py-3 font-medium">Days in storage</th>
             <th className="px-4 py-3 font-medium">Daily storage cost</th>
             <th className="px-4 py-3 font-medium">Total accumulated storage cost</th>
-            <th className="px-4 py-3 font-medium">Asking price</th>
             <th className="px-4 py-3 font-medium">Listing status</th>
-            <th className="px-4 py-3 font-medium">Estimated platform revenue</th>
-            <th className="px-4 py-3 font-medium">Net profit after storage</th>
           </tr>
         </thead>
         <tbody>
@@ -353,18 +343,14 @@ function CurrentVehicleStorageTable({ rows }: { rows: WarehouseCurrentVehicleRow
                 <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">{row.reference}</p>
               </td>
               <td className="px-4 py-4 text-ink/75">{row.rego || "Not available"}</td>
-              <td className="px-4 py-4 text-ink/75">{row.warehouseIntakeDate}</td>
               <td className="px-4 py-4 text-ink/75">{row.daysInStorage ?? "Not available"}</td>
               <td className="px-4 py-4 text-ink/75">{formatMaybeAccountingCurrency(row.dailyStorageCost)}</td>
               <td className="px-4 py-4 font-medium text-ink">{formatMaybeAccountingCurrency(row.totalAccumulatedStorageCost)}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeCurrency(row.askingPrice)}</td>
               <td className="px-4 py-4 text-ink/75">{row.listingStatus}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeCurrency(row.platformRevenue)}</td>
-              <td className="px-4 py-4 font-medium text-ink">{formatMaybeAccountingCurrency(row.netProfitAfterStorage)}</td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={10} className="px-4 py-6 text-sm text-ink/60">No current warehouse vehicles match the active/live criteria.</td>
+              <td colSpan={6} className="px-4 py-6 text-sm text-ink/60">No current warehouse vehicles match the active/live criteria.</td>
             </tr>
           )}
         </tbody>
@@ -382,7 +368,6 @@ function CurrentHoldingTable({ rows }: { rows: WarehouseCurrentVehicleRow[] }) {
             <th className="px-4 py-3 font-medium">Vehicle</th>
             <th className="px-4 py-3 font-medium">Days in storage</th>
             <th className="px-4 py-3 font-medium">Total storage cost</th>
-            <th className="px-4 py-3 font-medium">Asking price</th>
             <th className="px-4 py-3 font-medium">Status</th>
           </tr>
         </thead>
@@ -395,12 +380,11 @@ function CurrentHoldingTable({ rows }: { rows: WarehouseCurrentVehicleRow[] }) {
               </td>
               <td className="px-4 py-4 text-ink/75">{row.daysInStorage ?? "Not available"}</td>
               <td className="px-4 py-4 font-medium text-ink">{formatMaybeAccountingCurrency(row.totalAccumulatedStorageCost)}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeCurrency(row.askingPrice)}</td>
               <td className="px-4 py-4 text-ink/75">{row.listingStatus}</td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={5} className="px-4 py-6 text-sm text-ink/60">No active warehouse vehicles available for ranking.</td>
+              <td colSpan={4} className="px-4 py-6 text-sm text-ink/60">No active warehouse vehicles available for ranking.</td>
             </tr>
           )}
         </tbody>
@@ -426,9 +410,7 @@ function SoldVehicleRankingTable({
             {includeDates ? <th className="px-4 py-3 font-medium">Sold date</th> : null}
             <th className="px-4 py-3 font-medium">Days to sell</th>
             <th className="px-4 py-3 font-medium">Estimated storage cost</th>
-            <th className="px-4 py-3 font-medium">Selling price</th>
-            <th className="px-4 py-3 font-medium">Platform revenue</th>
-            <th className="px-4 py-3 font-medium">Net profit after storage</th>
+            <th className="px-4 py-3 font-medium">Actual CarNest platform revenue</th>
           </tr>
         </thead>
         <tbody>
@@ -442,13 +424,11 @@ function SoldVehicleRankingTable({
               {includeDates ? <td className="px-4 py-4 text-ink/75">{row.soldDate}</td> : null}
               <td className="px-4 py-4 text-ink/75">{row.daysToSell ?? "Not available"}</td>
               <td className="px-4 py-4 font-medium text-ink">{formatStorageCost(row.totalStorageCost, row.estimatedUsingCurrentCost)}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeCurrency(row.sellingPrice)}</td>
-              <td className="px-4 py-4 text-ink/75">{formatMaybeCurrency(row.platformRevenue)}</td>
-              <td className="px-4 py-4 font-medium text-ink">{formatMaybeAccountingCurrency(row.netProfitAfterStorage)}</td>
+              <td className="px-4 py-4 text-ink/75">{formatMaybeAccountingCurrency(row.platformRevenue)}</td>
             </tr>
           )) : (
             <tr>
-              <td colSpan={includeDates ? 8 : 6} className="px-4 py-6 text-sm text-ink/60">No sold warehouse vehicles are available for this ranking yet.</td>
+              <td colSpan={includeDates ? 6 : 4} className="px-4 py-6 text-sm text-ink/60">No sold warehouse vehicles are available for this ranking yet.</td>
             </tr>
           )}
         </tbody>
@@ -784,8 +764,9 @@ export default function AdminAnalyticsPage() {
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">Calculation notes</p>
             <div className="mt-4 space-y-3 text-sm leading-6 text-ink/68">
               <p>Current cost per vehicle per day uses only current active warehouse vehicles that are live, unsold, and not archived.</p>
+              <p>Days in storage for the current warehouse cost table reuse the same listing-age calculation already shown on Vehicle Listings for active listings.</p>
               <p>Sold-vehicle storage cost uses the warehouse operating cost and historical active count when a count can be derived. Otherwise the current cost per vehicle per day is used and marked as Estimated.</p>
-              <p>Missing intake or revenue fields remain visible as “Not available” rather than breaking the analytics view.</p>
+              <p>Actual CarNest platform revenue appears only when accounting income entries exist for the listing or linked vehicle record. Otherwise the table shows “Not available”.</p>
             </div>
           </section>
         </div>
@@ -804,7 +785,7 @@ export default function AdminAnalyticsPage() {
 
         <WarehouseTableCard
           title="Vehicle Storage Cost Table"
-          description="Current active warehouse vehicles only. Storage days start from the later of the warehouse intake date and the configured analytics start date."
+          description="Current active warehouse vehicles only. This table focuses on current warehouse management carrying cost, not customer vehicle value."
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-ink/60">Default sorting: longest days in storage first. Row colour flags: 30+ days yellow, 60+ orange, 90+ red.</p>
