@@ -37,6 +37,13 @@ import {
   getVehicleBodyDamageGridCell,
   VEHICLE_BODY_DAMAGE_GRID_CELLS,
 } from "@/lib/vehicle-body-damage-grid";
+import {
+  createEmptyVehicleServiceHistoryRecord,
+  formatVehicleServiceHistoryDate,
+  sortVehicleServiceHistoryRecords,
+  VEHICLE_SERVICE_HISTORY_DAY_OPTIONS,
+  VEHICLE_SERVICE_HISTORY_MONTH_OPTIONS,
+} from "@/lib/vehicle-service-history";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
   fetchAdminWarehouseIntakeFileBytes,
@@ -56,6 +63,7 @@ import {
   Vehicle,
   VehicleActor,
   VehicleRecord,
+  VehicleServiceHistoryRecord,
   WarehouseConditionItem,
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
@@ -88,6 +96,7 @@ const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["cat
 const VEHICLE_FUEL_TYPE_OPTIONS = ["Petrol", "Diesel", "Hybrid", "Plug-in Hybrid", "Full Electric"] as const;
 const VEHICLE_TRANSMISSION_OPTIONS = ["AT", "CVT", "MT", "DCT"] as const;
 const VEHICLE_DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD"] as const;
+const VEHICLE_SERVICE_HISTORY_YEAR_OPTIONS = Array.from({ length: 60 }, (_, index) => String(new Date().getFullYear() - index));
 const SCORED_CONDITION_CATEGORY_KEYS = [...VEHICLE_CONDITION_SCORED_CATEGORY_KEYS];
 const NOTES_ONLY_CONDITION_CATEGORY_KEYS = new Set<VehicleConditionCategoryKey>(VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS);
 const NON_DAMAGE_WAREHOUSE_PHOTO_SECTIONS = WAREHOUSE_PHOTO_SECTIONS.filter((section) => section.key !== "damagePhotos");
@@ -215,6 +224,7 @@ function applyVehicleRecordToDraft(
         askingPrice: "",
         reservePrice: "",
         serviceHistory: "",
+        serviceHistoryRecords: [],
         warrantyStatus: "",
         numberOfOwners: "",
         accidentHistory: "",
@@ -251,6 +261,7 @@ function applyVehicleRecordToDraft(
       askingPrice: record.askingPrice,
       reservePrice: record.reservePrice,
       serviceHistory: record.serviceHistory,
+      serviceHistoryRecords: record.serviceHistoryRecords ?? [],
       warrantyStatus: draft.vehicleDetails.warrantyStatus,
       numberOfOwners: draft.vehicleDetails.numberOfOwners,
       accidentHistory: record.accidentHistory,
@@ -292,6 +303,10 @@ function mergeVehicleIntoDraft(draft: Omit<WarehouseIntakeRecord, "id">, vehicle
       drivetrain: vehicle.drivetrain || draft.vehicleDetails.drivetrain,
       askingPrice: vehicle.price ? String(vehicle.price) : draft.vehicleDetails.askingPrice,
       serviceHistory: vehicle.serviceHistory || draft.vehicleDetails.serviceHistory,
+      serviceHistoryRecords:
+        vehicle.serviceHistoryRecords
+        ?? vehicle.vehicleReportSummary?.serviceHistoryRecords
+        ?? draft.vehicleDetails.serviceHistoryRecords,
       notes: draft.vehicleDetails.notes || vehicle.description || ""
     }
   };
@@ -433,6 +448,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const damageRecords = useMemo(
     () => draft.vehicleReport.damageRecords ?? [],
     [draft.vehicleReport.damageRecords]
+  );
+  const serviceHistoryRecords = useMemo(
+    () => sortVehicleServiceHistoryRecords(draft.vehicleDetails.serviceHistoryRecords),
+    [draft.vehicleDetails.serviceHistoryRecords]
   );
   const linkedDamagePhotoIds = useMemo(
     () => new Set(
@@ -712,6 +731,46 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       vehicleDetails: {
         ...current.vehicleDetails,
         [key]: value
+      }
+    }));
+  }
+
+  function addServiceHistoryRecord() {
+    setDraft((current) => ({
+      ...current,
+      vehicleDetails: {
+        ...current.vehicleDetails,
+        serviceHistoryRecords: current.vehicleDetails.serviceHistoryRecords.concat(createEmptyVehicleServiceHistoryRecord()),
+      }
+    }));
+  }
+
+  function updateServiceHistoryRecord(
+    id: string,
+    updates: Partial<VehicleServiceHistoryRecord>
+  ) {
+    setDraft((current) => ({
+      ...current,
+      vehicleDetails: {
+        ...current.vehicleDetails,
+        serviceHistoryRecords: current.vehicleDetails.serviceHistoryRecords.map((record) => (
+          record.id === id
+            ? {
+                ...record,
+                ...updates,
+              }
+            : record
+        )),
+      }
+    }));
+  }
+
+  function removeServiceHistoryRecord(id: string) {
+    setDraft((current) => ({
+      ...current,
+      vehicleDetails: {
+        ...current.vehicleDetails,
+        serviceHistoryRecords: current.vehicleDetails.serviceHistoryRecords.filter((record) => record.id !== id),
       }
     }));
   }
@@ -1580,7 +1639,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   ["numberOfKeys", "Number of keys"],
                   ["askingPrice", "Asking price"],
                   ["reservePrice", "Reserve price"],
-                  ["serviceHistory", "Service history"],
                   ["warrantyStatus", "Warranty status"],
                   ["numberOfOwners", "Number of owners"],
                   ["accidentHistory", "Accident history"]
@@ -1626,6 +1684,110 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <FieldLabel>Ownership proof upload</FieldLabel>
                   <TextInput type="file" accept="image/*,.pdf" onChange={(event) => void handleOwnershipProofUpload(event.target.files?.[0])} />
                   <FieldNote>{draft.vehicleDetails.ownershipProof?.name || "Pending / to be supplied later. Preferably registration paper or ownership proof."}</FieldNote>
+                </div>
+
+                <div className="space-y-4 md:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <FieldLabel>Service History</FieldLabel>
+                      <FieldNote>Capture each service visit as a structured record. Existing free-text notes stay below as legacy notes.</FieldNote>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addServiceHistoryRecord}
+                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                    >
+                      Add service record
+                    </button>
+                  </div>
+
+                  {serviceHistoryRecords.length ? (
+                    <div className="space-y-4">
+                      {serviceHistoryRecords.map((record) => (
+                        <div key={record.id} className="rounded-[24px] border border-black/6 bg-white p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-ink">{formatVehicleServiceHistoryDate(record)}</p>
+                            <button
+                              type="button"
+                              onClick={() => removeServiceHistoryRecord(record.id)}
+                              className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-100"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <div className="mt-4 grid gap-4 md:grid-cols-5">
+                            <div className="space-y-2">
+                              <FieldLabel>Day</FieldLabel>
+                              <SelectInput
+                                value={record.serviceDateDay}
+                                onChange={(event) => updateServiceHistoryRecord(record.id, { serviceDateDay: event.target.value })}
+                              >
+                                <option value="">Day</option>
+                                {VEHICLE_SERVICE_HISTORY_DAY_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </SelectInput>
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel>Month</FieldLabel>
+                              <SelectInput
+                                value={record.serviceDateMonth}
+                                onChange={(event) => updateServiceHistoryRecord(record.id, { serviceDateMonth: event.target.value })}
+                              >
+                                <option value="">Month</option>
+                                {VEHICLE_SERVICE_HISTORY_MONTH_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </SelectInput>
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel>Year</FieldLabel>
+                              <SelectInput
+                                value={record.serviceDateYear}
+                                onChange={(event) => updateServiceHistoryRecord(record.id, { serviceDateYear: event.target.value })}
+                              >
+                                <option value="">Year</option>
+                                {VEHICLE_SERVICE_HISTORY_YEAR_OPTIONS.map((year) => (
+                                  <option key={year} value={year}>{year}</option>
+                                ))}
+                              </SelectInput>
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                              <FieldLabel>Odometer / mileage at service</FieldLabel>
+                              <TextInput
+                                value={record.odometer}
+                                onChange={(event) => updateServiceHistoryRecord(record.id, { odometer: event.target.value })}
+                                placeholder="e.g. 45,000 km"
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-4 space-y-2">
+                            <FieldLabel>Notes</FieldLabel>
+                            <TextAreaInput
+                              value={record.notes}
+                              onChange={(event) => updateServiceHistoryRecord(record.id, { notes: event.target.value })}
+                              className="min-h-[92px]"
+                              placeholder="Optional service note"
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-[24px] border border-dashed border-black/10 bg-white/65 px-4 py-5 text-sm text-ink/58">
+                      No structured service records added yet.
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <FieldLabel>Legacy service history notes</FieldLabel>
+                  <TextAreaInput
+                    value={draft.vehicleDetails.serviceHistory}
+                    onChange={(event) => updateVehicleField("serviceHistory", event.target.value)}
+                    className="min-h-[96px]"
+                    placeholder="Keep any older free-text service history notes here"
+                  />
                 </div>
 
                 <div className="space-y-2 md:col-span-2">

@@ -1,3 +1,4 @@
+import { sortVehicleServiceHistoryRecords } from "@/lib/vehicle-service-history";
 import type { Vehicle, VehiclePublicReportSummary } from "@/types";
 
 type BuyerFacingConditionInput =
@@ -67,14 +68,31 @@ export function buildBuyerFacingInspectorNotes(reportSummary?: VehiclePublicRepo
   return notes.length ? notes.join(" | ") : "No inspector notes recorded.";
 }
 
+export function getBuyerFacingServiceHistoryRecords(vehicle: Vehicle) {
+  return sortVehicleServiceHistoryRecords(
+    vehicle.vehicleReportSummary?.serviceHistoryRecords
+    ?? vehicle.serviceHistoryRecords
+    ?? []
+  );
+}
+
+export function getBuyerFacingLegacyServiceHistoryText(vehicle: Vehicle) {
+  return (
+    vehicle.vehicleReportSummary?.legacyServiceHistoryText
+    || vehicle.serviceHistory
+    || ""
+  ).trim();
+}
+
 export function buildBuyerFacingAdditionalChecks(vehicle: Vehicle) {
   const summary = vehicle.vehicleReportSummary;
+  const hasServiceHistory = getBuyerFacingServiceHistoryRecords(vehicle).length || getBuyerFacingLegacyServiceHistoryText(vehicle);
 
   return [
     { label: "PPSR", value: summary?.ppsrStatus || "Not recorded" },
     { label: "WOVR", value: summary?.accidentDeclaration || "Not recorded" },
     { label: "Recall Check", value: "Not recorded" },
-    { label: "Service Book", value: vehicle.serviceHistory || "Not recorded" },
+    { label: "Service Book", value: hasServiceHistory ? "Recorded" : "Not recorded" },
     { label: "Spare Key", value: summary?.keyCondition || vehicle.keyCount || "Not recorded" },
     { label: "Compliance Plate", value: summary?.ownershipVerificationStatus || "Not recorded" }
   ];

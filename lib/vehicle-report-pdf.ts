@@ -9,6 +9,11 @@ import {
 } from "@/lib/buyer-body-map-artwork";
 import { createPdfImageAssetLoader, type PdfEmbeddedImage } from "@/lib/pdf-image-loader";
 import {
+  formatVehicleServiceHistoryDate,
+  formatVehicleServiceHistoryOdometer,
+  sortVehicleServiceHistoryRecords,
+} from "@/lib/vehicle-service-history";
+import {
   formatVehicleBodyDamageGridCellLabel,
   getVehicleBodyDamageGridCell,
   VEHICLE_BODY_DAMAGE_GRID_CELLS,
@@ -358,8 +363,10 @@ function getContainedImageRect(
 }
 
 function buildAdditionalChecks(record: WarehouseIntakeRecord, supportsUnicode: boolean) {
+  const serviceHistoryRecords = sortVehicleServiceHistoryRecords(record.vehicleDetails.serviceHistoryRecords ?? []);
+  const legacyServiceHistoryText = (record.vehicleDetails.serviceHistory || "").trim();
   const serviceBook = sanitizeText(
-    record.vehicleDetails.serviceHistory,
+    serviceHistoryRecords.length ? "Recorded" : legacyServiceHistoryText,
     "Not recorded",
     supportsUnicode
   );
@@ -377,6 +384,13 @@ function buildAdditionalChecks(record: WarehouseIntakeRecord, supportsUnicode: b
     ["Spare Key", spareKey],
     ["Compliance Plate", "Not recorded"]
   ] as Array<[string, string]>;
+}
+
+function collectVehicleServiceHistoryData(record: WarehouseIntakeRecord) {
+  return {
+    records: sortVehicleServiceHistoryRecords(record.vehicleDetails.serviceHistoryRecords ?? []),
+    legacyText: (record.vehicleDetails.serviceHistory || "").trim(),
+  };
 }
 
 function buildInspectorNotes(record: WarehouseIntakeRecord, supportsUnicode: boolean) {
@@ -723,6 +737,118 @@ export async function generateVehicleReportPdf(
     cursorY = y - 18;
   };
 
+  const drawServiceHistorySection = () => {
+    const { records, legacyText } = serviceHistoryData;
+
+    if (!records.length) {
+      if (legacyText) {
+        drawTextSection("Service History", sanitizeText(legacyText, "Not provided", supportsUnicode), "Legacy notes");
+        return;
+      }
+
+      drawTextSection("Service History", "Not provided");
+      return;
+    }
+
+    const drawHeader = () => {
+      ensureSpace(28);
+      page.drawText(normalizePdfText("Service History", supportsUnicode), {
+        x: PAGE_MARGIN,
+        y: cursorY,
+        size: 14,
+        font: bold,
+        color: TEXT_PRIMARY
+      });
+      cursorY -= 20;
+
+      ensureSpace(34);
+      const headerY = cursorY - 34;
+      drawCard(page, PAGE_MARGIN, headerY, CONTENT_WIDTH, 34, false);
+      page.drawText(normalizePdfText("Date", supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: headerY + 12,
+        size: 8.5,
+        font: bold,
+        color: TEXT_MUTED
+      });
+      page.drawText(normalizePdfText("Odometer", supportsUnicode), {
+        x: PAGE_MARGIN + 126,
+        y: headerY + 12,
+        size: 8.5,
+        font: bold,
+        color: TEXT_MUTED
+      });
+      page.drawText(normalizePdfText("Notes", supportsUnicode), {
+        x: PAGE_MARGIN + 244,
+        y: headerY + 12,
+        size: 8.5,
+        font: bold,
+        color: TEXT_MUTED
+      });
+      cursorY = headerY - 8;
+    };
+
+    drawHeader();
+
+    for (const serviceRecord of records) {
+      const noteText = serviceRecord.notes.trim()
+        ? normalizePdfText(serviceRecord.notes.trim(), supportsUnicode)
+        : "-";
+      const noteLines = wrapText(noteText, 42);
+      const rowHeight = Math.max(44, 18 + noteLines.length * 12 + 10);
+      const activePage = page;
+      ensureSpace(rowHeight + 8);
+      if (page !== activePage) {
+        drawHeader();
+      }
+
+      const rowY = cursorY - rowHeight;
+      page.drawRectangle({
+        x: PAGE_MARGIN,
+        y: rowY,
+        width: CONTENT_WIDTH,
+        height: rowHeight,
+        color: rgb(1, 1, 1),
+        borderColor: BORDER_LIGHT,
+        borderWidth: 1
+      });
+
+      page.drawText(normalizePdfText(formatVehicleServiceHistoryDate(serviceRecord), supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: rowY + rowHeight - 22,
+        size: 10,
+        font: regular,
+        color: TEXT_PRIMARY,
+        maxWidth: 90
+      });
+      page.drawText(normalizePdfText(formatVehicleServiceHistoryOdometer(serviceRecord.odometer), supportsUnicode), {
+        x: PAGE_MARGIN + 126,
+        y: rowY + rowHeight - 22,
+        size: 10,
+        font: regular,
+        color: TEXT_PRIMARY,
+        maxWidth: 100
+      });
+
+      let noteY = rowY + rowHeight - 22;
+      noteLines.forEach((line) => {
+        page.drawText(line, {
+          x: PAGE_MARGIN + 244,
+          y: noteY,
+          size: 10,
+          font: regular,
+          color: TEXT_PRIMARY,
+          maxWidth: CONTENT_WIDTH - 262
+        });
+        noteY -= 12;
+      });
+
+      cursorY = rowY - 8;
+    }
+
+    cursorY -= 10;
+  };
+
   const drawBodyMapSection = async () => {
     const noteText = sanitizeText(
       record.vehicleReport.damageConditionNotes || record.vehicleReport.panelRepairNotes,
@@ -974,7 +1100,10 @@ export async function generateVehicleReportPdf(
     cursorY = y - 18;
   };
 
-  const drawLinkedDamagePhotos = async (photos: WarehouseIntakePhotoRecord[]) => {
+  const drawLinkedDamagePhotos = async (
+    photos: WarehouseIntakePhotoRecord[],
+    context: { locationLabel: string; damageTypeLabel: string }
+  ) => {
     ensureSpace(18);
     page.drawText(normalizePdfText("Linked Photos", supportsUnicode), {
       x: PAGE_MARGIN + 26,
@@ -1006,7 +1135,7 @@ export async function generateVehicleReportPdf(
     const labelHeight = 18;
     let column = 0;
 
-    for (const photo of photos) {
+    for (const [photoIndex, photo] of photos.entries()) {
       ensureSpace(photoHeight + labelHeight + 16);
       const x = insetX + (column === 0 ? 0 : photoWidth + gap);
       const frameY = cursorY - photoHeight;
@@ -1042,7 +1171,15 @@ export async function generateVehicleReportPdf(
         });
       }
 
-      page.drawText(normalizePdfText(photo.label || "Damage image", supportsUnicode), {
+      const rawLabel = photo.label?.trim();
+      const contextualLabel =
+        !rawLabel
+        || /^damage photo(s)?$/i.test(rawLabel)
+        || /^damage image$/i.test(rawLabel)
+          ? `${context.locationLabel} · ${context.damageTypeLabel} photo ${photoIndex + 1}`
+          : rawLabel;
+
+      page.drawText(normalizePdfText(contextualLabel, supportsUnicode), {
         x,
         y: frameY - 13,
         size: 8.5,
@@ -1206,7 +1343,10 @@ export async function generateVehicleReportPdf(
         });
 
         cursorY = recordY - 8;
-        await drawLinkedDamagePhotos(damageRecord.linkedPhotos);
+        await drawLinkedDamagePhotos(damageRecord.linkedPhotos, {
+          locationLabel: group.locationLabel,
+          damageTypeLabel: VEHICLE_DAMAGE_TYPE_LABELS[damageRecord.damageType],
+        });
         cursorY -= 8;
       }
     }
@@ -1329,11 +1469,7 @@ export async function generateVehicleReportPdf(
     "No features or equipment notes recorded.",
     supportsUnicode
   );
-  const serviceHistoryText = sanitizeText(
-    record.vehicleDetails.serviceHistory,
-    "No service history notes recorded.",
-    supportsUnicode
-  );
+  const serviceHistoryData = collectVehicleServiceHistoryData(record);
 
   drawHeroSection();
   drawInfoGridSection("Vehicle Information", vehicleFields);
@@ -1341,7 +1477,7 @@ export async function generateVehicleReportPdf(
   await drawDamageRecordsSection();
   drawInfoGridSection("Additional Checks", buildAdditionalChecks(record, supportsUnicode));
   drawTextSection("Features / Equipment", featuresText);
-  drawTextSection("Service History", serviceHistoryText);
+  drawServiceHistorySection();
   drawTextSection("Inspector Notes", buildInspectorNotes(record, supportsUnicode));
   await drawSignatureSection();
 

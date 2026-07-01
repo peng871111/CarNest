@@ -8,8 +8,14 @@ import {
   buildBuyerFacingAdditionalChecks,
   buildBuyerFacingInspectorNotes,
   formatBuyerFacingConditionScore,
-  getBuyerFacingConditionScores
+  getBuyerFacingConditionScores,
+  getBuyerFacingLegacyServiceHistoryText,
+  getBuyerFacingServiceHistoryRecords
 } from "@/lib/vehicle-public-report";
+import {
+  formatVehicleServiceHistoryDate,
+  formatVehicleServiceHistoryOdometer,
+} from "@/lib/vehicle-service-history";
 import { Vehicle } from "@/types";
 import { getVehicleDisplayReference } from "@/lib/utils";
 
@@ -61,10 +67,11 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
   const scores = getBuyerFacingConditionScores(summary);
   const additionalChecks = buildBuyerFacingAdditionalChecks(vehicle);
   const inspectorNotes = buildBuyerFacingInspectorNotes(summary);
+  const serviceHistoryRecords = getBuyerFacingServiceHistoryRecords(vehicle);
+  const legacyServiceHistoryText = getBuyerFacingLegacyServiceHistoryText(vehicle);
   const generatedAt = vehicle.vehicleReportGeneratedAt
     ? new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(vehicle.vehicleReportGeneratedAt))
     : "";
-  const serviceHistoryText = vehicle.serviceHistory || "No service history notes recorded.";
 
   const vehicleInfo = [
     { label: "Year", value: vehicle.year },
@@ -203,7 +210,34 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
         </SectionCard>
 
         <SectionCard kicker="Service History" title="Service & Maintenance">
-          <p className="text-sm leading-7 text-[#3E352C]">{serviceHistoryText}</p>
+          {serviceHistoryRecords.length ? (
+            <div className="overflow-x-auto rounded-[24px] border border-[#E7DCCB] bg-white">
+              <div className="min-w-[36rem]">
+                <div className="grid grid-cols-[1fr_1fr_1.4fr] border-b border-[#E7DCCB] bg-[#F7F0E5] px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A7657]">
+                  <p>Date</p>
+                  <p>Odometer</p>
+                  <p>Notes</p>
+                </div>
+                {serviceHistoryRecords.map((record) => (
+                  <div
+                    key={record.id}
+                    className="grid grid-cols-[1fr_1fr_1.4fr] gap-3 border-b border-[#F0E6D8] px-4 py-4 text-sm text-[#3E352C] last:border-b-0"
+                  >
+                    <p>{formatVehicleServiceHistoryDate(record)}</p>
+                    <p>{formatVehicleServiceHistoryOdometer(record.odometer)}</p>
+                    <p>{record.notes.trim() || "-"}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : legacyServiceHistoryText ? (
+            <div className="space-y-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[#8A7657]">Legacy notes</p>
+              <p className="text-sm leading-7 text-[#3E352C]">{legacyServiceHistoryText}</p>
+            </div>
+          ) : (
+            <p className="text-sm leading-7 text-[#6E6256]">Not provided</p>
+          )}
         </SectionCard>
 
         <SectionCard kicker="Inspector Notes" title="Inspection Commentary">

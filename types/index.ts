@@ -252,6 +252,7 @@ export interface Vehicle {
   features: string[];
   conditionNotes: string;
   serviceHistory: string;
+  serviceHistoryRecords?: VehicleServiceHistoryRecord[];
   keyCount: string;
   displayReference?: string;
   vehicleReportAvailable?: boolean;
@@ -284,6 +285,15 @@ export interface VehicleReportImageSummary {
   url: string;
   label: string;
   note?: string;
+}
+
+export interface VehicleServiceHistoryRecord {
+  id: string;
+  serviceDateDay: string;
+  serviceDateMonth: string;
+  serviceDateYear: string;
+  odometer: string;
+  notes: string;
 }
 
 export interface WarehouseVehicleDamageRecord {
@@ -338,6 +348,8 @@ export interface VehiclePublicReportSummary {
   serviceRecordCondition?: string;
   keyCondition?: string;
   rwcCooperation?: string;
+  serviceHistoryRecords?: VehicleServiceHistoryRecord[];
+  legacyServiceHistoryText?: string;
   damageConditionNotes?: string;
   damageRecords?: VehiclePublicDamageRecordSummary[];
   damageImages?: VehicleReportImageSummary[];
@@ -402,6 +414,7 @@ export interface WarehouseIntakeVehicleDetails {
   askingPrice: string;
   reservePrice: string;
   serviceHistory: string;
+  serviceHistoryRecords: VehicleServiceHistoryRecord[];
   warrantyStatus: string;
   numberOfOwners: string;
   accidentHistory: string;
@@ -587,6 +600,7 @@ export interface VehicleRecord {
   askingPrice: string;
   reservePrice: string;
   serviceHistory: string;
+  serviceHistoryRecords: VehicleServiceHistoryRecord[];
   accidentHistory: string;
   ownershipProof?: WarehouseIntakeFileRecord | null;
   declarations: WarehouseIntakeDeclarations;

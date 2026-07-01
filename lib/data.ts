@@ -22,6 +22,11 @@ import { extractFirebaseStoragePath } from "@/lib/firebase-storage-paths";
 import { deleteVehicleImageFiles } from "@/lib/storage";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import {
+  createEmptyVehicleServiceHistoryRecord,
+  isVehicleServiceHistoryRecordMeaningful,
+  sortVehicleServiceHistoryRecords,
+} from "@/lib/vehicle-service-history";
+import {
   AccountType,
   AdminAccountingEntry,
   AdminAccountingGstMode,
@@ -89,6 +94,7 @@ import {
   VehicleDamageType,
   VehiclePublicDamageRecordSummary,
   VehicleStatus,
+  VehicleServiceHistoryRecord,
   VehicleViewEvent,
   VehicleViewRole,
   VehicleDeviceType,
@@ -596,6 +602,11 @@ async function syncVehicleRecordFromPublicListing(
     fuelType: vehicle.fuelType || existingRecord?.fuelType || "",
     transmission: vehicle.transmission || existingRecord?.transmission || "",
     askingPrice: String(vehicle.price || parseCurrencyNumber(existingRecord?.askingPrice)),
+    serviceHistoryRecords: serializeVehicleServiceHistoryRecords(
+      vehicle.serviceHistoryRecords
+      ?? vehicle.vehicleReportSummary?.serviceHistoryRecords
+      ?? existingRecord?.serviceHistoryRecords
+    ),
     status:
       listingStatus === "sold"
         ? "sold"
@@ -848,6 +859,11 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
             serviceRecordCondition: typeof vehicleReportSummaryInput.serviceRecordCondition === "string" ? vehicleReportSummaryInput.serviceRecordCondition as string : "",
             keyCondition: typeof vehicleReportSummaryInput.keyCondition === "string" ? vehicleReportSummaryInput.keyCondition as string : "",
             rwcCooperation: typeof vehicleReportSummaryInput.rwcCooperation === "string" ? vehicleReportSummaryInput.rwcCooperation as string : "",
+            serviceHistoryRecords: serializeVehicleServiceHistoryRecords(vehicleReportSummaryInput.serviceHistoryRecords),
+            legacyServiceHistoryText:
+              typeof vehicleReportSummaryInput.legacyServiceHistoryText === "string"
+                ? vehicleReportSummaryInput.legacyServiceHistoryText as string
+                : "",
             damageConditionNotes: typeof vehicleReportSummaryInput.damageConditionNotes === "string" ? vehicleReportSummaryInput.damageConditionNotes as string : "",
             damageRecords: serializeVehiclePublicDamageRecordSummaries(vehicleReportSummaryInput.damageRecords),
             damageImages: Array.isArray(vehicleReportSummaryInput.damageImages)
@@ -870,6 +886,10 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     imageAssets,
     imageUrls,
     images: imageUrls,
+    serviceHistoryRecords: serializeVehicleServiceHistoryRecords(
+      data.serviceHistoryRecords
+      ?? vehicleReportSummaryInput?.serviceHistoryRecords
+    ),
     soldAt: serializeDate(data.soldAt),
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
@@ -1043,6 +1063,7 @@ function createEmptyWarehouseVehicleDetails(): WarehouseIntakeVehicleDetails {
     askingPrice: "",
     reservePrice: "",
     serviceHistory: "",
+    serviceHistoryRecords: [],
     warrantyStatus: "",
     numberOfOwners: "",
     accidentHistory: "",
@@ -1133,6 +1154,32 @@ function serializeVehicleBodyMap(input: unknown): VehicleBodyPanelMap {
     bodyMap[key] = normalizeVehicleBodyPanelCondition(value[key]);
   }
   return bodyMap;
+}
+
+function serializeVehicleServiceHistoryRecord(input: unknown): VehicleServiceHistoryRecord | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+
+  const record = createEmptyVehicleServiceHistoryRecord({
+    id: typeof value.id === "string" ? value.id : "",
+    serviceDateDay: typeof value.serviceDateDay === "string" ? value.serviceDateDay : "",
+    serviceDateMonth: typeof value.serviceDateMonth === "string" ? value.serviceDateMonth : "",
+    serviceDateYear: typeof value.serviceDateYear === "string" ? value.serviceDateYear : "",
+    odometer: typeof value.odometer === "string" ? value.odometer : "",
+    notes: typeof value.notes === "string" ? value.notes : "",
+  });
+
+  return isVehicleServiceHistoryRecordMeaningful(record) ? record : null;
+}
+
+function serializeVehicleServiceHistoryRecords(input: unknown): VehicleServiceHistoryRecord[] {
+  if (!Array.isArray(input)) return [];
+
+  return sortVehicleServiceHistoryRecords(
+    input
+      .map((item) => serializeVehicleServiceHistoryRecord(item))
+      .filter((item): item is VehicleServiceHistoryRecord => Boolean(item))
+  );
 }
 
 function serializeWarehouseVehicleDamageRecord(input: unknown): WarehouseVehicleDamageRecord | null {
@@ -1453,6 +1500,7 @@ export function createEmptyVehicleRecord(): Omit<VehicleRecord, "id"> {
     askingPrice: "",
     reservePrice: "",
     serviceHistory: "",
+    serviceHistoryRecords: [],
     accidentHistory: "",
     ownershipProof: null,
     declarations: createEmptyWarehouseDeclarations(),
@@ -1513,7 +1561,11 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
       fuelType: vehicle?.fuelType ?? "",
       transmission: vehicle?.transmission ?? "",
       drivetrain: vehicle?.drivetrain ?? "",
-      serviceHistory: vehicle?.serviceHistory ?? ""
+      serviceHistory: vehicle?.serviceHistory ?? "",
+      serviceHistoryRecords: serializeVehicleServiceHistoryRecords(
+        vehicle?.serviceHistoryRecords
+        ?? vehicle?.vehicleReportSummary?.serviceHistoryRecords
+      )
     },
     declarations: createEmptyWarehouseDeclarations(),
     conditionReport: createEmptyWarehouseConditionReport(),
@@ -1657,6 +1709,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       askingPrice: typeof vehicleInput.askingPrice === "string" ? vehicleInput.askingPrice : "",
       reservePrice: typeof vehicleInput.reservePrice === "string" ? vehicleInput.reservePrice : "",
       serviceHistory: typeof vehicleInput.serviceHistory === "string" ? vehicleInput.serviceHistory : "",
+      serviceHistoryRecords: serializeVehicleServiceHistoryRecords(vehicleInput.serviceHistoryRecords),
       warrantyStatus: typeof vehicleInput.warrantyStatus === "string" ? vehicleInput.warrantyStatus : "",
       numberOfOwners: typeof vehicleInput.numberOfOwners === "string" ? vehicleInput.numberOfOwners : "",
       accidentHistory: typeof vehicleInput.accidentHistory === "string" ? vehicleInput.accidentHistory : "",
@@ -1914,6 +1967,7 @@ function serializeVehicleRecordDoc(id: string, data: Record<string, unknown>): V
     askingPrice: typeof data.askingPrice === "string" ? data.askingPrice : "",
     reservePrice: typeof data.reservePrice === "string" ? data.reservePrice : "",
     serviceHistory: typeof data.serviceHistory === "string" ? data.serviceHistory : "",
+    serviceHistoryRecords: serializeVehicleServiceHistoryRecords(data.serviceHistoryRecords),
     accidentHistory: typeof data.accidentHistory === "string" ? data.accidentHistory : "",
     ownershipProof: serializeWarehouseFileRecord(data.ownershipProof),
     declarations: {
@@ -4917,6 +4971,18 @@ function buildVehicleRecordWritePayload(
     askingPrice: sanitizeSingleLineText(input.vehicleDetails?.askingPrice ?? ""),
     reservePrice: sanitizeSingleLineText(input.vehicleDetails?.reservePrice ?? ""),
     serviceHistory: sanitizeMultilineText(input.vehicleDetails?.serviceHistory ?? ""),
+    serviceHistoryRecords: sortVehicleServiceHistoryRecords(
+      (input.vehicleDetails?.serviceHistoryRecords ?? [])
+        .map((record) => createEmptyVehicleServiceHistoryRecord({
+          id: record.id,
+          serviceDateDay: record.serviceDateDay,
+          serviceDateMonth: record.serviceDateMonth,
+          serviceDateYear: record.serviceDateYear,
+          odometer: sanitizeSingleLineText(record.odometer ?? ""),
+          notes: sanitizeMultilineText(record.notes ?? ""),
+        }))
+        .filter((record) => isVehicleServiceHistoryRecordMeaningful(record))
+    ),
     accidentHistory: sanitizeMultilineText(input.vehicleDetails?.accidentHistory ?? ""),
     ownershipProof: input.vehicleDetails?.ownershipProof ?? null,
     declarations: {
@@ -5185,6 +5251,18 @@ export async function saveVehicleRecord(
     askingPrice: sanitizeSingleLineText(input.askingPrice ?? ""),
     reservePrice: sanitizeSingleLineText(input.reservePrice ?? ""),
     serviceHistory: sanitizeMultilineText(input.serviceHistory ?? ""),
+    serviceHistoryRecords: sortVehicleServiceHistoryRecords(
+      (input.serviceHistoryRecords ?? [])
+        .map((record) => createEmptyVehicleServiceHistoryRecord({
+          id: record.id,
+          serviceDateDay: record.serviceDateDay,
+          serviceDateMonth: record.serviceDateMonth,
+          serviceDateYear: record.serviceDateYear,
+          odometer: sanitizeSingleLineText(record.odometer ?? ""),
+          notes: sanitizeMultilineText(record.notes ?? ""),
+        }))
+        .filter((record) => isVehicleServiceHistoryRecordMeaningful(record))
+    ),
     accidentHistory: sanitizeMultilineText(input.accidentHistory ?? ""),
     notes: sanitizeMultilineText(input.notes ?? ""),
     publicationChecklist: normalizeVehiclePublicationChecklist(input.publicationChecklist),
@@ -5315,6 +5393,18 @@ function buildWarehouseIntakeWritePayload(
     vehicleDetails: {
       ...base.vehicleDetails,
       ...input.vehicleDetails,
+      serviceHistoryRecords: sortVehicleServiceHistoryRecords(
+        (input.vehicleDetails?.serviceHistoryRecords ?? [])
+          .map((record) => createEmptyVehicleServiceHistoryRecord({
+            id: record.id,
+            serviceDateDay: record.serviceDateDay,
+            serviceDateMonth: record.serviceDateMonth,
+            serviceDateYear: record.serviceDateYear,
+            odometer: sanitizeSingleLineText(record.odometer ?? ""),
+            notes: sanitizeMultilineText(record.notes ?? ""),
+          }))
+          .filter((record) => isVehicleServiceHistoryRecordMeaningful(record))
+      ),
       ownershipProof: input.vehicleDetails?.ownershipProof ?? null
     } satisfies WarehouseIntakeVehicleDetails,
     declarations: {
@@ -5584,6 +5674,18 @@ async function syncVehicleReportMetadataToPublicListing(
       vehicleReportAvailable: hasReport,
       vehicleReportGeneratedAt: hasReport ? (input.vehicleReportGeneratedAt || new Date().toISOString()) : deleteField(),
       vehicleConditionRating: deleteField(),
+      serviceHistoryRecords: sortVehicleServiceHistoryRecords(
+        (input.vehicleDetails.serviceHistoryRecords ?? [])
+          .map((record) => createEmptyVehicleServiceHistoryRecord({
+            id: record.id,
+            serviceDateDay: record.serviceDateDay,
+            serviceDateMonth: record.serviceDateMonth,
+            serviceDateYear: record.serviceDateYear,
+            odometer: sanitizeSingleLineText(record.odometer ?? ""),
+            notes: sanitizeMultilineText(record.notes ?? ""),
+          }))
+          .filter((record) => isVehicleServiceHistoryRecordMeaningful(record))
+      ),
       vehicleReportSummary: hasReport
         ? {
             conditionCategories: input.vehicleReport.conditionCategories,
@@ -5605,6 +5707,19 @@ async function syncVehicleReportMetadataToPublicListing(
             serviceRecordCondition: input.vehicleReport.serviceRecordCondition || "",
             keyCondition: input.vehicleReport.keyCondition || "",
             rwcCooperation: input.vehicleReport.rwcCooperation || "",
+            serviceHistoryRecords: sortVehicleServiceHistoryRecords(
+              (input.vehicleDetails.serviceHistoryRecords ?? [])
+                .map((record) => createEmptyVehicleServiceHistoryRecord({
+                  id: record.id,
+                  serviceDateDay: record.serviceDateDay,
+                  serviceDateMonth: record.serviceDateMonth,
+                  serviceDateYear: record.serviceDateYear,
+                  odometer: sanitizeSingleLineText(record.odometer ?? ""),
+                  notes: sanitizeMultilineText(record.notes ?? ""),
+                }))
+                .filter((record) => isVehicleServiceHistoryRecordMeaningful(record))
+            ),
+            legacyServiceHistoryText: sanitizeMultilineText(input.vehicleDetails.serviceHistory || ""),
             damageConditionNotes: input.vehicleReport.damageConditionNotes || "",
             damageRecords,
             damageImages
