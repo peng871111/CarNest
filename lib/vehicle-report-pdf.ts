@@ -7,6 +7,7 @@ import {
   BUYER_BODY_MAP_REFERENCE_SVG_PATH,
   BUYER_BODY_MAP_VIEWBOX,
 } from "@/lib/buyer-body-map-artwork";
+import { createPdfImageAssetLoader, type PdfEmbeddedImage } from "@/lib/pdf-image-loader";
 import {
   formatVehicleBodyDamageGridCellLabel,
   getVehicleBodyDamageGridCell,
@@ -42,14 +43,6 @@ const DISCLAIMER_LINES = [
   "This report reflects the information recorded at the time of inspection and is not a mechanical certification or warranty.",
   "CarNest strongly recommends every buyer obtain their own independent pre-purchase inspection before committing to a vehicle purchase."
 ] as const;
-
-const REPORT_IMAGE_MAX_WIDTH = 1600;
-const REPORT_IMAGE_MIN_DIMENSION = 900;
-const REPORT_IMAGE_MAX_BYTES = 300 * 1024;
-const REPORT_IMAGE_START_QUALITY = 0.74;
-const REPORT_IMAGE_MIN_QUALITY = 0.56;
-const REPORT_IMAGE_SCALE_STEP = 0.86;
-const REPORT_IMAGE_QUALITY_STEP = 0.05;
 
 const INSPECTION_LEGEND: Array<[string, string]> = [
   ["A1", "Scratch (Small)"],
@@ -98,10 +91,6 @@ type GridLinkedDamageGroup = {
   records: GridLinkedDamageRecord[];
 };
 
-type EmbeddedPdfImage =
-  | Awaited<ReturnType<PDFDocument["embedJpg"]>>
-  | Awaited<ReturnType<PDFDocument["embedPng"]>>;
-
 let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
 let bodyMapReferencePngBytesPromise: Promise<Uint8Array | null> | null = null;
 
@@ -129,93 +118,6 @@ function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: numb
       quality
     );
   });
-}
-
-async function optimizePdfImageBytes(bytes: Uint8Array) {
-  if (typeof window === "undefined") {
-    return { bytes, mimeType: "image/jpeg" as const };
-  }
-
-  let objectUrl = "";
-  let image: HTMLImageElement | null = null;
-  let canvas: HTMLCanvasElement | null = null;
-
-  try {
-    const sourceBytes = Uint8Array.from(bytes);
-    objectUrl = URL.createObjectURL(new Blob([sourceBytes]));
-    image = await loadImageFromObjectUrl(objectUrl);
-
-    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
-    const scale = longestSide > REPORT_IMAGE_MAX_WIDTH ? REPORT_IMAGE_MAX_WIDTH / longestSide : 1;
-    let width = Math.max(1, Math.round(image.naturalWidth * scale));
-    let height = Math.max(1, Math.round(image.naturalHeight * scale));
-
-    canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Unable to initialize report image canvas.");
-    }
-
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    context.drawImage(image, 0, 0, width, height);
-
-    let quality = REPORT_IMAGE_START_QUALITY;
-    let blob = await canvasToBlob(canvas, "image/jpeg", quality);
-
-    while (blob.size > REPORT_IMAGE_MAX_BYTES) {
-      if (quality > REPORT_IMAGE_MIN_QUALITY) {
-        quality = Math.max(REPORT_IMAGE_MIN_QUALITY, Number((quality - REPORT_IMAGE_QUALITY_STEP).toFixed(2)));
-        blob = await canvasToBlob(canvas, "image/jpeg", quality);
-        continue;
-      }
-
-      const nextWidth = Math.round(canvas.width * REPORT_IMAGE_SCALE_STEP);
-      const nextHeight = Math.round(canvas.height * REPORT_IMAGE_SCALE_STEP);
-      if (Math.max(nextWidth, nextHeight) < REPORT_IMAGE_MIN_DIMENSION) {
-        break;
-      }
-
-      const resizedCanvas = document.createElement("canvas");
-      resizedCanvas.width = nextWidth;
-      resizedCanvas.height = nextHeight;
-      const resizedContext = resizedCanvas.getContext("2d");
-      if (!resizedContext) {
-        throw new Error("Unable to resize report image.");
-      }
-
-      resizedContext.imageSmoothingEnabled = true;
-      resizedContext.imageSmoothingQuality = "high";
-      resizedContext.drawImage(canvas, 0, 0, nextWidth, nextHeight);
-
-      canvas.width = nextWidth;
-      canvas.height = nextHeight;
-      context.drawImage(resizedCanvas, 0, 0, nextWidth, nextHeight);
-      quality = REPORT_IMAGE_START_QUALITY;
-      blob = await canvasToBlob(canvas, "image/jpeg", quality);
-    }
-
-    return {
-      bytes: new Uint8Array(await blob.arrayBuffer()),
-      mimeType: "image/jpeg" as const
-    };
-  } catch {
-    return { bytes, mimeType: "image/jpeg" as const };
-  } finally {
-    if (canvas) {
-      canvas.width = 0;
-      canvas.height = 0;
-    }
-    if (image) {
-      image.src = "";
-    }
-    if (objectUrl) {
-      URL.revokeObjectURL(objectUrl);
-    }
-  }
 }
 
 async function loadBodyMapReferencePngBytes() {
@@ -435,7 +337,7 @@ function drawWrappedText(
 }
 
 function getContainedImageRect(
-  image: EmbeddedPdfImage,
+  image: PdfEmbeddedImage,
   frame: { x: number; y: number; width: number; height: number },
   padding = 0
 ) {
@@ -611,8 +513,10 @@ export async function generateVehicleReportPdf(
   record: WarehouseIntakeRecord,
   options?: {
     resolveStorageBytes?: (storagePath: string) => Promise<Uint8Array>;
+    onProgress?: (message: string) => void;
   }
 ) {
+  options?.onProgress?.("Preparing condition summary PDF...");
   const damageData = collectVehicleReportDamageData(record);
   const pdfDoc = await PDFDocument.create();
   let regular: PDFFont;
@@ -628,6 +532,19 @@ export async function generateVehicleReportPdf(
     supportsUnicode = false;
     regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
     bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  }
+
+  const imageLoader = createPdfImageAssetLoader({
+    pdfDoc,
+    resolveStorageBytes: options?.resolveStorageBytes,
+  });
+  const reportPhotoStoragePaths = record.photos.map((photo) => photo.storagePath).filter(Boolean);
+  if (reportPhotoStoragePaths.length) {
+    options?.onProgress?.("Preparing condition summary images...");
+    await imageLoader.prefetch(reportPhotoStoragePaths, "photo");
+  }
+  if (record.signature.signatureStoragePath) {
+    await imageLoader.prefetch([record.signature.signatureStoragePath], "signature");
   }
 
   let { page, cursorY } = createPage(pdfDoc);
@@ -1023,14 +940,10 @@ export async function generateVehicleReportPdf(
 
     if (record.signature.signatureStoragePath) {
       try {
-        const bytes = options?.resolveStorageBytes
-          ? await options.resolveStorageBytes(record.signature.signatureStoragePath)
-          : (() => {
-              throw new Error("Storage byte resolver unavailable.");
-            })();
-        const image = record.signature.signatureStoragePath.toLowerCase().includes(".png")
-          ? await pdfDoc.embedPng(bytes)
-          : await pdfDoc.embedJpg(bytes);
+        const image = await imageLoader.loadEmbeddedImage(record.signature.signatureStoragePath, "signature");
+        if (!image) {
+          throw new Error("Storage byte resolver unavailable.");
+        }
         const frame = {
           x: x + 18,
           y: y + 16,
@@ -1109,17 +1022,10 @@ export async function generateVehicleReportPdf(
       });
 
       try {
-        const bytes = options?.resolveStorageBytes
-          ? await options.resolveStorageBytes(photo.storagePath)
-          : (() => {
-              throw new Error("Storage byte resolver unavailable.");
-            })();
-        const optimized = await optimizePdfImageBytes(bytes);
-        const embedded = optimized.mimeType === "image/jpeg"
-          ? await pdfDoc.embedJpg(optimized.bytes)
-          : photo.storagePath.toLowerCase().includes(".png")
-            ? await pdfDoc.embedPng(bytes)
-            : await pdfDoc.embedJpg(bytes);
+        const embedded = await imageLoader.loadEmbeddedImage(photo.storagePath, "photo");
+        if (!embedded) {
+          throw new Error("Storage byte resolver unavailable.");
+        }
         page.drawImage(embedded, getContainedImageRect(embedded, {
           x: x + 6,
           y: frameY + 6,
@@ -1348,17 +1254,10 @@ export async function generateVehicleReportPdf(
       });
 
       try {
-        const bytes = options?.resolveStorageBytes
-          ? await options.resolveStorageBytes(photo.storagePath)
-          : (() => {
-              throw new Error("Storage byte resolver unavailable.");
-            })();
-        const optimized = await optimizePdfImageBytes(bytes);
-        const embedded = optimized.mimeType === "image/jpeg"
-          ? await pdfDoc.embedJpg(optimized.bytes)
-          : photo.storagePath.toLowerCase().includes(".png")
-            ? await pdfDoc.embedPng(bytes)
-            : await pdfDoc.embedJpg(bytes);
+        const embedded = await imageLoader.loadEmbeddedImage(photo.storagePath, "photo");
+        if (!embedded) {
+          throw new Error("Storage byte resolver unavailable.");
+        }
         page.drawImage(embedded, getContainedImageRect(embedded, {
           x: x + 6,
           y: y + 6,
@@ -1461,5 +1360,6 @@ export async function generateVehicleReportPdf(
   const pages = pdfDoc.getPages();
   pages.forEach((existingPage, index) => drawPageChrome(existingPage, index + 1, pages.length, regular, bold));
 
+  options?.onProgress?.("Finalising condition summary PDF...");
   return await pdfDoc.save();
 }

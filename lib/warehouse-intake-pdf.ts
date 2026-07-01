@@ -2,6 +2,7 @@
 
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { createPdfImageAssetLoader, type PdfEmbeddedImage } from "@/lib/pdf-image-loader";
 import { CARNEST_CONCIERGE_AGREEMENT_COPY } from "@/lib/warehouse-intake-config";
 import { WarehouseIntakeRecord } from "@/types";
 
@@ -24,15 +25,13 @@ const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
   [/‘|’/g, "'"]
 ];
 
-type EmbeddedPdfImage = Awaited<ReturnType<PDFDocument["embedJpg"]>>;
-
 function isWheelPhoto(label: string, category: string) {
   const haystack = `${label} ${category}`.toLowerCase();
   return haystack.includes("wheel") || haystack.includes("tyre") || haystack.includes("tire");
 }
 
 function getContainedImageRect(
-  image: EmbeddedPdfImage,
+  image: PdfEmbeddedImage,
   frame: { x: number; y: number; width: number; height: number },
   padding = 0
 ) {
@@ -139,8 +138,10 @@ export async function generateWarehouseIntakePdf(
   record: WarehouseIntakeRecord,
   options?: {
     resolveStorageBytes?: (storagePath: string) => Promise<Uint8Array>;
+    onProgress?: (message: string) => void;
   }
 ) {
+  options?.onProgress?.("Preparing signed PDF...");
   const pdfDoc = await PDFDocument.create();
   let regular: PDFFont;
   let bold: PDFFont;
@@ -155,6 +156,19 @@ export async function generateWarehouseIntakePdf(
     supportsUnicode = false;
     regular = await pdfDoc.embedFont(StandardFonts.Helvetica);
     bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  }
+
+  const imageLoader = createPdfImageAssetLoader({
+    pdfDoc,
+    resolveStorageBytes: options?.resolveStorageBytes,
+  });
+  const photoStoragePaths = record.photos.map((photo) => photo.storagePath).filter(Boolean);
+  if (photoStoragePaths.length) {
+    options?.onProgress?.("Preparing signed PDF images...");
+    await imageLoader.prefetch(photoStoragePaths, "photo");
+  }
+  if (record.signature.signatureStoragePath) {
+    await imageLoader.prefetch([record.signature.signatureStoragePath], "signature");
   }
 
   let { page, cursorY } = createPage(pdfDoc);
@@ -298,7 +312,6 @@ export async function generateWarehouseIntakePdf(
       ensureSpace(photoCardHeight + 12);
       const x = column === 0 ? PAGE_MARGIN : PAGE_MARGIN + photoWidth + photoGap;
       const frameY = cursorY - photoHeight - 12;
-      const lowerPath = photo.storagePath.toLowerCase();
       const wheelPhoto = isWheelPhoto(photo.label, photo.category);
 
       page.drawRectangle({
@@ -312,12 +325,10 @@ export async function generateWarehouseIntakePdf(
       });
 
       try {
-        const bytes = options?.resolveStorageBytes
-          ? await options.resolveStorageBytes(photo.storagePath)
-          : (() => {
-              throw new Error("Storage byte resolver unavailable.");
-            })();
-        const embedded = lowerPath.includes(".png") ? await pdfDoc.embedPng(bytes) : await pdfDoc.embedJpg(bytes);
+        const embedded = await imageLoader.loadEmbeddedImage(photo.storagePath, "photo");
+        if (!embedded) {
+          throw new Error("Storage byte resolver unavailable.");
+        }
 
         if (wheelPhoto) {
           const insetSize = Math.min(photoHeight - 18, 112);
@@ -546,14 +557,10 @@ export async function generateWarehouseIntakePdf(
 
   if (record.signature.signatureStoragePath) {
     try {
-      const bytes = options?.resolveStorageBytes
-        ? await options.resolveStorageBytes(record.signature.signatureStoragePath)
-        : (() => {
-            throw new Error("Storage byte resolver unavailable.");
-          })();
-      const signatureImage = record.signature.signatureStoragePath.toLowerCase().includes(".png")
-        ? await pdfDoc.embedPng(bytes)
-        : await pdfDoc.embedJpg(bytes);
+      const signatureImage = await imageLoader.loadEmbeddedImage(record.signature.signatureStoragePath, "signature");
+      if (!signatureImage) {
+        throw new Error("Storage byte resolver unavailable.");
+      }
       ensureSpace(90);
       page.drawText(normalizePdfText("Customer signature", supportsUnicode), {
         x: PAGE_MARGIN,
@@ -587,5 +594,6 @@ export async function generateWarehouseIntakePdf(
   const pages = pdfDoc.getPages();
   pages.forEach((existingPage, index) => drawPageChrome(existingPage, index + 1, pages.length));
 
+  options?.onProgress?.("Finalising signed PDF...");
   return await pdfDoc.save();
 }

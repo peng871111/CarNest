@@ -1201,6 +1201,16 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }
     if (!actor || !recordId) return;
 
+    let slowPdfProgressEnabled = false;
+    const slowPdfProgressTimer = window.setTimeout(() => {
+      slowPdfProgressEnabled = true;
+      setUploadingLabel("Generating signed PDF and preparing inspection images. This can take a few seconds.");
+    }, 3500);
+    const updateSlowPdfProgress = (message: string) => {
+      if (!slowPdfProgressEnabled) return;
+      setUploadingLabel(message);
+    };
+
     try {
       setSaving(true);
       setErrorMessage("");
@@ -1234,11 +1244,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       } satisfies WarehouseIntakeRecord;
       const idToken = await getAdminIdToken();
       const pdfBytes = await generateWarehouseIntakePdf(previewRecord, {
-        resolveStorageBytes: async (storagePath) => await fetchAdminWarehouseIntakeFileBytes(storagePath, idToken)
+        resolveStorageBytes: async (storagePath) => await fetchAdminWarehouseIntakeFileBytes(storagePath, idToken),
+        onProgress: (message) => updateSlowPdfProgress(message)
       });
+      updateSlowPdfProgress("Uploading signed PDF...");
       const pdfFileName = `${(signedDraft.vehicleReference || recordId).replace(/\s+/g, "-").toLowerCase()}-warehouse-intake.pdf`;
       const signedPdfStoragePath = await uploadWarehouseIntakePdf(pdfBytes, recordId, pdfFileName);
 
+      updateSlowPdfProgress("Saving signed intake...");
       const saved = await persistDraft(
         {
           ...signedDraft,
@@ -1249,6 +1262,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         "Signed intake saved."
       );
 
+      updateSlowPdfProgress("Sending signed PDF to the customer...");
       const emailResult = await sendCustomerEmail(saved);
       if (emailResult?.sent) {
         const emailedDraft = {
@@ -1265,6 +1279,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't finalise the warehouse intake.");
     } finally {
+      window.clearTimeout(slowPdfProgressTimer);
+      setUploadingLabel("");
       setSaving(false);
     }
   }
