@@ -7,15 +7,19 @@ import {
   BUYER_BODY_MAP_VIEWBOX
 } from "@/lib/buyer-body-map-artwork";
 import {
+  formatVehicleBodyDamageGridCellLabel,
+  getVehicleBodyDamageGridCell,
+  VEHICLE_BODY_DAMAGE_GRID_CELLS,
+} from "@/lib/vehicle-body-damage-grid";
+import {
   VEHICLE_BODY_PANEL_CONDITION_LABELS,
   VEHICLE_BODY_PANEL_LABELS,
   VEHICLE_DAMAGE_TYPE_LABELS,
 } from "@/lib/vehicle-condition-config";
 import type {
   VehicleBodyPanelCondition,
-  VehicleBodyPanelKey,
-  VehicleBodyPanelMap,
   VehiclePublicDamageRecordSummary,
+  VehicleBodyPanelMap,
 } from "@/types";
 
 const PANEL_STYLES: Record<VehicleBodyPanelCondition, { fill: string; stroke: string; label: string }> = {
@@ -35,37 +39,38 @@ export function PublicConditionBodyMap({
   note?: string | null;
   damageRecords?: VehiclePublicDamageRecordSummary[];
 }) {
-  const damageRecordsByPanel = useMemo(() => {
-    const next = new Map<VehicleBodyPanelKey, VehiclePublicDamageRecordSummary[]>();
+  const damageRecordsByGridCell = useMemo(() => {
+    const next = new Map<string, VehiclePublicDamageRecordSummary[]>();
     for (const record of damageRecords) {
-      next.set(record.panelKey, [...(next.get(record.panelKey) ?? []), record]);
+      const gridCellId = record.gridCellId?.trim();
+      if (!gridCellId) continue;
+      next.set(gridCellId, [...(next.get(gridCellId) ?? []), record]);
     }
     return next;
   }, [damageRecords]);
-  const panelsWithLinkedDamage = useMemo(
-    () => BUYER_BODY_MAP_PANEL_AREAS
-      .map((panel) => panel.key)
-      .filter((panelKey) => (damageRecordsByPanel.get(panelKey) ?? []).length > 0),
-    [damageRecordsByPanel]
+  const cellsWithLinkedDamage = useMemo(
+    () => VEHICLE_BODY_DAMAGE_GRID_CELLS.filter((cell) => (damageRecordsByGridCell.get(cell.id) ?? []).length > 0),
+    [damageRecordsByGridCell]
   );
-  const [selectedPanel, setSelectedPanel] = useState<VehicleBodyPanelKey | null>(panelsWithLinkedDamage[0] ?? null);
-  const [hoveredPanel, setHoveredPanel] = useState<VehicleBodyPanelKey | null>(null);
+  const [selectedGridCellId, setSelectedGridCellId] = useState<string>(cellsWithLinkedDamage[0]?.id ?? "");
+  const [hoveredGridCellId, setHoveredGridCellId] = useState<string>("");
 
   useEffect(() => {
-    const nextDefaultPanel = panelsWithLinkedDamage[0] ?? null;
-    if (!nextDefaultPanel) {
-      setSelectedPanel(null);
+    const nextDefaultGridCellId = cellsWithLinkedDamage[0]?.id ?? "";
+    if (!nextDefaultGridCellId) {
+      setSelectedGridCellId("");
       return;
     }
 
-    if (!selectedPanel || !panelsWithLinkedDamage.includes(selectedPanel)) {
-      setSelectedPanel(nextDefaultPanel);
+    if (!selectedGridCellId || !cellsWithLinkedDamage.some((cell) => cell.id === selectedGridCellId)) {
+      setSelectedGridCellId(nextDefaultGridCellId);
     }
-  }, [panelsWithLinkedDamage, selectedPanel]);
+  }, [cellsWithLinkedDamage, selectedGridCellId]);
 
-  const activePanel = hoveredPanel ?? selectedPanel;
-  const activePanelRecords = activePanel ? damageRecordsByPanel.get(activePanel) ?? [] : [];
-  const hasLinkedDamage = panelsWithLinkedDamage.length > 0;
+  const activeGridCellId = hoveredGridCellId || selectedGridCellId;
+  const activeGridCell = getVehicleBodyDamageGridCell(activeGridCellId);
+  const activeDamageRecords = activeGridCellId ? damageRecordsByGridCell.get(activeGridCellId) ?? [] : [];
+  const hasLinkedDamage = cellsWithLinkedDamage.length > 0;
 
   return (
     <div className="rounded-[32px] border border-[#C9B79C]/35 bg-[radial-gradient(circle_at_top,rgba(233,218,190,0.28),transparent_44%),linear-gradient(180deg,#fffdf9_0%,#f7f1e7_100%)] p-5 shadow-[0_24px_60px_rgba(31,24,18,0.08)] sm:p-7">
@@ -83,58 +88,76 @@ export function PublicConditionBodyMap({
             {BUYER_BODY_MAP_PANEL_AREAS.map((panel) => {
               const condition = bodyMap?.[panel.key] ?? "original";
               const style = PANEL_STYLES[condition];
-              const panelRecords = damageRecordsByPanel.get(panel.key) ?? [];
-              const isActive = activePanel === panel.key;
+              const isActivePanel = activeGridCell?.panelKey === panel.key;
 
               return (
-                <g key={panel.key}>
+                <rect
+                  key={panel.key}
+                  x={panel.x}
+                  y={panel.y}
+                  width={panel.width}
+                  height={panel.height}
+                  rx={panel.rx}
+                  fill={condition === "original" ? "transparent" : style.fill}
+                  fillOpacity={condition === "original" ? 0 : 0.18}
+                  stroke={isActivePanel ? "#1F1F1D" : style.stroke}
+                  strokeOpacity={condition === "original" && !isActivePanel ? 0 : 0.9}
+                  strokeWidth={isActivePanel ? 3 : 1.6}
+                />
+              );
+            })}
+            {VEHICLE_BODY_DAMAGE_GRID_CELLS.map((cell) => {
+              const cellRecords = damageRecordsByGridCell.get(cell.id) ?? [];
+              const isActiveCell = activeGridCellId === cell.id;
+
+              return (
+                <g key={cell.id}>
                   <rect
-                    x={panel.x}
-                    y={panel.y}
-                    width={panel.width}
-                    height={panel.height}
-                    rx={panel.rx}
-                    fill={condition === "original" ? "transparent" : style.fill}
-                    fillOpacity={condition === "original" ? 0 : 0.18}
-                    stroke={isActive ? "#1F1F1D" : style.stroke}
-                    strokeOpacity={condition === "original" && !isActive ? 0 : 0.9}
-                    strokeWidth={isActive ? 3 : 1.6}
+                    x={cell.x}
+                    y={cell.y}
+                    width={cell.width}
+                    height={cell.height}
+                    fill={cellRecords.length ? "#F5D8A9" : "transparent"}
+                    fillOpacity={cellRecords.length ? 0.18 : 0}
+                    stroke={isActiveCell ? "#1F1F1D" : "#CDBCA3"}
+                    strokeOpacity={0.82}
+                    strokeWidth={isActiveCell ? 2.1 : 1}
                   />
-                  {panelRecords.length ? (
+                  {cellRecords.length ? (
                     <g
                       role="button"
                       tabIndex={0}
-                      onMouseEnter={() => setHoveredPanel(panel.key)}
-                      onMouseLeave={() => setHoveredPanel(null)}
-                      onFocus={() => setHoveredPanel(panel.key)}
-                      onBlur={() => setHoveredPanel(null)}
-                      onClick={() => setSelectedPanel(panel.key)}
+                      onMouseEnter={() => setHoveredGridCellId(cell.id)}
+                      onMouseLeave={() => setHoveredGridCellId("")}
+                      onFocus={() => setHoveredGridCellId(cell.id)}
+                      onBlur={() => setHoveredGridCellId("")}
+                      onClick={() => setSelectedGridCellId(cell.id)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
-                          setSelectedPanel(panel.key);
+                          setSelectedGridCellId(cell.id);
                         }
                       }}
                       className="cursor-pointer"
                     >
                       <circle
-                        cx={panel.markerX}
-                        cy={panel.markerY}
-                        r={isActive ? 17 : 15}
+                        cx={cell.markerX}
+                        cy={cell.markerY}
+                        r={isActiveCell ? 16 : 14}
                         fill="#171512"
                         stroke="#D1A75F"
-                        strokeWidth={isActive ? 2.4 : 1.8}
+                        strokeWidth={isActiveCell ? 2.3 : 1.7}
                       />
                       <text
-                        x={panel.markerX}
-                        y={panel.markerY + 0.5}
+                        x={cell.markerX}
+                        y={cell.markerY + 0.5}
                         textAnchor="middle"
                         dominantBaseline="middle"
-                        fontSize="10"
+                        fontSize="9"
                         fontWeight="700"
                         fill="#F2D39A"
                       >
-                        {panelRecords.length}
+                        {cellRecords.length}
                       </text>
                     </g>
                   ) : null}
@@ -158,7 +181,7 @@ export function PublicConditionBodyMap({
               </span>
             ))}
             <span className="rounded-full border border-[#D1A75F]/55 bg-[#191919] px-2.5 py-1 text-[11px] font-semibold text-[#E0BD77]">
-              Marker = linked damage records
+              Marker = grid-linked damage records
             </span>
           </div>
 
@@ -173,17 +196,20 @@ export function PublicConditionBodyMap({
         <div className="rounded-[28px] border border-[#D8CCBD]/70 bg-white/90 p-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#B8893F]">Damage Detail</p>
 
-          {hasLinkedDamage && activePanelRecords.length ? (
+          {hasLinkedDamage && activeGridCell && activeDamageRecords.length ? (
             <div className="mt-4 space-y-4">
               <div className="rounded-[20px] border border-[#E2D8CA] bg-[#FBF7F0] px-4 py-4">
                 <p className="text-xs uppercase tracking-[0.2em] text-[#8F7A5C]">Panel / body location</p>
-                <p className="mt-2 text-lg font-semibold text-[#221F1B]">{VEHICLE_BODY_PANEL_LABELS[activePanel as VehicleBodyPanelKey]}</p>
-                <p className="mt-1 text-sm text-[#6E6256]">
+                <p className="mt-2 text-lg font-semibold text-[#221F1B]">
+                  {VEHICLE_BODY_PANEL_LABELS[activeGridCell.panelKey]}
+                </p>
+                <p className="mt-1 text-sm font-medium text-[#655848]">{formatVehicleBodyDamageGridCellLabel(activeGridCell.id)}</p>
+                <p className="mt-2 text-sm text-[#6E6256]">
                   Hover, click, or tap another marker on the body map to inspect a different damage location.
                 </p>
               </div>
 
-              {activePanelRecords.map((record) => (
+              {activeDamageRecords.map((record) => (
                 <div key={record.id} className="rounded-[22px] border border-[#E2D8CA] bg-white px-4 py-4 shadow-[0_10px_26px_rgba(31,24,18,0.06)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#8F7A5C]">Damage Type</p>
@@ -229,7 +255,7 @@ export function PublicConditionBodyMap({
             <div className="mt-4 rounded-[22px] border border-dashed border-[#D8CCBD] bg-[#FBF7F0] px-4 py-5">
               <p className="text-sm font-medium text-[#65543F]">No panel-linked damage photos recorded.</p>
               <p className="mt-2 text-sm leading-6 text-[#6E6256]">
-                This Condition Summary does not have any panel-linked damage records yet.
+                This Condition Summary does not have any grid-linked damage records yet.
               </p>
             </div>
           )}

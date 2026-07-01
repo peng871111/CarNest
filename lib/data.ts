@@ -1147,6 +1147,7 @@ function serializeWarehouseVehicleDamageRecord(input: unknown): WarehouseVehicle
     id: typeof value.id === "string" && value.id.trim()
       ? value.id
       : `damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    gridCellId: typeof value.gridCellId === "string" ? value.gridCellId : "",
     panelKey,
     damageType: normalizeVehicleDamageType(value.damageType),
     notes: typeof value.notes === "string" ? value.notes : "",
@@ -1175,6 +1176,7 @@ function serializeVehiclePublicDamageRecordSummary(input: unknown): VehiclePubli
     id: typeof value.id === "string" && value.id.trim()
       ? value.id
       : `damage-record-${panelKey}`,
+    gridCellId: typeof value.gridCellId === "string" ? value.gridCellId : "",
     panelKey,
     damageType: normalizeVehicleDamageType(value.damageType),
     notes: typeof value.notes === "string" ? value.notes : "",
@@ -5400,6 +5402,7 @@ function buildWarehouseIntakeWritePayload(
           id: typeof record?.id === "string" && record.id.trim()
             ? record.id
             : `damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          gridCellId: typeof record?.gridCellId === "string" ? record.gridCellId : "",
           panelKey: VEHICLE_BODY_PANEL_KEYS.includes(record?.panelKey as VehicleBodyPanelKey)
             ? record.panelKey
             : "bonnet",
@@ -5492,7 +5495,9 @@ async function resolveVehicleReportDamageRecordSummaries(
   );
 
   const resolved = await Promise.all(
-    (input.vehicleReport.damageRecords ?? []).map(async (record) => {
+    (input.vehicleReport.damageRecords ?? [])
+      .filter((record) => Boolean(record.gridCellId?.trim()))
+      .map(async (record) => {
       const images = await Promise.all(
         record.photoIds.map(async (photoId) => {
           const photo = damagePhotosById.get(photoId);
@@ -5512,6 +5517,7 @@ async function resolveVehicleReportDamageRecordSummaries(
 
       return {
         id: record.id,
+        gridCellId: record.gridCellId,
         panelKey: record.panelKey,
         damageType: normalizeVehicleDamageType(record.damageType),
         notes: record.notes || "",
@@ -5526,8 +5532,31 @@ async function resolveVehicleReportDamageRecordSummaries(
 function getAdditionalDamagePhotos(
   input: Pick<WarehouseIntakeRecord, "photos" | "vehicleReport">
 ) {
-  const linkedPhotoIds = new Set((input.vehicleReport.damageRecords ?? []).flatMap((record) => record.photoIds));
-  return input.photos.filter((photo) => photo.category === "damagePhotos" && !linkedPhotoIds.has(photo.id));
+  const linkedPhotoIds = new Set(
+    (input.vehicleReport.damageRecords ?? [])
+      .filter((record) => Boolean(record.gridCellId?.trim()))
+      .flatMap((record) => record.photoIds)
+  );
+  const legacyRecordNoteByPhotoId = new Map<string, string>();
+
+  for (const record of input.vehicleReport.damageRecords ?? []) {
+    if (record.gridCellId?.trim()) continue;
+    const recordNote = record.notes?.trim();
+    if (!recordNote) continue;
+    for (const photoId of record.photoIds) {
+      if (!legacyRecordNoteByPhotoId.has(photoId)) {
+        legacyRecordNoteByPhotoId.set(photoId, recordNote);
+      }
+    }
+  }
+
+  return input.photos
+    .filter((photo) => photo.category === "damagePhotos" && !linkedPhotoIds.has(photo.id))
+    .map((photo) => (
+      !photo.note?.trim() && legacyRecordNoteByPhotoId.has(photo.id)
+        ? { ...photo, note: legacyRecordNoteByPhotoId.get(photo.id) }
+        : photo
+    ));
 }
 
 function hasVehicleReportSummary(

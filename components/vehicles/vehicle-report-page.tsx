@@ -159,7 +159,7 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
             <div className="mt-6 rounded-[26px] border border-[#E2D8CA] bg-white/80 p-5">
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#B8893F]">Additional Damage Photos</p>
               <p className="mt-2 text-sm leading-6 text-[#6E6256]">
-                These photos were saved without a specific panel link and remain available as supporting damage evidence.
+                These photos were saved without a specific grid location and remain available as supporting damage evidence.
               </p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {summary.damageImages.map((image, index) => (

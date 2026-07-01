@@ -288,6 +288,7 @@ export interface VehicleReportImageSummary {
 
 export interface WarehouseVehicleDamageRecord {
   id: string;
+  gridCellId: string;
   panelKey: VehicleBodyPanelKey;
   damageType: VehicleDamageType;
   notes: string;
@@ -296,6 +297,7 @@ export interface WarehouseVehicleDamageRecord {
 
 export interface VehiclePublicDamageRecordSummary {
   id: string;
+  gridCellId: string;
   panelKey: VehicleBodyPanelKey;
   damageType: VehicleDamageType;
   notes: string;
