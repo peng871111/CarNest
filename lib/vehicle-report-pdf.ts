@@ -7,8 +7,18 @@ import {
   BUYER_BODY_MAP_REFERENCE_SVG_PATH,
   BUYER_BODY_MAP_VIEWBOX,
 } from "@/lib/buyer-body-map-artwork";
-import { VEHICLE_BODY_PANEL_LABELS, VEHICLE_BODY_PANEL_ORDER } from "@/lib/vehicle-condition-config";
-import { type VehicleBodyPanelCondition, type VehicleBodyPanelKey, type VehicleBodyPanelMap, type WarehouseIntakeRecord } from "@/types";
+import {
+  formatVehicleBodyDamageGridCellLabel,
+  getVehicleBodyDamageGridCell,
+  VEHICLE_BODY_DAMAGE_GRID_CELLS,
+} from "@/lib/vehicle-body-damage-grid";
+import { VEHICLE_BODY_PANEL_LABELS, VEHICLE_DAMAGE_TYPE_LABELS } from "@/lib/vehicle-condition-config";
+import {
+  type VehicleBodyPanelCondition,
+  type WarehouseIntakePhotoRecord,
+  type WarehouseIntakeRecord,
+  type WarehouseVehicleDamageRecord
+} from "@/types";
 
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
@@ -74,6 +84,18 @@ const DAMAGE_MARKER_MAP: Record<VehicleBodyPanelCondition, { code: string | null
   dent: { code: "U1", fill: [0.992, 0.91, 0.84], stroke: [0.81, 0.43, 0.14] },
   repaint: { code: "W", fill: [0.9, 0.95, 0.985], stroke: [0.33, 0.62, 0.8] },
   repaired_damage: { code: "R", fill: [0.94, 0.91, 0.985], stroke: [0.54, 0.43, 0.84] }
+};
+
+type GridLinkedDamageRecord = WarehouseVehicleDamageRecord & {
+  linkedPhotos: WarehouseIntakePhotoRecord[];
+};
+
+type GridLinkedDamageGroup = {
+  gridCellId: string;
+  locationLabel: string;
+  panelLabel: string;
+  cell: ReturnType<typeof getVehicleBodyDamageGridCell>;
+  records: GridLinkedDamageRecord[];
 };
 
 type EmbeddedPdfImage =
@@ -468,9 +490,79 @@ function buildInspectorNotes(record: WarehouseIntakeRecord, supportsUnicode: boo
   return sanitizeText(notes.join(" | "), "No inspector notes recorded.", supportsUnicode);
 }
 
-function getDamagePanels(bodyMap?: VehicleBodyPanelMap | null) {
-  if (!bodyMap) return [] as VehicleBodyPanelKey[];
-  return VEHICLE_BODY_PANEL_ORDER.filter((key) => (bodyMap[key] ?? "original") !== "original");
+function collectVehicleReportDamageData(record: WarehouseIntakeRecord) {
+  const damagePhotosById = new Map(
+    record.photos
+      .filter((photo) => photo.category === "damagePhotos")
+      .map((photo) => [photo.id, photo] as const)
+  );
+  const gridOrder = new Map(
+    VEHICLE_BODY_DAMAGE_GRID_CELLS.map((cell, index) => [cell.id, index] as const)
+  );
+  const linkedPhotoIds = new Set<string>();
+  const groupsByGridCell = new Map<string, GridLinkedDamageGroup>();
+
+  for (const damageRecord of record.vehicleReport.damageRecords ?? []) {
+    const gridCellId = damageRecord.gridCellId?.trim();
+    if (!gridCellId) continue;
+
+    const cell = getVehicleBodyDamageGridCell(gridCellId);
+    const linkedPhotos = damageRecord.photoIds
+      .map((photoId) => {
+        linkedPhotoIds.add(photoId);
+        return damagePhotosById.get(photoId) ?? null;
+      })
+      .filter((photo): photo is WarehouseIntakePhotoRecord => Boolean(photo));
+
+    const existingGroup = groupsByGridCell.get(gridCellId);
+    const nextRecord: GridLinkedDamageRecord = {
+      ...damageRecord,
+      linkedPhotos,
+    };
+
+    if (existingGroup) {
+      existingGroup.records.push(nextRecord);
+      continue;
+    }
+
+    groupsByGridCell.set(gridCellId, {
+      gridCellId,
+      locationLabel: cell
+        ? formatVehicleBodyDamageGridCellLabel(gridCellId)
+        : `${VEHICLE_BODY_PANEL_LABELS[damageRecord.panelKey]} · ${gridCellId}`,
+      panelLabel: cell?.panelLabel ?? VEHICLE_BODY_PANEL_LABELS[damageRecord.panelKey],
+      cell,
+      records: [nextRecord],
+    });
+  }
+
+  const legacyRecordNoteByPhotoId = new Map<string, string>();
+  for (const damageRecord of record.vehicleReport.damageRecords ?? []) {
+    if (damageRecord.gridCellId?.trim()) continue;
+    const note = damageRecord.notes?.trim();
+    if (!note) continue;
+    for (const photoId of damageRecord.photoIds) {
+      if (!legacyRecordNoteByPhotoId.has(photoId)) {
+        legacyRecordNoteByPhotoId.set(photoId, note);
+      }
+    }
+  }
+
+  return {
+    gridDamageGroups: Array.from(groupsByGridCell.values()).sort((left, right) => {
+      const leftOrder = gridOrder.get(left.gridCellId) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = gridOrder.get(right.gridCellId) ?? Number.MAX_SAFE_INTEGER;
+      if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+      return left.locationLabel.localeCompare(right.locationLabel);
+    }),
+    additionalDamagePhotos: record.photos
+      .filter((photo) => photo.category === "damagePhotos" && !linkedPhotoIds.has(photo.id))
+      .map((photo) => (
+        !photo.note?.trim() && legacyRecordNoteByPhotoId.has(photo.id)
+          ? { ...photo, note: legacyRecordNoteByPhotoId.get(photo.id) }
+          : photo
+      )),
+  };
 }
 
 function drawSectionCardTitle(
@@ -521,6 +613,7 @@ export async function generateVehicleReportPdf(
     resolveStorageBytes?: (storagePath: string) => Promise<Uint8Array>;
   }
 ) {
+  const damageData = collectVehicleReportDamageData(record);
   const pdfDoc = await PDFDocument.create();
   let regular: PDFFont;
   let bold: PDFFont;
@@ -716,11 +809,11 @@ export async function generateVehicleReportPdf(
   const drawBodyMapSection = async () => {
     const noteText = sanitizeText(
       record.vehicleReport.damageConditionNotes || record.vehicleReport.panelRepairNotes,
-      "No body damage notes recorded.",
+      damageData.gridDamageGroups.length ? "Grid-linked damage records are shown below." : "No body damage notes recorded.",
       supportsUnicode
     );
     const noteHeight = estimateParagraphHeight(noteText, 92, 12);
-    const sectionHeight = 392 + noteHeight;
+    const sectionHeight = 410 + noteHeight;
     ensureSpace(sectionHeight);
     const x = PAGE_MARGIN;
     const y = cursorY - sectionHeight;
@@ -737,8 +830,6 @@ export async function generateVehicleReportPdf(
     const mapScale = Math.min(mapFrame.width / BUYER_BODY_MAP_VIEWBOX.width, mapFrame.height / BUYER_BODY_MAP_VIEWBOX.height);
     const mapOriginX = mapFrame.x + (mapFrame.width - BUYER_BODY_MAP_VIEWBOX.width * mapScale) / 2;
     const mapOriginY = mapFrame.y + (mapFrame.height - BUYER_BODY_MAP_VIEWBOX.height * mapScale) / 2;
-    const damagePanels = getDamagePanels(record.vehicleReport.bodyMap);
-
     page.drawRectangle({
       x: mapFrame.x,
       y: mapFrame.y,
@@ -786,6 +877,39 @@ export async function generateVehicleReportPdf(
       }
     });
 
+    damageData.gridDamageGroups.forEach((group) => {
+      if (!group.cell) return;
+      const gridX = mapOriginX + group.cell.x * mapScale;
+      const gridY = mapOriginY + group.cell.y * mapScale;
+      const markerX = mapOriginX + group.cell.markerX * mapScale;
+      const markerY = mapOriginY + group.cell.markerY * mapScale;
+
+      page.drawRectangle({
+        x: gridX,
+        y: gridY,
+        width: group.cell.width * mapScale,
+        height: group.cell.height * mapScale,
+        color: BRAND_GOLD_SOFT,
+        borderColor: BRAND_GOLD,
+        borderWidth: 0.9
+      });
+      page.drawCircle({
+        x: markerX,
+        y: markerY,
+        size: 10,
+        color: BRAND_DARK,
+        borderColor: BRAND_GOLD,
+        borderWidth: 0.8
+      });
+      page.drawText(group.cell.code, {
+        x: markerX - 5.5,
+        y: markerY - 3.3,
+        size: 7.2,
+        font: bold,
+        color: BRAND_GOLD
+      });
+    });
+
     page.drawText(normalizePdfText("Inspection Symbol Legend", supportsUnicode), {
       x: legendX,
       y: y + sectionHeight - 46,
@@ -820,18 +944,30 @@ export async function generateVehicleReportPdf(
       legendY -= 18;
     });
 
-    let notesY = y + 48 + noteHeight;
-    if (!damagePanels.length) {
-      page.drawText(normalizePdfText("No body damage notes recorded.", supportsUnicode), {
-        x: mapFrame.x,
-        y: notesY,
-        size: 10,
-        font: bold,
-        color: TEXT_MUTED
-      });
-      notesY -= 16;
-    }
+    page.drawCircle({
+      x: legendX + 11,
+      y: legendY + 2,
+      size: 8,
+      color: BRAND_DARK,
+      borderColor: BRAND_GOLD,
+      borderWidth: 0.8
+    });
+    page.drawText("A1", {
+      x: legendX + 6.5,
+      y: legendY - 1,
+      size: 6.8,
+      font: bold,
+      color: BRAND_GOLD
+    });
+    page.drawText(normalizePdfText("Grid-linked damage location", supportsUnicode), {
+      x: legendX + 30,
+      y: legendY - 1,
+      size: 9,
+      font: regular,
+      color: TEXT_PRIMARY
+    });
 
+    let notesY = y + 48 + noteHeight;
     drawWrappedText(page, normalizePdfText(noteText, supportsUnicode), {
       x: mapFrame.x,
       y: notesY,
@@ -925,7 +1061,257 @@ export async function generateVehicleReportPdf(
     cursorY = y - 18;
   };
 
-  const drawPhotoAppendix = async (title: string, photos: WarehouseIntakeRecord["photos"], includeMeta = false) => {
+  const drawLinkedDamagePhotos = async (photos: WarehouseIntakePhotoRecord[]) => {
+    ensureSpace(18);
+    page.drawText(normalizePdfText("Linked Photos", supportsUnicode), {
+      x: PAGE_MARGIN + 26,
+      y: cursorY,
+      size: 9,
+      font: bold,
+      color: TEXT_MUTED
+    });
+    cursorY -= 16;
+
+    if (!photos.length) {
+      ensureSpace(24);
+      page.drawText(normalizePdfText("No linked photos recorded for this damage entry.", supportsUnicode), {
+        x: PAGE_MARGIN + 26,
+        y: cursorY,
+        size: 9.5,
+        font: regular,
+        color: TEXT_MUTED
+      });
+      cursorY -= 18;
+      return;
+    }
+
+    const gap = 12;
+    const insetX = PAGE_MARGIN + 26;
+    const availableWidth = CONTENT_WIDTH - 52;
+    const photoWidth = (availableWidth - gap) / 2;
+    const photoHeight = photoWidth * 0.72;
+    const labelHeight = 18;
+    let column = 0;
+
+    for (const photo of photos) {
+      ensureSpace(photoHeight + labelHeight + 16);
+      const x = insetX + (column === 0 ? 0 : photoWidth + gap);
+      const frameY = cursorY - photoHeight;
+
+      page.drawRectangle({
+        x,
+        y: frameY,
+        width: photoWidth,
+        height: photoHeight,
+        color: rgb(1, 1, 1),
+        borderColor: BORDER_LIGHT,
+        borderWidth: 1
+      });
+
+      try {
+        const bytes = options?.resolveStorageBytes
+          ? await options.resolveStorageBytes(photo.storagePath)
+          : (() => {
+              throw new Error("Storage byte resolver unavailable.");
+            })();
+        const optimized = await optimizePdfImageBytes(bytes);
+        const embedded = optimized.mimeType === "image/jpeg"
+          ? await pdfDoc.embedJpg(optimized.bytes)
+          : photo.storagePath.toLowerCase().includes(".png")
+            ? await pdfDoc.embedPng(bytes)
+            : await pdfDoc.embedJpg(bytes);
+        page.drawImage(embedded, getContainedImageRect(embedded, {
+          x: x + 6,
+          y: frameY + 6,
+          width: photoWidth - 12,
+          height: photoHeight - 12
+        }));
+      } catch {
+        page.drawText(normalizePdfText("Image unavailable in PDF render", supportsUnicode), {
+          x: x + 14,
+          y: frameY + photoHeight / 2,
+          size: 9,
+          font: regular,
+          color: TEXT_MUTED
+        });
+      }
+
+      page.drawText(normalizePdfText(photo.label || "Damage image", supportsUnicode), {
+        x,
+        y: frameY - 13,
+        size: 8.5,
+        font: bold,
+        color: TEXT_PRIMARY,
+        maxWidth: photoWidth
+      });
+
+      if (column === 1) {
+        cursorY = frameY - labelHeight - 8;
+        column = 0;
+      } else {
+        column = 1;
+      }
+    }
+
+    if (column === 1) {
+      cursorY -= photoHeight + labelHeight + 8;
+    }
+  };
+
+  const drawDamageRecordsSection = async () => {
+    ensureSpace(28);
+    page.drawText(normalizePdfText("Damage Records", supportsUnicode), {
+      x: PAGE_MARGIN,
+      y: cursorY,
+      size: 14,
+      font: bold,
+      color: TEXT_PRIMARY
+    });
+    cursorY -= 20;
+
+    if (!damageData.gridDamageGroups.length) {
+      const emptyHeight = 64;
+      ensureSpace(emptyHeight);
+      const y = cursorY - emptyHeight;
+      drawCard(page, PAGE_MARGIN, y, CONTENT_WIDTH, emptyHeight, false);
+      page.drawText(normalizePdfText("No grid-linked damage photos recorded.", supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: y + emptyHeight - 26,
+        size: 10.5,
+        font: bold,
+        color: TEXT_PRIMARY
+      });
+      page.drawText(normalizePdfText("This PDF does not have any grid-linked damage records yet.", supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: y + emptyHeight - 42,
+        size: 9.5,
+        font: regular,
+        color: TEXT_MUTED
+      });
+      cursorY = y - 18;
+      return;
+    }
+
+    for (const group of damageData.gridDamageGroups) {
+      const groupHeight = 52;
+      ensureSpace(groupHeight);
+      const groupY = cursorY - groupHeight;
+      drawCard(page, PAGE_MARGIN, groupY, CONTENT_WIDTH, groupHeight, false);
+
+      page.drawText(normalizePdfText("Body Area / Grid Location", supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: groupY + groupHeight - 18,
+        size: 8.5,
+        font: bold,
+        color: TEXT_MUTED
+      });
+      page.drawText(normalizePdfText(group.locationLabel, supportsUnicode), {
+        x: PAGE_MARGIN + 18,
+        y: groupY + groupHeight - 34,
+        size: 11,
+        font: bold,
+        color: TEXT_PRIMARY
+      });
+      page.drawText(
+        normalizePdfText(
+          `${group.panelLabel} · ${group.records.length} damage record${group.records.length === 1 ? "" : "s"}`,
+          supportsUnicode
+        ),
+        {
+          x: PAGE_MARGIN + 18,
+          y: groupY + 10,
+          size: 9,
+          font: regular,
+          color: TEXT_MUTED
+        }
+      );
+
+      cursorY = groupY - 10;
+
+      for (const damageRecord of group.records) {
+        const notesText = sanitizeText(
+          damageRecord.notes,
+          "No additional notes recorded for this damage entry.",
+          supportsUnicode
+        );
+        const noteLines = wrapText(notesText, 80);
+        const recordHeight = 70 + noteLines.length * 12;
+        ensureSpace(recordHeight);
+        const recordY = cursorY - recordHeight;
+
+        page.drawRectangle({
+          x: PAGE_MARGIN + 12,
+          y: recordY,
+          width: CONTENT_WIDTH - 24,
+          height: recordHeight,
+          color: rgb(1, 1, 1),
+          borderColor: BORDER_LIGHT,
+          borderWidth: 1
+        });
+
+        page.drawText(normalizePdfText("Body Area / Grid Location", supportsUnicode), {
+          x: PAGE_MARGIN + 26,
+          y: recordY + recordHeight - 18,
+          size: 8.5,
+          font: bold,
+          color: TEXT_MUTED
+        });
+        page.drawText(normalizePdfText(group.locationLabel, supportsUnicode), {
+          x: PAGE_MARGIN + 26,
+          y: recordY + recordHeight - 32,
+          size: 10,
+          font: regular,
+          color: TEXT_PRIMARY
+        });
+
+        page.drawText(normalizePdfText("Damage Type", supportsUnicode), {
+          x: PAGE_MARGIN + CONTENT_WIDTH / 2,
+          y: recordY + recordHeight - 18,
+          size: 8.5,
+          font: bold,
+          color: TEXT_MUTED
+        });
+        page.drawText(normalizePdfText(VEHICLE_DAMAGE_TYPE_LABELS[damageRecord.damageType], supportsUnicode), {
+          x: PAGE_MARGIN + CONTENT_WIDTH / 2,
+          y: recordY + recordHeight - 32,
+          size: 10,
+          font: regular,
+          color: TEXT_PRIMARY
+        });
+
+        page.drawText(normalizePdfText("Notes", supportsUnicode), {
+          x: PAGE_MARGIN + 26,
+          y: recordY + recordHeight - 48,
+          size: 8.5,
+          font: bold,
+          color: TEXT_MUTED
+        });
+
+        let noteY = recordY + recordHeight - 62;
+        noteLines.forEach((line) => {
+          page.drawText(line, {
+            x: PAGE_MARGIN + 26,
+            y: noteY,
+            size: 9.5,
+            font: regular,
+            color: TEXT_PRIMARY
+          });
+          noteY -= 12;
+        });
+
+        cursorY = recordY - 8;
+        await drawLinkedDamagePhotos(damageRecord.linkedPhotos);
+        cursorY -= 8;
+      }
+    }
+  };
+
+  const drawPhotoAppendix = async (
+    title: string,
+    photos: WarehouseIntakeRecord["photos"],
+    includeMeta = false,
+    defaultMeta = ""
+  ) => {
     if (!photos.length) return;
 
     ensureSpace(40);
@@ -998,7 +1384,7 @@ export async function generateVehicleReportPdf(
       });
 
       if (includeMeta) {
-        const meta = sanitizeText(photo.note || record.vehicleReport.damageConditionNotes, "", supportsUnicode);
+        const meta = sanitizeText(photo.note || defaultMeta, "", supportsUnicode);
         if (meta) {
           page.drawText(normalizePdfText(meta, supportsUnicode), {
             x,
@@ -1053,6 +1439,7 @@ export async function generateVehicleReportPdf(
   drawHeroSection();
   drawInfoGridSection("Vehicle Information", vehicleFields);
   await drawBodyMapSection();
+  await drawDamageRecordsSection();
   drawInfoGridSection("Additional Checks", buildAdditionalChecks(record, supportsUnicode));
   drawTextSection("Features / Equipment", featuresText);
   drawTextSection("Service History", serviceHistoryText);
@@ -1062,10 +1449,14 @@ export async function generateVehicleReportPdf(
   drawTextSection("Important Notice", DISCLAIMER_LINES.join(" "), "Informational reference only");
 
   const documentationPhotos = record.photos.filter((photo) => photo.category !== "damagePhotos").slice(0, 8);
-  const damagePhotos = record.photos.filter((photo) => photo.category === "damagePhotos");
 
   await drawPhotoAppendix("Supporting Inspection Images", documentationPhotos, false);
-  await drawPhotoAppendix("Damage Evidence Images", damagePhotos, true);
+  await drawPhotoAppendix(
+    "Additional damage photos",
+    damageData.additionalDamagePhotos,
+    true,
+    record.vehicleReport.damageConditionNotes
+  );
 
   const pages = pdfDoc.getPages();
   pages.forEach((existingPage, index) => drawPageChrome(existingPage, index + 1, pages.length, regular, bold));
