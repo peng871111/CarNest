@@ -42,21 +42,26 @@ function Legend() {
 export function VehicleConditionBodyMap({
   bodyMap,
   editable = false,
-  onPanelChange
+  onPanelChange,
+  selectedPanel,
+  onPanelSelect,
 }: {
   bodyMap?: VehicleBodyPanelMap | null;
   editable?: boolean;
   onPanelChange?: (panelKey: VehicleBodyPanelKey, condition: VehicleBodyPanelCondition) => void;
+  selectedPanel?: VehicleBodyPanelKey;
+  onPanelSelect?: (panelKey: VehicleBodyPanelKey) => void;
 }) {
-  const [selectedPanel, setSelectedPanel] = useState<VehicleBodyPanelKey>("bonnet");
+  const [internalSelectedPanel, setInternalSelectedPanel] = useState<VehicleBodyPanelKey>("bonnet");
+  const activeSelectedPanel = selectedPanel ?? internalSelectedPanel;
 
-  const selectedCondition = bodyMap?.[selectedPanel] ?? "original";
+  const selectedCondition = bodyMap?.[activeSelectedPanel] ?? "original";
   const selectedStyle = PANEL_STYLES[selectedCondition];
 
   const validSelectedPanel = useMemo<VehicleBodyPanelKey>(() => {
-    if (bodyMap && selectedPanel in bodyMap) return selectedPanel;
+    if (bodyMap && activeSelectedPanel in bodyMap) return activeSelectedPanel;
     return "bonnet";
-  }, [bodyMap, selectedPanel]);
+  }, [activeSelectedPanel, bodyMap]);
 
   if (!bodyMap) return null;
 
@@ -82,7 +87,11 @@ export function VehicleConditionBodyMap({
               return (
                 <g
                   key={panel.key}
-                  onClick={() => editable && setSelectedPanel(panel.key)}
+                  onClick={() => {
+                    if (!editable) return;
+                    setInternalSelectedPanel(panel.key);
+                    onPanelSelect?.(panel.key);
+                  }}
                   className={editable ? "cursor-pointer" : ""}
                 >
                   <rect

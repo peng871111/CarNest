@@ -27,8 +27,11 @@ import {
   VEHICLE_CONDITION_CATEGORY_HELPERS,
   VEHICLE_CONDITION_CATEGORY_LABELS,
   VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS,
+  VEHICLE_BODY_PANEL_LABELS,
   VEHICLE_CONDITION_SCORED_CATEGORY_KEYS,
-  VEHICLE_CONDITION_SCORE_SELECT_OPTIONS
+  VEHICLE_CONDITION_SCORE_SELECT_OPTIONS,
+  VEHICLE_DAMAGE_TYPE_LABELS,
+  VEHICLE_DAMAGE_TYPE_OPTIONS,
 } from "@/lib/vehicle-condition-config";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
@@ -57,8 +60,10 @@ import {
   VehicleBodyPanelKey,
   VehicleConditionCategoryKey,
   VehicleConditionScore,
+  VehicleDamageType,
   VehicleReportRwcCooperation,
-  WarehouseServiceFeeItem
+  WarehouseServiceFeeItem,
+  WarehouseVehicleDamageRecord,
 } from "@/types";
 
 const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["category"]; label: string }> = [
@@ -81,6 +86,21 @@ const VEHICLE_TRANSMISSION_OPTIONS = ["AT", "CVT", "MT", "DCT"] as const;
 const VEHICLE_DRIVETRAIN_OPTIONS = ["FWD", "RWD", "AWD", "4WD"] as const;
 const SCORED_CONDITION_CATEGORY_KEYS = [...VEHICLE_CONDITION_SCORED_CATEGORY_KEYS];
 const NOTES_ONLY_CONDITION_CATEGORY_KEYS = new Set<VehicleConditionCategoryKey>(VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS);
+const NON_DAMAGE_WAREHOUSE_PHOTO_SECTIONS = WAREHOUSE_PHOTO_SECTIONS.filter((section) => section.key !== "damagePhotos");
+
+function createWarehouseDamageRecord(panelKey: VehicleBodyPanelKey): WarehouseVehicleDamageRecord {
+  return {
+    id: `damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    panelKey,
+    damageType: "scratch",
+    notes: "",
+    photoIds: [],
+  };
+}
+
+function getDamagePhotoLabel(panelKey: VehicleBodyPanelKey, damageType: VehicleDamageType) {
+  return `${VEHICLE_BODY_PANEL_LABELS[panelKey]} · ${VEHICLE_DAMAGE_TYPE_LABELS[damageType]}`;
+}
 
 function toDraft(record: WarehouseIntakeRecord): Omit<WarehouseIntakeRecord, "id"> {
   const { id: _id, ...draft } = record;
@@ -389,6 +409,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
+  const [selectedDamagePanel, setSelectedDamagePanel] = useState<VehicleBodyPanelKey>("bonnet");
 
   const customerVehicleRecords = useMemo(
     () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
@@ -398,6 +419,22 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const selectedVehicleRecord = useMemo(
     () => customerVehicleRecords.find((record) => record.id === draft.vehicleRecordId) || null,
     [customerVehicleRecords, draft.vehicleRecordId]
+  );
+  const damageRecords = useMemo(
+    () => draft.vehicleReport.damageRecords ?? [],
+    [draft.vehicleReport.damageRecords]
+  );
+  const linkedDamagePhotoIds = useMemo(
+    () => new Set(damageRecords.flatMap((record) => record.photoIds)),
+    [damageRecords]
+  );
+  const selectedPanelDamageRecords = useMemo(
+    () => damageRecords.filter((record) => record.panelKey === selectedDamagePanel),
+    [damageRecords, selectedDamagePanel]
+  );
+  const additionalDamagePhotos = useMemo(
+    () => draft.photos.filter((photo) => photo.category === "damagePhotos" && !linkedDamagePhotoIds.has(photo.id)),
+    [draft.photos, linkedDamagePhotoIds]
   );
   const serviceFeeTotals = useMemo(() => {
     const subtotal = draft.serviceItems.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
@@ -732,6 +769,49 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }));
   }
 
+  function addDamageRecord(panelKey: VehicleBodyPanelKey) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        damageRecords: [...(current.vehicleReport.damageRecords ?? []), createWarehouseDamageRecord(panelKey)],
+      }
+    }));
+  }
+
+  function updateDamageRecord(
+    damageRecordId: string,
+    updates: Partial<WarehouseVehicleDamageRecord>
+  ) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        damageRecords: (current.vehicleReport.damageRecords ?? []).map((record) => (
+          record.id === damageRecordId
+            ? {
+                ...record,
+                ...updates,
+                notes: updates.notes ?? record.notes,
+                damageType: updates.damageType ?? record.damageType,
+                photoIds: updates.photoIds ?? record.photoIds,
+              }
+            : record
+        )),
+      }
+    }));
+  }
+
+  function removeDamageRecord(damageRecordId: string) {
+    setDraft((current) => ({
+      ...current,
+      vehicleReport: {
+        ...current.vehicleReport,
+        damageRecords: (current.vehicleReport.damageRecords ?? []).filter((record) => record.id !== damageRecordId),
+      }
+    }));
+  }
+
   function addServiceItem() {
     setDraft((current) => ({
       ...current,
@@ -899,6 +979,44 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       await persistDraft(nextDraft, "Condition photos uploaded.");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't upload those photos.");
+    } finally {
+      setUploadingLabel("");
+    }
+  }
+
+  async function handleDamageRecordPhotoUpload(damageRecordId: string, files: FileList | null) {
+    if (!files?.length || !recordId) return;
+
+    const damageRecord = draft.vehicleReport.damageRecords.find((record) => record.id === damageRecordId);
+    if (!damageRecord) return;
+
+    try {
+      setUploadingLabel(`Uploading ${VEHICLE_BODY_PANEL_LABELS[damageRecord.panelKey].toLowerCase()} damage photos...`);
+      const uploadedPhotos = await uploadWarehouseIntakePhotos(
+        Array.from(files),
+        recordId,
+        "damagePhotos",
+        getDamagePhotoLabel(damageRecord.panelKey, damageRecord.damageType)
+      );
+      const nextDraft = {
+        ...draft,
+        photos: draft.photos.concat(uploadedPhotos),
+        vehicleReport: {
+          ...draft.vehicleReport,
+          damageRecords: draft.vehicleReport.damageRecords.map((record) => (
+            record.id === damageRecordId
+              ? {
+                  ...record,
+                  photoIds: [...record.photoIds, ...uploadedPhotos.map((photo) => photo.id)],
+                }
+              : record
+          )),
+        }
+      };
+      setDraft(nextDraft);
+      await persistDraft(nextDraft, "Damage record photos uploaded.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't upload those damage photos.");
     } finally {
       setUploadingLabel("");
     }
@@ -1568,7 +1686,116 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       bodyMap={draft.vehicleReport.bodyMap}
                       editable
                       onPanelChange={updateBodyPanel}
+                      selectedPanel={selectedDamagePanel}
+                      onPanelSelect={setSelectedDamagePanel}
                     />
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-black/6 bg-white p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Panel-linked damage records</p>
+                      <FieldNote>
+                        Select a panel on the body map, then add one or more damage records with type, notes, and linked photos for that exact location.
+                      </FieldNote>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addDamageRecord(selectedDamagePanel)}
+                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                    >
+                      Add damage record
+                    </button>
+                  </div>
+
+                  <div className="mt-4 rounded-[20px] border border-black/6 bg-shell px-4 py-3">
+                    <p className="text-xs uppercase tracking-[0.22em] text-ink/45">Selected panel</p>
+                    <p className="mt-2 text-sm font-semibold text-ink">{VEHICLE_BODY_PANEL_LABELS[selectedDamagePanel]}</p>
+                    <p className="mt-1 text-sm text-ink/62">
+                      {selectedPanelDamageRecords.length
+                        ? `${selectedPanelDamageRecords.length} damage record${selectedPanelDamageRecords.length === 1 ? "" : "s"} linked to this panel.`
+                        : "No damage records linked to this panel yet."}
+                    </p>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {selectedPanelDamageRecords.length ? selectedPanelDamageRecords.map((damageRecord, index) => {
+                      const linkedPhotos = draft.photos.filter((photo) => damageRecord.photoIds.includes(photo.id));
+                      return (
+                        <div key={damageRecord.id} className="rounded-[22px] border border-black/6 bg-shell p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-ink">Damage record {index + 1}</p>
+                            <button
+                              type="button"
+                              onClick={() => removeDamageRecord(damageRecord.id)}
+                              className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                            >
+                              Remove record
+                            </button>
+                          </div>
+
+                          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+                            <div className="space-y-2">
+                              <FieldLabel>Damage type</FieldLabel>
+                              <SelectInput
+                                value={damageRecord.damageType}
+                                onChange={(event) => updateDamageRecord(damageRecord.id, { damageType: event.target.value as VehicleDamageType })}
+                              >
+                                {VEHICLE_DAMAGE_TYPE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </SelectInput>
+                            </div>
+                            <div className="space-y-2">
+                              <FieldLabel>Notes</FieldLabel>
+                              <TextAreaInput
+                                className="min-h-[96px]"
+                                placeholder="Optional buyer-facing damage note for this exact panel."
+                                value={damageRecord.notes}
+                                onChange={(event) => updateDamageRecord(damageRecord.id, { notes: event.target.value })}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mt-4 space-y-2">
+                            <FieldLabel>Linked photos</FieldLabel>
+                            <TextInput
+                              type="file"
+                              accept="image/*"
+                              capture="environment"
+                              multiple
+                              disabled={!recordId}
+                              onChange={(event) => void handleDamageRecordPhotoUpload(damageRecord.id, event.target.files)}
+                            />
+                            <FieldNote>
+                              {recordId
+                                ? "Upload one or more photos for this damage record from phone, iPad, or desktop."
+                                : "Save the intake draft once before uploading panel-linked damage photos."}
+                            </FieldNote>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                            {linkedPhotos.length ? linkedPhotos.map((photo) => (
+                              <WarehouseIntakeSecureImage
+                                key={photo.id}
+                                storagePath={photo.storagePath}
+                                fileName={photo.name}
+                                alt={photo.label || getDamagePhotoLabel(damageRecord.panelKey, damageRecord.damageType)}
+                              />
+                            )) : (
+                              <div className="rounded-[18px] border border-dashed border-black/10 bg-white px-4 py-5 text-sm text-ink/55">
+                                No photos linked to this damage record yet.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }) : (
+                      <div className="rounded-[20px] border border-dashed border-black/10 bg-shell px-4 py-5 text-sm text-ink/58">
+                        No panel-linked damage records recorded for {VEHICLE_BODY_PANEL_LABELS[selectedDamagePanel]} yet.
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1588,10 +1815,51 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   />
                   <FieldNote>This note is included in the buyer-facing CarNest Condition Summary.</FieldNote>
                 </div>
+
+                <div className="rounded-[24px] border border-black/6 bg-shell p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <FieldLabel>Additional damage photos</FieldLabel>
+                      <FieldNote>
+                        Legacy or unlinked damage photos stay here for internal reference and buyer fallback when they are not attached to a specific panel record.
+                      </FieldNote>
+                    </div>
+                    <div className="w-full max-w-sm">
+                      <TextInput
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        multiple
+                        onChange={(event) => void handlePhotoUpload("damagePhotos", "Damage photos", event.target.files, true)}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {additionalDamagePhotos.length ? additionalDamagePhotos.map((photo) => (
+                      <div key={photo.id} className="space-y-2">
+                        <WarehouseIntakeSecureImage
+                          storagePath={photo.storagePath}
+                          fileName={photo.name}
+                          alt={photo.label}
+                        />
+                        <TextAreaInput
+                          className="min-h-[84px]"
+                          value={photo.note || ""}
+                          onChange={(event) => updatePhotoNote(photo.id, event.target.value)}
+                          placeholder="Legacy damage note or extra buyer-facing context"
+                        />
+                      </div>
+                    )) : (
+                      <div className="rounded-[18px] border border-dashed border-black/10 bg-white px-4 py-5 text-sm text-ink/55">
+                        No additional unlinked damage photos recorded.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">
-                {WAREHOUSE_PHOTO_SECTIONS.map((section) => {
+                {NON_DAMAGE_WAREHOUSE_PHOTO_SECTIONS.map((section) => {
                   const sectionPhotos = draft.photos.filter((photo) => photo.category === section.key);
                   return (
                     <div key={section.key} className="rounded-[24px] border border-black/5 bg-shell p-4">
@@ -1613,14 +1881,6 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                               fileName={photo.name}
                               alt={photo.label}
                             />
-                            {section.key === "damagePhotos" ? (
-                              <TextAreaInput
-                                className="min-h-[84px]"
-                                value={photo.note || ""}
-                                onChange={(event) => updatePhotoNote(photo.id, event.target.value)}
-                                placeholder="Damage label, location, or buyer-facing note"
-                              />
-                            ) : null}
                           </div>
                         ))}
                       </div>

@@ -86,6 +86,8 @@ import {
   VehicleConditionAssessment,
   VehicleConditionCategoryAssessments,
   VehicleConditionScore,
+  VehicleDamageType,
+  VehiclePublicDamageRecordSummary,
   VehicleStatus,
   VehicleViewEvent,
   VehicleViewRole,
@@ -110,7 +112,8 @@ import {
   WarehouseServiceFeeItem,
   WarehouseIntakeSignature,
   WarehouseIntakeStatus,
-  WarehouseIntakeVehicleDetails
+  WarehouseIntakeVehicleDetails,
+  WarehouseVehicleDamageRecord,
 } from "@/types";
 
 type CollectionName =
@@ -846,6 +849,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
             keyCondition: typeof vehicleReportSummaryInput.keyCondition === "string" ? vehicleReportSummaryInput.keyCondition as string : "",
             rwcCooperation: typeof vehicleReportSummaryInput.rwcCooperation === "string" ? vehicleReportSummaryInput.rwcCooperation as string : "",
             damageConditionNotes: typeof vehicleReportSummaryInput.damageConditionNotes === "string" ? vehicleReportSummaryInput.damageConditionNotes as string : "",
+            damageRecords: serializeVehiclePublicDamageRecordSummaries(vehicleReportSummaryInput.damageRecords),
             damageImages: Array.isArray(vehicleReportSummaryInput.damageImages)
               ? (vehicleReportSummaryInput.damageImages as Array<Record<string, unknown>>)
                   .filter((item) => typeof item?.url === "string" && item.url)
@@ -1082,6 +1086,21 @@ function normalizeVehicleBodyPanelCondition(value: unknown): VehicleBodyPanelCon
     : "original";
 }
 
+function normalizeVehicleDamageType(value: unknown): VehicleDamageType {
+  return value === "scratch"
+    || value === "chip"
+    || value === "rust"
+    || value === "respray"
+    || value === "crack"
+    || value === "small_dent"
+    || value === "large_dent"
+    || value === "previous_repair"
+    || value === "loose"
+    || value === "missing"
+    ? value
+    : "other";
+}
+
 function createEmptyVehicleBodyMap(): VehicleBodyPanelMap {
   return VEHICLE_BODY_PANEL_KEYS.reduce((accumulator, key) => {
     accumulator[key] = "original";
@@ -1116,6 +1135,68 @@ function serializeVehicleBodyMap(input: unknown): VehicleBodyPanelMap {
   return bodyMap;
 }
 
+function serializeWarehouseVehicleDamageRecord(input: unknown): WarehouseVehicleDamageRecord | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+  const panelKey = typeof value.panelKey === "string" && VEHICLE_BODY_PANEL_KEYS.includes(value.panelKey as VehicleBodyPanelKey)
+    ? value.panelKey as VehicleBodyPanelKey
+    : null;
+  if (!panelKey) return null;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim()
+      ? value.id
+      : `damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    panelKey,
+    damageType: normalizeVehicleDamageType(value.damageType),
+    notes: typeof value.notes === "string" ? value.notes : "",
+    photoIds: Array.isArray(value.photoIds)
+      ? value.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
+      : [],
+  };
+}
+
+function serializeWarehouseVehicleDamageRecords(input: unknown): WarehouseVehicleDamageRecord[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => serializeWarehouseVehicleDamageRecord(item))
+    .filter((item): item is WarehouseVehicleDamageRecord => Boolean(item));
+}
+
+function serializeVehiclePublicDamageRecordSummary(input: unknown): VehiclePublicDamageRecordSummary | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+  const panelKey = typeof value.panelKey === "string" && VEHICLE_BODY_PANEL_KEYS.includes(value.panelKey as VehicleBodyPanelKey)
+    ? value.panelKey as VehicleBodyPanelKey
+    : null;
+  if (!panelKey) return null;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim()
+      ? value.id
+      : `damage-record-${panelKey}`,
+    panelKey,
+    damageType: normalizeVehicleDamageType(value.damageType),
+    notes: typeof value.notes === "string" ? value.notes : "",
+    images: Array.isArray(value.images)
+      ? (value.images as Array<Record<string, unknown>>)
+          .filter((item) => typeof item?.url === "string" && item.url)
+          .map((item) => ({
+            url: item.url as string,
+            label: typeof item.label === "string" ? item.label : "Damage image",
+            note: typeof item.note === "string" ? item.note : "",
+          }))
+      : [],
+  };
+}
+
+function serializeVehiclePublicDamageRecordSummaries(input: unknown): VehiclePublicDamageRecordSummary[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => serializeVehiclePublicDamageRecordSummary(item))
+    .filter((item): item is VehiclePublicDamageRecordSummary => Boolean(item));
+}
+
 function createEmptyWarehouseVehicleReport() {
   return {
     conditionRating: "",
@@ -1130,7 +1211,8 @@ function createEmptyWarehouseVehicleReport() {
     serviceRecordCondition: "",
     keyCondition: "",
     rwcCooperation: "",
-    damageConditionNotes: ""
+    damageConditionNotes: "",
+    damageRecords: [],
   } as WarehouseIntakeRecord["vehicleReport"];
 }
 
@@ -1626,7 +1708,8 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
         || vehicleReportInput.rwcCooperation === "seller_does_not_include_rwc"
           ? vehicleReportInput.rwcCooperation
           : "",
-      damageConditionNotes: typeof vehicleReportInput.damageConditionNotes === "string" ? vehicleReportInput.damageConditionNotes : ""
+      damageConditionNotes: typeof vehicleReportInput.damageConditionNotes === "string" ? vehicleReportInput.damageConditionNotes : "",
+      damageRecords: serializeWarehouseVehicleDamageRecords(vehicleReportInput.damageRecords),
     },
     photos,
     serviceItems,
@@ -5311,7 +5394,21 @@ function buildWarehouseIntakeWritePayload(
       mechanicalCondition: sanitizeMultilineText(input.vehicleReport?.mechanicalCondition ?? ""),
       serviceRecordCondition: sanitizeMultilineText(input.vehicleReport?.serviceRecordCondition ?? ""),
       keyCondition: sanitizeMultilineText(input.vehicleReport?.keyCondition ?? ""),
-      damageConditionNotes: sanitizeMultilineText(input.vehicleReport?.damageConditionNotes ?? "")
+      damageConditionNotes: sanitizeMultilineText(input.vehicleReport?.damageConditionNotes ?? ""),
+      damageRecords: (input.vehicleReport?.damageRecords ?? [])
+        .map((record) => ({
+          id: typeof record?.id === "string" && record.id.trim()
+            ? record.id
+            : `damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          panelKey: VEHICLE_BODY_PANEL_KEYS.includes(record?.panelKey as VehicleBodyPanelKey)
+            ? record.panelKey
+            : "bonnet",
+          damageType: normalizeVehicleDamageType(record?.damageType),
+          notes: sanitizeMultilineText(record?.notes ?? ""),
+          photoIds: Array.isArray(record?.photoIds)
+            ? record.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
+            : [],
+        })),
     } satisfies WarehouseIntakeRecord["vehicleReport"],
     photos,
     serviceItems,
@@ -5383,6 +5480,56 @@ async function resolveVehicleReportDamageImages(input: Pick<WarehouseIntakeRecor
   return resolved.filter((item): item is { url: string; label: string; note: string } => Boolean(item));
 }
 
+async function resolveVehicleReportDamageRecordSummaries(
+  input: Pick<WarehouseIntakeRecord, "photos" | "vehicleReport">
+) {
+  if (!isFirebaseStorageConfigured) return [];
+
+  const damagePhotosById = new Map(
+    input.photos
+      .filter((photo) => photo.category === "damagePhotos" && photo.storagePath)
+      .map((photo) => [photo.id, photo] as const)
+  );
+
+  const resolved = await Promise.all(
+    (input.vehicleReport.damageRecords ?? []).map(async (record) => {
+      const images = await Promise.all(
+        record.photoIds.map(async (photoId) => {
+          const photo = damagePhotosById.get(photoId);
+          if (!photo) return null;
+          try {
+            const url = await getDownloadURL(ref(storage, photo.storagePath));
+            return {
+              url,
+              label: photo.label || "Damage image",
+              note: typeof photo.note === "string" ? photo.note : "",
+            };
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      return {
+        id: record.id,
+        panelKey: record.panelKey,
+        damageType: normalizeVehicleDamageType(record.damageType),
+        notes: record.notes || "",
+        images: images.filter((item): item is { url: string; label: string; note: string } => Boolean(item)),
+      } satisfies VehiclePublicDamageRecordSummary;
+    })
+  );
+
+  return resolved;
+}
+
+function getAdditionalDamagePhotos(
+  input: Pick<WarehouseIntakeRecord, "photos" | "vehicleReport">
+) {
+  const linkedPhotoIds = new Set((input.vehicleReport.damageRecords ?? []).flatMap((record) => record.photoIds));
+  return input.photos.filter((photo) => photo.category === "damagePhotos" && !linkedPhotoIds.has(photo.id));
+}
+
 function hasVehicleReportSummary(
   input: Pick<WarehouseIntakeRecord, "vehicleReport">
 ) {
@@ -5399,7 +5546,8 @@ async function syncVehicleReportMetadataToPublicListing(
   if (!vehicleId || !isFirebaseConfigured) return;
 
   const hasReport = hasVehicleReportSummary(input);
-  const damageImages = hasReport ? await resolveVehicleReportDamageImages(input) : [];
+  const damageRecords = hasReport ? await resolveVehicleReportDamageRecordSummaries(input) : [];
+  const damageImages = hasReport ? await resolveVehicleReportDamageImages({ photos: getAdditionalDamagePhotos(input) }) : [];
 
   await setDoc(
     doc(db, "vehicles", vehicleId),
@@ -5429,6 +5577,7 @@ async function syncVehicleReportMetadataToPublicListing(
             keyCondition: input.vehicleReport.keyCondition || "",
             rwcCooperation: input.vehicleReport.rwcCooperation || "",
             damageConditionNotes: input.vehicleReport.damageConditionNotes || "",
+            damageRecords,
             damageImages
           }
         : deleteField(),

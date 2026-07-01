@@ -150,19 +150,29 @@ export function VehicleReportPage({ vehicle }: { vehicle: Vehicle }) {
         </SectionCard>
 
         <SectionCard kicker="Body Damage Map" title="Professional Panel Overview">
-          <PublicConditionBodyMap bodyMap={summary?.bodyMap} note={summary?.damageConditionNotes || summary?.panelRepairNotes} />
+          <PublicConditionBodyMap
+            bodyMap={summary?.bodyMap}
+            note={summary?.damageConditionNotes || summary?.panelRepairNotes}
+            damageRecords={summary?.damageRecords}
+          />
           {summary?.damageImages?.length ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {summary.damageImages.map((image, index) => (
-                <div key={`${image.url}-${index}`} className="overflow-hidden rounded-[24px] border border-[#E2D8CA] bg-white shadow-[0_10px_26px_rgba(31,24,18,0.06)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={image.url} alt={image.label} loading="lazy" className="aspect-[4/3] w-full object-cover object-center" />
-                  <div className="px-4 py-4">
-                    <p className="text-sm font-semibold text-[#221F1B]">{image.label}</p>
-                    {image.note ? <p className="mt-1 text-sm leading-6 text-[#6E6256]">{image.note}</p> : null}
+            <div className="mt-6 rounded-[26px] border border-[#E2D8CA] bg-white/80 p-5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#B8893F]">Additional Damage Photos</p>
+              <p className="mt-2 text-sm leading-6 text-[#6E6256]">
+                These photos were saved without a specific panel link and remain available as supporting damage evidence.
+              </p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {summary.damageImages.map((image, index) => (
+                  <div key={`${image.url}-${index}`} className="overflow-hidden rounded-[24px] border border-[#E2D8CA] bg-white shadow-[0_10px_26px_rgba(31,24,18,0.06)]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={image.url} alt={image.label} loading="lazy" className="aspect-[4/3] w-full object-cover object-center" />
+                    <div className="px-4 py-4">
+                      <p className="text-sm font-semibold text-[#221F1B]">{image.label}</p>
+                      {image.note ? <p className="mt-1 text-sm leading-6 text-[#6E6256]">{image.note}</p> : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           ) : null}
         </SectionCard>

@@ -88,6 +88,18 @@ export type VehicleBodyPanelKey =
   | "rightRearQuarter"
   | "rearBumper";
 export type VehicleBodyPanelCondition = "original" | "scratch" | "dent" | "repaint" | "repaired_damage";
+export type VehicleDamageType =
+  | "scratch"
+  | "chip"
+  | "rust"
+  | "respray"
+  | "crack"
+  | "small_dent"
+  | "large_dent"
+  | "previous_repair"
+  | "loose"
+  | "missing"
+  | "other";
 export type VehicleReportRwcCooperation =
   | "seller_includes_rwc"
   | "seller_repairs_for_rwc"
@@ -274,6 +286,22 @@ export interface VehicleReportImageSummary {
   note?: string;
 }
 
+export interface WarehouseVehicleDamageRecord {
+  id: string;
+  panelKey: VehicleBodyPanelKey;
+  damageType: VehicleDamageType;
+  notes: string;
+  photoIds: string[];
+}
+
+export interface VehiclePublicDamageRecordSummary {
+  id: string;
+  panelKey: VehicleBodyPanelKey;
+  damageType: VehicleDamageType;
+  notes: string;
+  images: VehicleReportImageSummary[];
+}
+
 export interface VehicleConditionAssessment {
   score: VehicleConditionScore | "";
   notes: string;
@@ -309,6 +337,7 @@ export interface VehiclePublicReportSummary {
   keyCondition?: string;
   rwcCooperation?: string;
   damageConditionNotes?: string;
+  damageRecords?: VehiclePublicDamageRecordSummary[];
   damageImages?: VehicleReportImageSummary[];
 }
 
@@ -392,6 +421,7 @@ export interface WarehouseVehicleReportDetails {
   keyCondition: string;
   rwcCooperation: VehicleReportRwcCooperation | "";
   damageConditionNotes: string;
+  damageRecords: WarehouseVehicleDamageRecord[];
 }
 
 export interface WarehouseIntakeDeclarations {

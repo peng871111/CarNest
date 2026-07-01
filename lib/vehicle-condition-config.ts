@@ -1,4 +1,10 @@
-import type { VehicleBodyPanelCondition, VehicleBodyPanelKey, VehicleConditionCategoryKey, VehicleConditionScore } from "@/types";
+import type {
+  VehicleBodyPanelCondition,
+  VehicleBodyPanelKey,
+  VehicleConditionCategoryKey,
+  VehicleConditionScore,
+  VehicleDamageType,
+} from "@/types";
 
 export const VEHICLE_CONDITION_SCORE_OPTIONS: VehicleConditionScore[] = [
   "5.0",
@@ -88,4 +94,32 @@ export const VEHICLE_BODY_PANEL_CONDITION_LABELS: Record<VehicleBodyPanelConditi
   dent: "Dent",
   repaint: "Repaint",
   repaired_damage: "Repaired damage"
+};
+
+export const VEHICLE_DAMAGE_TYPE_OPTIONS: Array<{ value: VehicleDamageType; label: string }> = [
+  { value: "scratch", label: "Scratch" },
+  { value: "chip", label: "Chip" },
+  { value: "rust", label: "Rust" },
+  { value: "respray", label: "Respray" },
+  { value: "crack", label: "Crack" },
+  { value: "small_dent", label: "Small Dent" },
+  { value: "large_dent", label: "Large Dent" },
+  { value: "previous_repair", label: "Previous Repair" },
+  { value: "loose", label: "Loose" },
+  { value: "missing", label: "Missing" },
+  { value: "other", label: "Other" },
+];
+
+export const VEHICLE_DAMAGE_TYPE_LABELS: Record<VehicleDamageType, string> = {
+  scratch: "Scratch",
+  chip: "Chip",
+  rust: "Rust",
+  respray: "Respray",
+  crack: "Crack",
+  small_dent: "Small Dent",
+  large_dent: "Large Dent",
+  previous_repair: "Previous Repair",
+  loose: "Loose",
+  missing: "Missing",
+  other: "Other",
 };
