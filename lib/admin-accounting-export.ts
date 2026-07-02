@@ -1,4 +1,5 @@
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import fontkit from "@pdf-lib/fontkit";
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import {
   buildAccountingReportSummary,
   formatMelbourneDateHeading,
@@ -14,6 +15,202 @@ import { formatAccountingCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
 
 export type AccountingExportFormat = "xlsx" | "pdf" | "csv";
+
+const ACCOUNTING_UNICODE_FONT_URL = "/fonts/arial-unicode.ttf";
+let accountingUnicodeFontBytesPromise: Promise<Uint8Array | null> | null = null;
+let accountingBrowserFontPromise: Promise<string> | null = null;
+const accountingTextFallbackImageCache = new Map<string, Uint8Array>();
+
+async function loadAccountingUnicodeFontBytes() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  if (!accountingUnicodeFontBytesPromise) {
+    accountingUnicodeFontBytesPromise = fetch(ACCOUNTING_UNICODE_FONT_URL)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load accounting PDF Unicode font.");
+        }
+
+        return new Uint8Array(await response.arrayBuffer());
+      })
+      .catch(() => null);
+  }
+
+  return await accountingUnicodeFontBytesPromise;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Unable to encode fallback text image."));
+        return;
+      }
+
+      resolve(blob);
+    }, mimeType);
+  });
+}
+
+async function ensureAccountingBrowserFontFamily() {
+  if (typeof window === "undefined" || typeof FontFace === "undefined" || !("fonts" in document)) {
+    return "\"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif";
+  }
+
+  if (!accountingBrowserFontPromise) {
+    accountingBrowserFontPromise = (async () => {
+      const family = "CarNestAccountingPdfUnicode";
+      const fontRegistry = document.fonts;
+      if (!fontRegistry.check(`12px "${family}"`)) {
+        const fontFace = new FontFace(family, `url(${ACCOUNTING_UNICODE_FONT_URL})`);
+        await fontFace.load();
+        fontRegistry.add(fontFace);
+        await fontRegistry.ready;
+      }
+
+      return `"${family}", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif`;
+    })().catch(() => "\"PingFang SC\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", sans-serif");
+  }
+
+  return await accountingBrowserFontPromise;
+}
+
+function accountingRgbToCss(color: ReturnType<typeof rgb>) {
+  return `rgb(${Math.round(color.red * 255)}, ${Math.round(color.green * 255)}, ${Math.round(color.blue * 255)})`;
+}
+
+async function renderAccountingTextFallbackImage(
+  text: string,
+  options: {
+    bold?: boolean;
+    color: ReturnType<typeof rgb>;
+    size: number;
+  }
+) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const cacheKey = JSON.stringify([text, options.size, options.bold ? 1 : 0, options.color.red, options.color.green, options.color.blue]);
+  const cached = accountingTextFallbackImageCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const fontFamily = await ensureAccountingBrowserFontFamily();
+  const fontSize = Math.max(10, options.size + 2);
+  const paddingX = 6;
+  const paddingY = 4;
+  const scale = 2;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  const fontWeight = options.bold ? 700 : 400;
+  context.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  const measuredWidth = Math.ceil(context.measureText(text).width);
+  const width = Math.max(1, measuredWidth + paddingX * 2);
+  const height = Math.max(1, Math.ceil(fontSize * 1.55) + paddingY * 2);
+  canvas.width = width * scale;
+  canvas.height = height * scale;
+
+  const scaledContext = canvas.getContext("2d");
+  if (!scaledContext) {
+    return null;
+  }
+
+  scaledContext.scale(scale, scale);
+  scaledContext.clearRect(0, 0, width, height);
+  scaledContext.font = `${fontWeight} ${fontSize}px ${fontFamily}`;
+  scaledContext.fillStyle = accountingRgbToCss(options.color);
+  scaledContext.textBaseline = "top";
+  scaledContext.fillText(text, paddingX, paddingY);
+
+  try {
+    const blob = await canvasToBlob(canvas, "image/png");
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    accountingTextFallbackImageCache.set(cacheKey, bytes);
+    return bytes;
+  } catch {
+    return null;
+  }
+}
+
+async function drawAccountingPdfTextSafely(
+  pdf: PDFDocument,
+  page: PDFPage,
+  text: string,
+  options: {
+    bold?: boolean;
+    color: ReturnType<typeof rgb>;
+    font: PDFFont;
+    size: number;
+    x: number;
+    y: number;
+  }
+) {
+  try {
+    page.drawText(text, {
+      x: options.x,
+      y: options.y,
+      size: options.size,
+      font: options.font,
+      color: options.color
+    });
+
+    if (options.bold) {
+      page.drawText(text, {
+        x: options.x + 0.2,
+        y: options.y,
+        size: options.size,
+        font: options.font,
+        color: options.color
+      });
+    }
+    return;
+  } catch (error) {
+    try {
+      const fallbackBytes = await renderAccountingTextFallbackImage(text, {
+        bold: options.bold,
+        color: options.color,
+        size: options.size
+      });
+
+      if (fallbackBytes) {
+        const embedded = await pdf.embedPng(fallbackBytes);
+        const width = embedded.width / 2;
+        const height = embedded.height / 2;
+        page.drawImage(embedded, {
+          x: options.x,
+          y: options.y - Math.max(0, height - options.size),
+          width,
+          height
+        });
+        return;
+      }
+    } catch {
+      // Fall through to a visible non-crashing placeholder.
+    }
+
+    try {
+      page.drawText("[Text render unavailable]", {
+        x: options.x,
+        y: options.y,
+        size: Math.max(9, options.size - 1),
+        font: options.font,
+        color: options.color
+      });
+    } catch {
+      // Ignore final fallback failures to keep the export flowing.
+    }
+
+    console.warn("Failed to render accounting PDF text.", error);
+  }
+}
 
 function getEntryTypeLabel(type: AdminAccountingEntry["type"]) {
   if (type === "income") return "Income";
@@ -331,79 +528,102 @@ export async function exportAccountingPdf(entries: AdminAccountingEntry[], perio
   const summary = buildAccountingReportSummary(entries);
   const detailRows = buildDetailedRows(entries);
   const pdf = await PDFDocument.create();
-  const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+  let font: PDFFont;
+  let boldFont: PDFFont;
+
+  try {
+    const unicodeFontBytes = await loadAccountingUnicodeFontBytes();
+    if (unicodeFontBytes) {
+      pdf.registerFontkit(fontkit);
+      font = await pdf.embedFont(unicodeFontBytes, { subset: true });
+      boldFont = font;
+    } else {
+      font = await pdf.embedFont(StandardFonts.Helvetica);
+      boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+    }
+  } catch {
+    font = await pdf.embedFont(StandardFonts.Helvetica);
+    boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+  }
+
   let page = pdf.addPage([842, 1191]);
   let y = 1130;
 
-  const addLine = (text: string, options?: { bold?: boolean; size?: number; color?: ReturnType<typeof rgb> }) => {
+  const addLine = async (text: string, options?: { bold?: boolean; size?: number; color?: ReturnType<typeof rgb> }) => {
     const size = options?.size ?? 11;
+    const color = options?.color ?? rgb(0.16, 0.17, 0.2);
     if (y < 60) {
       page = pdf.addPage([842, 1191]);
       y = 1130;
     }
-    page.drawText(text, {
+
+    await drawAccountingPdfTextSafely(pdf, page, text, {
       x: 48,
       y,
       size,
       font: options?.bold ? boldFont : font,
-      color: options?.color ?? rgb(0.16, 0.17, 0.2)
+      bold: options?.bold,
+      color
     });
     y -= size + 8;
   };
 
-  addLine("CarNest Accounting Export", { bold: true, size: 18 });
-  addLine(`Period: ${getAccountingPeriodLabel(period)}`, { size: 12, color: rgb(0.45, 0.37, 0.27) });
+  await addLine("CarNest Accounting Export", { bold: true, size: 18 });
+  await addLine(`Period: ${getAccountingPeriodLabel(period)}`, { size: 12, color: rgb(0.45, 0.37, 0.27) });
   y -= 6;
-  addLine("Summary", { bold: true, size: 13 });
-  buildSummaryRows(summary).forEach(([metric, value]) => addLine(`${metric}: ${value}`));
+  await addLine("Summary", { bold: true, size: 13 });
+  for (const [metric, value] of buildSummaryRows(summary)) {
+    await addLine(`${metric}: ${value}`);
+  }
   y -= 6;
-  addLine("Payment Method Summary", { bold: true, size: 13 });
-  buildPaymentMethodSummaryRows(summary).forEach(([metric, value]) => addLine(`${metric}: ${value}`));
+  await addLine("Payment Method Summary", { bold: true, size: 13 });
+  for (const [metric, value] of buildPaymentMethodSummaryRows(summary)) {
+    await addLine(`${metric}: ${value}`);
+  }
   y -= 6;
-  addLine("Payment Method Breakdown", { bold: true, size: 13 });
-  summary.paymentMethodBreakdown.forEach((item) => {
-    addLine(
+  await addLine("Payment Method Breakdown", { bold: true, size: 13 });
+  for (const item of summary.paymentMethodBreakdown) {
+    await addLine(
       `${getAccountingPaymentMethodLabel(item.paymentMethod)} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Net ${formatAccountingCurrency(item.netCashflow)}`
     );
-  });
+  }
   y -= 6;
-  addLine("Expense Category Breakdown", { bold: true, size: 13 });
-  summary.expenseCategoryBreakdown.forEach((item) => {
-    addLine(`${item.category}: ${formatAccountingCurrency(item.totalExpense)}`);
-  });
+  await addLine("Expense Category Breakdown", { bold: true, size: 13 });
+  for (const item of summary.expenseCategoryBreakdown) {
+    await addLine(`${item.category}: ${formatAccountingCurrency(item.totalExpense)}`);
+  }
   y -= 6;
-  addLine("Vehicle Profit Report", { bold: true, size: 13 });
-  summary.vehicleProfitBreakdown.forEach((item) => {
-    addLine(
+  await addLine("Vehicle Profit Report", { bold: true, size: 13 });
+  for (const item of summary.vehicleProfitBreakdown) {
+    await addLine(
       `${[item.displayReference, item.vehicleTitle].filter(Boolean).join(" · ") || "General business entry"} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Profit ${formatAccountingCurrency(item.netProfit)}`,
       { bold: true }
     );
     if (item.customerName) {
-      addLine(`Customer: ${item.customerName}`, { size: 10, color: rgb(0.35, 0.35, 0.38) });
+      await addLine(`Customer: ${item.customerName}`, { size: 10, color: rgb(0.35, 0.35, 0.38) });
     }
-  });
+  }
   y -= 6;
-  addLine("Customer Report", { bold: true, size: 13 });
-  summary.customerProfitBreakdown.forEach((item) => {
-    addLine(
+  await addLine("Customer Report", { bold: true, size: 13 });
+  for (const item of summary.customerProfitBreakdown) {
+    await addLine(
       `${item.customerName} — Income ${formatAccountingCurrency(item.totalIncome)} · Expense ${formatAccountingCurrency(item.totalExpense)} · Profit ${formatAccountingCurrency(item.profitContribution)}`
     );
-  });
+  }
   y -= 6;
-  addLine("Detailed Transactions", { bold: true, size: 13 });
-  detailRows.forEach((row) => {
-    addLine(`${row.date} · ${row.type} · ${row.category} · ${formatAccountingCurrency(row.amount)}`, { bold: true });
-    addLine(
+  await addLine("Detailed Transactions", { bold: true, size: 13 });
+  for (const row of detailRows) {
+    await addLine(`${row.date} · ${row.type} · ${row.category} · ${formatAccountingCurrency(row.amount)}`, { bold: true });
+    await addLine(
       `${row.paymentMethod} · ${row.status} · GST ${formatAccountingCurrency(row.gstAmount)} · Net ${formatAccountingCurrency(row.netAmount)}`,
       { size: 10, color: rgb(0.35, 0.35, 0.38) }
     );
-    addLine(
+    await addLine(
       `${row.vehicle || "General business entry"}${row.customer ? ` · ${row.customer}` : ""}${row.note ? ` · ${row.note}` : ""}`,
       { size: 10, color: rgb(0.35, 0.35, 0.38) }
     );
     y -= 4;
-  });
+  }
 
   const bytes = await pdf.save();
   const pdfBytes = Uint8Array.from(bytes);
