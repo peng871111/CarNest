@@ -11,6 +11,8 @@ type MelbourneDateParts = {
 export type AccountingCashSummary = {
   totalIncome: number;
   totalExpense: number;
+  incomeByCash: number;
+  expenseByCash: number;
   netCashflow: number;
   gstCollected: number;
   gstPaid: number;
@@ -245,6 +247,12 @@ export function buildAccountingCashSummary(entries: AdminAccountingEntry[]): Acc
   const totalExpense = entries
     .filter((entry) => entry.type === "expense" && entry.status === "paid")
     .reduce((sum, entry) => sum + entry.amount, 0);
+  const incomeByCash = entries
+    .filter((entry) => entry.type === "income" && entry.status === "paid" && normalizeAccountingPaymentMethod(entry.paymentMethod) === "cash")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const expenseByCash = entries
+    .filter((entry) => entry.type === "expense" && entry.status === "paid" && normalizeAccountingPaymentMethod(entry.paymentMethod) === "cash")
+    .reduce((sum, entry) => sum + entry.amount, 0);
   const receivables = entries
     .filter(isOutstandingReceivable)
     .reduce((sum, entry) => sum + entry.amount, 0);
@@ -264,6 +272,8 @@ export function buildAccountingCashSummary(entries: AdminAccountingEntry[]): Acc
   return {
     totalIncome,
     totalExpense,
+    incomeByCash,
+    expenseByCash,
     netCashflow: totalIncome - totalExpense,
     gstCollected,
     gstPaid,
@@ -276,12 +286,13 @@ export function buildAccountingCashSummary(entries: AdminAccountingEntry[]): Acc
 export function normalizeAccountingPaymentMethod(
   paymentMethod: AdminAccountingEntry["paymentMethod"]
 ): "bank_transfer" | "cash" | "credit_card" | "other" {
-  if (
-    paymentMethod === "bank_transfer"
-    || paymentMethod === "cash"
-    || paymentMethod === "credit_card"
-  ) {
-    return paymentMethod;
+  const normalized =
+    typeof paymentMethod === "string"
+      ? paymentMethod.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+
+  if (normalized === "bank_transfer" || normalized === "cash" || normalized === "credit_card") {
+    return normalized;
   }
   return "other";
 }
@@ -385,9 +396,10 @@ export function buildAccountingReportSummary(entries: AdminAccountingEntry[]): A
 }
 
 export function getAccountingPaymentMethodLabel(paymentMethod: AdminAccountingEntry["paymentMethod"]) {
-  if (paymentMethod === "bank_transfer") return "Bank transfer";
-  if (paymentMethod === "credit_card") return "Credit card";
-  if (paymentMethod === "cash") return "Cash";
+  const normalized = normalizeAccountingPaymentMethod(paymentMethod);
+  if (normalized === "bank_transfer") return "Bank transfer";
+  if (normalized === "credit_card") return "Credit card";
+  if (normalized === "cash") return "Cash";
   return "Other";
 }
 

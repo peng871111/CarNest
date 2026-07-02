@@ -1362,14 +1362,15 @@ function normalizeAdminAccountingEntryType(value: unknown): AdminAccountingEntry
 }
 
 function normalizeAdminAccountingPaymentMethod(value: unknown): AdminAccountingPaymentMethod {
-  if (
-    value === "cash"
-    || value === "credit_card"
-    || value === "other"
-  ) {
-    return value;
+  const normalized =
+    typeof value === "string"
+      ? value.trim().toLowerCase().replace(/[\s-]+/g, "_")
+      : "";
+
+  if (normalized === "cash" || normalized === "credit_card" || normalized === "other") {
+    return normalized;
   }
-  if (value === "debit_card" || value === "eftpos") {
+  if (normalized === "debit_card" || normalized === "eftpos") {
     return "other";
   }
   return "bank_transfer";

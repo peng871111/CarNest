@@ -1240,8 +1240,10 @@ export function AdminAccountingPanel() {
         ) : null}
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <ReportKpiCard label="Total Expense" value={formatAccountingCurrency(exportSummary.totalExpense)} />
+          <ReportKpiCard label="Expense by Cash" value={formatAccountingCurrency(exportSummary.expenseByCash)} />
           <ReportKpiCard label="Total Income" value={formatAccountingCurrency(exportSummary.totalIncome)} />
-          <ReportKpiCard label="Total Expenses" value={formatAccountingCurrency(exportSummary.totalExpense)} />
+          <ReportKpiCard label="Income by Cash" value={formatAccountingCurrency(exportSummary.incomeByCash)} />
           <ReportKpiCard label="Net Profit / Loss" value={formatAccountingCurrency(exportSummary.netCashflow)} />
           <ReportKpiCard label="GST Collected" value={formatAccountingCurrency(exportSummary.gstCollected)} />
           <ReportKpiCard label="GST Paid" value={formatAccountingCurrency(exportSummary.gstPaid)} />

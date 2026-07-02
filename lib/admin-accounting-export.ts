@@ -277,8 +277,10 @@ function buildDetailedRows(entries: AdminAccountingEntry[]) {
 
 function buildSummaryRows(summary: AccountingReportSummary) {
   return [
+    ["Total Expense", formatAccountingCurrency(summary.totalExpense)],
+    ["Expense by Cash", formatAccountingCurrency(summary.expenseByCash)],
     ["Total Income", formatAccountingCurrency(summary.totalIncome)],
-    ["Total Expenses", formatAccountingCurrency(summary.totalExpense)],
+    ["Income by Cash", formatAccountingCurrency(summary.incomeByCash)],
     ["Net Profit / Loss", formatAccountingCurrency(summary.netCashflow)],
     ["GST Collected", formatAccountingCurrency(summary.gstCollected)],
     ["GST Paid", formatAccountingCurrency(summary.gstPaid)],
