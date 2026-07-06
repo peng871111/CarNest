@@ -214,6 +214,7 @@ export function SellFlow() {
         sellerLocationPostcode: form.sellerLocationPostcode,
         sellerLocationState: form.sellerLocationState,
         description: form.description,
+        videoUrl: form.videoUrl,
         coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || "",
         coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || "",
         imageAssets,

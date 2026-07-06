@@ -25,6 +25,15 @@ function normalizeUppercase(value: string) {
   return value.toUpperCase();
 }
 
+function isValidVideoUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 function getThemeClasses(theme: VehicleFormTheme) {
   if (theme === "dark") {
     return {
@@ -212,11 +221,12 @@ export function buildVehicleFormFieldsValue(vehicle?: Vehicle, descriptionOverri
     sellerLocationSuburb: vehicle?.sellerLocationSuburb ?? "",
     sellerLocationPostcode: vehicle?.sellerLocationPostcode ?? "",
     sellerLocationState: vehicle?.sellerLocationState ?? "",
-    description: descriptionOverride ?? vehicle?.description ?? ""
+    description: descriptionOverride ?? vehicle?.description ?? "",
+    videoUrl: vehicle?.videoUrl ?? ""
   };
 }
 
-export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
+export function validateVehicleFormFields(values: VehicleFormFieldsValue, options?: { validateVideoUrl?: boolean }) {
   const postcode = normalizeAustralianPostcode(values.sellerLocationPostcode.trim());
   const postcodeMatches = getAustralianPostcodeLocations(postcode);
   const suburbMatch = findAustralianPostcodeLocation(postcode, values.sellerLocationSuburb);
@@ -240,6 +250,7 @@ export function validateVehicleFormFields(values: VehicleFormFieldsValue) {
   }
   if (!suburbMatch) return "Please select a seller suburb that matches the postcode.";
   if (values.sellerLocationState.trim().toUpperCase() !== suburbMatch.state) return "Seller state must match the selected suburb and postcode.";
+  if (options?.validateVideoUrl && values.videoUrl.trim() && !isValidVideoUrl(values.videoUrl.trim())) return "Please enter a valid video URL.";
   if (!values.description.trim()) return "Please enter the vehicle description.";
   return "";
 }
@@ -248,12 +259,14 @@ export function VehicleFormFields({
   value,
   onFieldChange,
   theme = "light",
+  showVideoUrl = false,
   descriptionLead,
   descriptionHint
 }: {
   value: VehicleFormFieldsValue;
   onFieldChange: <K extends keyof VehicleFormFieldsValue>(field: K, nextValue: VehicleFormFieldsValue[K]) => void;
   theme?: VehicleFormTheme;
+  showVideoUrl?: boolean;
   descriptionLead?: ReactNode;
   descriptionHint?: ReactNode;
 }) {
@@ -484,6 +497,21 @@ export function VehicleFormFields({
             />
             {descriptionHint ? <div className={classes.hint}>{descriptionHint}</div> : null}
           </label>
+          {showVideoUrl ? (
+            <label className="space-y-2">
+              <span className={classes.label}>Video URL</span>
+              <Input
+                type="url"
+                value={value.videoUrl}
+                onChange={(event) => onFieldChange("videoUrl", event.target.value)}
+                className={classes.input}
+                placeholder="https://www.instagram.com/reel/... or https://youtu.be/..."
+              />
+              <p className={classes.hint}>
+                Optional. Supports Instagram, YouTube, TikTok, or any valid video URL.
+              </p>
+            </label>
+          ) : null}
         </div>
 
         <div className="space-y-4">

@@ -154,6 +154,8 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     ["Vehicle ID", getVehicleDisplayReference(vehicle)]
   ].filter(([, value]) => Boolean(value));
   const publicLocation = vehicle.sellerLocationSuburb || vehicle.sellerLocationState || "";
+  const vehicleVideoTitle = [vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
+  const vehicleVideoUrl = vehicle.videoUrl?.trim() ?? "";
   const vehicleSummaryCard = (
     <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
       <div className="flex flex-wrap gap-2">
@@ -164,6 +166,16 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
         {vehicle.year} {vehicle.make} {vehicle.model}
       </h1>
       <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
+      {vehicleVideoUrl ? (
+        <a
+          href={vehicleVideoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 inline-flex text-sm font-semibold text-bronze transition hover:text-bronze/80"
+        >
+          Watch {vehicleVideoTitle} video clip here
+        </a>
+      ) : null}
       <p className="mt-3 text-sm leading-6 text-ink/52">
         Private sale
         <br />

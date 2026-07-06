@@ -345,7 +345,7 @@ export function VehicleForm({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (loading || !appUser) return;
-    const validationError = validateVehicleFormFields(formValues);
+    const validationError = validateVehicleFormFields(formValues, { validateVideoUrl: isAdminUser });
     if (validationError) {
       setMessage(validationError);
       return;
@@ -425,6 +425,7 @@ export function VehicleForm({
         customerEmail,
         customerName,
         description: formValues.description,
+        videoUrl: formValues.videoUrl,
         coverImage: imageAssets[0]?.thumbnailUrl || imageUrls[0] || currentVehicle?.coverImage || currentVehicle?.coverImageUrl || "",
         coverImageUrl: imageAssets[0]?.fullUrl || imageUrls[0] || currentVehicle?.coverImageUrl || "",
         imageAssets,
@@ -620,6 +621,7 @@ export function VehicleForm({
         value={formValues}
         onFieldChange={(field, nextValue) => setFormValues((current) => ({ ...current, [field]: nextValue }))}
         theme="light"
+        showVideoUrl={isAdminUser}
         descriptionLead={
           appUser?.role === "seller" && currentVehicle?.pendingDescription ? (
             <div className="rounded-[20px] border border-black/5 bg-shell px-4 py-3 text-sm leading-6 text-ink/70">

@@ -247,6 +247,7 @@ export interface Vehicle {
   rego: string;
   regoExpiry?: string;
   description: string;
+  videoUrl?: string;
   pendingDescription?: string;
   manualReviewReason?: "possible_unlicensed_trader";
   features: string[];
@@ -732,6 +733,7 @@ export interface VehicleFormInput {
   customerEmail?: string;
   customerName?: string | null;
   description: string;
+  videoUrl?: string;
   coverImage?: string;
   coverImageUrl?: string;
   imageAssets?: VehicleImageAsset[];
@@ -759,6 +761,7 @@ export interface VehicleFormFieldsValue {
   sellerLocationPostcode: string;
   sellerLocationState: string;
   description: string;
+  videoUrl: string;
 }
 
 export interface VehicleActor {

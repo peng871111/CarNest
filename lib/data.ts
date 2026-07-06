@@ -812,6 +812,7 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     deletedBy: typeof data.deletedBy === "string" ? data.deletedBy : "",
     deleteReason: typeof data.deleteReason === "string" ? data.deleteReason : "",
     regoExpiry: typeof data.regoExpiry === "string" ? data.regoExpiry : "",
+    videoUrl: typeof data.videoUrl === "string" ? data.videoUrl : "",
     sellerLocationPostcode: typeof data.sellerLocationPostcode === "string" ? data.sellerLocationPostcode : "",
     customerEmail: typeof data.customerEmail === "string" ? data.customerEmail : "",
     customerName:
@@ -7638,6 +7639,7 @@ function normalizeVehicleInput(input: VehicleFormInput): VehicleFormInput {
     customerEmail: normalizeCustomerEmailList(input.customerEmail ?? ""),
     customerName: sanitizeSingleLineText(input.customerName ?? ""),
     description: sanitizeMultilineText(input.description),
+    videoUrl: sanitizeSingleLineText(input.videoUrl ?? ""),
     imageAssets: Array.isArray(input.imageAssets)
       ? input.imageAssets.filter((item) => Boolean(item?.thumbnailUrl) && Boolean(item?.fullUrl))
       : [],
@@ -7697,6 +7699,7 @@ function buildVehiclePayload(input: VehicleFormInput, actor: VehicleActor, exist
     rego: "",
     regoExpiry: normalizedInput.regoExpiry ?? "",
     description: normalizedInput.description,
+    videoUrl: normalizedInput.videoUrl ?? "",
     features: [],
     conditionNotes: "",
     serviceHistory: normalizedInput.serviceHistory,

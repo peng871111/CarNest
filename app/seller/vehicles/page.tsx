@@ -34,6 +34,7 @@ function buildVehicleFormInput(vehicle: Vehicle, price: number): VehicleFormInpu
     sellerLocationPostcode: vehicle.sellerLocationPostcode ?? "",
     sellerLocationState: vehicle.sellerLocationState ?? "",
     description: vehicle.description,
+    videoUrl: vehicle.videoUrl ?? "",
     coverImage: vehicle.coverImage ?? vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
     coverImageUrl: vehicle.coverImageUrl ?? vehicle.imageUrls[0] ?? vehicle.images[0] ?? "",
     imageUrls: vehicle.imageUrls?.length ? vehicle.imageUrls : vehicle.images,
