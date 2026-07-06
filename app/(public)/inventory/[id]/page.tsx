@@ -237,19 +237,21 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
       />
       <div className="grid gap-10 lg:grid-cols-[1.2fr,0.8fr]">
         <section className="space-y-6">
-          <Link href="/inventory" className="inline-flex text-sm font-medium text-ink/55 transition hover:text-bronze">
-            ← Back to inventory
-          </Link>
-          {vehicleVideoUrl ? (
-            <a
-              href={vehicleVideoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block text-sm font-semibold text-bronze transition hover:text-bronze/80"
-            >
-              Watch {vehicleVideoTitle} video clip here
-            </a>
-          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link href="/inventory" className="inline-flex text-sm font-medium text-ink/55 transition hover:text-bronze">
+              ← Back to inventory
+            </Link>
+            {vehicleVideoUrl ? (
+              <a
+                href={vehicleVideoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex text-sm font-semibold text-bronze transition hover:text-bronze/80"
+              >
+                Watch {vehicleVideoTitle} video clip here
+              </a>
+            ) : null}
+          </div>
           <MobileVehicleQuickActions
             vehicleId={vehicle.id}
             price={vehicle.price}
