@@ -166,16 +166,6 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
         {vehicle.year} {vehicle.make} {vehicle.model}
       </h1>
       <p className="mt-2 text-lg text-ink/60">{vehicle.variant}</p>
-      {vehicleVideoUrl ? (
-        <a
-          href={vehicleVideoUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-4 inline-flex text-sm font-semibold text-bronze transition hover:text-bronze/80"
-        >
-          Watch {vehicleVideoTitle} video clip here
-        </a>
-      ) : null}
       <p className="mt-3 text-sm leading-6 text-ink/52">
         Private sale
         <br />
@@ -250,6 +240,16 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
           <Link href="/inventory" className="inline-flex text-sm font-medium text-ink/55 transition hover:text-bronze">
             ← Back to inventory
           </Link>
+          {vehicleVideoUrl ? (
+            <a
+              href={vehicleVideoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-sm font-semibold text-bronze transition hover:text-bronze/80"
+            >
+              Watch {vehicleVideoTitle} video clip here
+            </a>
+          ) : null}
           <MobileVehicleQuickActions
             vehicleId={vehicle.id}
             price={vehicle.price}
