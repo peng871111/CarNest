@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   buildAccountingCashSummary,
   buildAccountingReportSummary,
@@ -23,7 +23,11 @@ import {
   exportAccountingCsv,
   exportAccountingPdf,
   exportAccountingXlsx,
-  type AccountingExportFormat
+  exportVehicleProfitReportCsv,
+  exportVehicleProfitReportPdf,
+  exportVehicleProfitReportXlsx,
+  type AccountingExportFormat,
+  type VehicleProfitReportFilter
 } from "@/lib/admin-accounting-export";
 import {
   createEmptyAdminAccountingEntry,
@@ -240,6 +244,10 @@ function getGstModeDisplayLabel(entry: Pick<AdminAccountingEntry, "gstIncluded" 
   return "No GST";
 }
 
+function getAccountingStatusLabel(status: AdminAccountingEntry["status"]) {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
 function SummaryCard({
   label,
   value,
@@ -307,6 +315,9 @@ export function AdminAccountingPanel() {
   const [exportCustomStart, setExportCustomStart] = useState("");
   const [exportCustomEnd, setExportCustomEnd] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [vehicleProfitExporting, setVehicleProfitExporting] = useState(false);
+  const [vehicleProfitExportMenuOpen, setVehicleProfitExportMenuOpen] = useState(false);
+  const vehicleProfitExportMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -348,6 +359,17 @@ export function AdminAccountingPanel() {
       cancelled = true;
     };
   }, [authLoading, canManageVehicles, firebaseUser]);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!vehicleProfitExportMenuRef.current?.contains(event.target as Node)) {
+        setVehicleProfitExportMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   const vehicleSearchOptions = useMemo(() => {
     const customerMap = new Map(customerProfiles.map((profile) => [profile.id, profile]));
@@ -524,6 +546,23 @@ export function AdminAccountingPanel() {
   }, [filteredEntries]);
   const filteredReportSummary = useMemo(() => buildAccountingReportSummary(filteredEntries), [filteredEntries]);
   const exportSummary = useMemo(() => buildAccountingReportSummary(exportEntries), [exportEntries]);
+  const vehicleProfitExportFilters = useMemo<VehicleProfitReportFilter[]>(() => {
+    const dateRangeLabel = activeDateRange
+      ? `${formatMelbourneDateHeading(activeDateRange.startKey)} to ${formatMelbourneDateHeading(activeDateRange.endKey)}`
+      : "All dates";
+
+    return [
+      { label: "Date Range", value: dateRangeLabel },
+      { label: "Category", value: filters.category || "All categories" },
+      {
+        label: "Payment Method",
+        value: filters.paymentMethod ? getAccountingPaymentMethodLabel(filters.paymentMethod) : "All payment methods"
+      },
+      { label: "Status", value: filters.status ? getAccountingStatusLabel(filters.status) : "All statuses" },
+      { label: "Vehicle Search", value: filters.vehicle.trim() || "All vehicles" },
+      { label: "Customer Search", value: filters.customer.trim() || "All customers" }
+    ];
+  }, [activeDateRange, filters.category, filters.customer, filters.paymentMethod, filters.status, filters.vehicle]);
   const gstPreview = useMemo(
     () => {
       const mode = normalizeDraftGstMode(draft);
@@ -774,6 +813,38 @@ export function AdminAccountingPanel() {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't export the accounting report.");
     } finally {
       setExporting(false);
+    }
+  }
+
+  async function handleVehicleProfitExport(format: AccountingExportFormat) {
+    try {
+      setVehicleProfitExporting(true);
+      setVehicleProfitExportMenuOpen(false);
+      setErrorMessage("");
+      if (format === "csv") {
+        await exportVehicleProfitReportCsv(
+          filteredReportSummary.vehicleProfitBreakdown,
+          filteredReportSummary,
+          vehicleProfitExportFilters
+        );
+      } else if (format === "pdf") {
+        await exportVehicleProfitReportPdf(
+          filteredReportSummary.vehicleProfitBreakdown,
+          filteredReportSummary,
+          vehicleProfitExportFilters
+        );
+      } else {
+        await exportVehicleProfitReportXlsx(
+          filteredReportSummary.vehicleProfitBreakdown,
+          filteredReportSummary,
+          vehicleProfitExportFilters
+        );
+      }
+      setNotice(`Vehicle profit report exported as ${format.toUpperCase()}.`);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't export the vehicle profit report.");
+    } finally {
+      setVehicleProfitExporting(false);
     }
   }
 
@@ -1396,9 +1467,39 @@ export function AdminAccountingPanel() {
             <p className="text-xs uppercase tracking-[0.22em] text-bronze">Vehicle Profit Report</p>
             <p className="mt-2 text-sm text-ink/60">See income, expenses, and net profit by listing so it’s easy to spot the strongest and weakest performers.</p>
           </div>
-          <span className="rounded-full bg-shell px-3 py-1 text-xs font-semibold text-ink/60">
-            {filteredReportSummary.vehicleProfitBreakdown.length} listing{filteredReportSummary.vehicleProfitBreakdown.length === 1 ? "" : "s"}
-          </span>
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <div ref={vehicleProfitExportMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setVehicleProfitExportMenuOpen((current) => !current)}
+                disabled={vehicleProfitExporting || !filteredReportSummary.vehicleProfitBreakdown.length}
+                className="min-h-[38px] rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {vehicleProfitExporting ? "Exporting..." : "Export report"}
+              </button>
+              {vehicleProfitExportMenuOpen ? (
+                <div className="absolute right-0 top-full z-10 mt-2 w-44 rounded-[18px] border border-black/10 bg-white p-2 shadow-panel">
+                  {[
+                    { value: "pdf", label: "Export as PDF" },
+                    { value: "xlsx", label: "Export as Excel" },
+                    { value: "csv", label: "Export as CSV" }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => void handleVehicleProfitExport(option.value as AccountingExportFormat)}
+                      className="w-full rounded-2xl px-3 py-2 text-left text-sm text-ink transition hover:bg-shell hover:text-bronze"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <span className="rounded-full bg-shell px-3 py-1 text-xs font-semibold text-ink/60">
+              {filteredReportSummary.vehicleProfitBreakdown.length} listing{filteredReportSummary.vehicleProfitBreakdown.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </div>
         <div className="mt-4 max-h-[420px] overflow-y-auto rounded-[22px] border border-black/6">
           {filteredReportSummary.vehicleProfitBreakdown.length ? (

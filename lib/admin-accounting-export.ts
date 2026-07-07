@@ -1,6 +1,7 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import {
+  type AccountingVehicleProfitBreakdown,
   buildAccountingReportSummary,
   formatMelbourneDateHeading,
   getAccountingEntryGstPortion,
@@ -8,6 +9,7 @@ import {
   getAccountingPaymentMethodLabel,
   getAccountingPeriodLabel,
   getEntryMelbourneDateKey,
+  getTodayMelbourneDateKey,
   type AccountingPeriodOption,
   type AccountingReportSummary
 } from "@/lib/admin-accounting-utils";
@@ -15,6 +17,10 @@ import { formatAccountingCurrency } from "@/lib/utils";
 import { AdminAccountingEntry } from "@/types";
 
 export type AccountingExportFormat = "xlsx" | "pdf" | "csv";
+export type VehicleProfitReportFilter = {
+  label: string;
+  value: string;
+};
 
 const ACCOUNTING_UNICODE_FONT_URL = "/fonts/arial-unicode.ttf";
 let accountingUnicodeFontBytesPromise: Promise<Uint8Array | null> | null = null;
@@ -275,19 +281,23 @@ function buildDetailedRows(entries: AdminAccountingEntry[]) {
   }));
 }
 
-function buildSummaryRows(summary: AccountingReportSummary) {
+function buildSummaryValueRows(summary: AccountingReportSummary) {
   return [
-    ["Total Expense", formatAccountingCurrency(summary.totalExpense)],
-    ["Expense by Cash", formatAccountingCurrency(summary.expenseByCash)],
-    ["Total Income", formatAccountingCurrency(summary.totalIncome)],
-    ["Income by Cash", formatAccountingCurrency(summary.incomeByCash)],
-    ["Net Profit / Loss", formatAccountingCurrency(summary.netCashflow)],
-    ["GST Collected", formatAccountingCurrency(summary.gstCollected)],
-    ["GST Paid", formatAccountingCurrency(summary.gstPaid)],
-    ["GST Payable", formatAccountingCurrency(summary.gstPayable)],
-    ["Outstanding Receivables", formatAccountingCurrency(summary.receivables)],
-    ["Outstanding Payables", formatAccountingCurrency(summary.payables)]
+    { label: "Total Expense", value: summary.totalExpense },
+    { label: "Expense by Cash", value: summary.expenseByCash },
+    { label: "Total Income", value: summary.totalIncome },
+    { label: "Income by Cash", value: summary.incomeByCash },
+    { label: "Net Profit / Loss", value: summary.netCashflow },
+    { label: "GST Collected", value: summary.gstCollected },
+    { label: "GST Paid", value: summary.gstPaid },
+    { label: "GST Payable", value: summary.gstPayable },
+    { label: "Outstanding Receivables", value: summary.receivables },
+    { label: "Outstanding Payables", value: summary.payables }
   ];
+}
+
+function buildSummaryRows(summary: AccountingReportSummary) {
+  return buildSummaryValueRows(summary).map(({ label, value }) => [label, formatAccountingCurrency(value)]);
 }
 
 function buildPaymentMethodSummaryRows(summary: AccountingReportSummary) {
@@ -312,6 +322,33 @@ function buildPaymentMethodSummaryRows(summary: AccountingReportSummary) {
     ["Credit Card Total", formatAccountingCurrency(totals.creditCard)],
     ["Other Total", formatAccountingCurrency(totals.other)]
   ];
+}
+
+function buildVehicleProfitReportFilename(format: AccountingExportFormat) {
+  return `carnest-vehicle-profit-report-${getTodayMelbourneDateKey()}.${format}`;
+}
+
+function buildVehicleProfitExportRows(rows: AccountingVehicleProfitBreakdown[]) {
+  return rows.map((item) => ({
+    vehicle: [item.displayReference, item.vehicleTitle].filter(Boolean).join(" · ") || "General business entry",
+    customer: item.customerName || "No customer linked",
+    income: item.totalIncome,
+    expenses: item.totalExpense,
+    profit: item.netProfit
+  }));
+}
+
+function formatVehicleProfitExportTimestamp(date = new Date()) {
+  return date.toLocaleString("en-AU", {
+    timeZone: "Australia/Melbourne",
+    dateStyle: "medium",
+    timeStyle: "short"
+  });
+}
+
+function truncateVehicleProfitPdfCell(text: string, maxLength: number) {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 export async function exportAccountingCsv(entries: AdminAccountingEntry[], period: AccountingPeriodOption) {
@@ -630,4 +667,310 @@ export async function exportAccountingPdf(entries: AdminAccountingEntry[], perio
   const bytes = await pdf.save();
   const pdfBytes = Uint8Array.from(bytes);
   triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), buildExportFilename("pdf", period));
+}
+
+export async function exportVehicleProfitReportCsv(
+  rows: AccountingVehicleProfitBreakdown[],
+  summary: AccountingReportSummary,
+  filters: VehicleProfitReportFilter[]
+) {
+  const exportRows = buildVehicleProfitExportRows(rows);
+  const csvLines = [
+    ["Vehicle Profit Report"].map(escapeCsvValue).join(","),
+    ["Export Date", formatVehicleProfitExportTimestamp()].map(escapeCsvValue).join(","),
+    "",
+    "Active Filters",
+    ...filters.map((filter) => [filter.label, filter.value].map(escapeCsvValue).join(",")),
+    "",
+    "Summary Totals",
+    ["Metric", "Value"].map(escapeCsvValue).join(","),
+    ...buildSummaryValueRows(summary).map(({ label, value }) => [label, value.toFixed(2)].map(escapeCsvValue).join(",")),
+    "",
+    "Vehicle Profit Report",
+    ["Vehicle / Listing", "Customer", "Income", "Expenses", "Profit"].map(escapeCsvValue).join(","),
+    ...exportRows.map((row) =>
+      [row.vehicle, row.customer, row.income.toFixed(2), row.expenses.toFixed(2), row.profit.toFixed(2)]
+        .map(escapeCsvValue)
+        .join(",")
+    )
+  ];
+
+  triggerDownload(
+    new Blob([`\uFEFF${csvLines.join("\n")}`], { type: "text/csv;charset=utf-8" }),
+    buildVehicleProfitReportFilename("csv")
+  );
+}
+
+export async function exportVehicleProfitReportXlsx(
+  rows: AccountingVehicleProfitBreakdown[],
+  summary: AccountingReportSummary,
+  filters: VehicleProfitReportFilter[]
+) {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Vehicle Profit Report");
+  const exportRows = buildVehicleProfitExportRows(rows);
+  const currencyFormat = '"$"#,##0.00;[Red]-"$"#,##0.00';
+
+  sheet.columns = [
+    { header: "Vehicle / Listing", key: "vehicle", width: 38 },
+    { header: "Customer", key: "customer", width: 28 },
+    { header: "Income", key: "income", width: 16 },
+    { header: "Expenses", key: "expenses", width: 16 },
+    { header: "Profit", key: "profit", width: 16 }
+  ];
+
+  sheet.mergeCells("A1:E1");
+  sheet.getCell("A1").value = "Vehicle Profit Report";
+  sheet.getCell("A1").font = { bold: true, size: 15 };
+  sheet.mergeCells("A2:E2");
+  sheet.getCell("A2").value = `Export Date: ${formatVehicleProfitExportTimestamp()}`;
+  sheet.getCell("A2").font = { italic: true, color: { argb: "FF6B6257" } };
+
+  let rowIndex = 4;
+  sheet.getCell(`A${rowIndex}`).value = "Active Filters";
+  sheet.getCell(`A${rowIndex}`).font = { bold: true };
+  rowIndex += 1;
+
+  filters.forEach((filter) => {
+    sheet.getCell(`A${rowIndex}`).value = filter.label;
+    sheet.getCell(`B${rowIndex}`).value = filter.value;
+    rowIndex += 1;
+  });
+
+  rowIndex += 1;
+  sheet.getCell(`A${rowIndex}`).value = "Summary Totals";
+  sheet.getCell(`A${rowIndex}`).font = { bold: true };
+  rowIndex += 1;
+
+  buildSummaryValueRows(summary).forEach(({ label, value }) => {
+    sheet.getCell(`A${rowIndex}`).value = label;
+    sheet.getCell(`B${rowIndex}`).value = value;
+    sheet.getCell(`B${rowIndex}`).numFmt = currencyFormat;
+    rowIndex += 1;
+  });
+
+  rowIndex += 2;
+  const tableHeaderRowIndex = rowIndex;
+  sheet.getRow(tableHeaderRowIndex).values = ["Vehicle / Listing", "Customer", "Income", "Expenses", "Profit"];
+  sheet.getRow(tableHeaderRowIndex).font = { bold: true };
+  rowIndex += 1;
+
+  exportRows.forEach((row) => {
+    const worksheetRow = sheet.getRow(rowIndex);
+    worksheetRow.getCell(1).value = row.vehicle;
+    worksheetRow.getCell(2).value = row.customer;
+    worksheetRow.getCell(3).value = row.income;
+    worksheetRow.getCell(4).value = row.expenses;
+    worksheetRow.getCell(5).value = row.profit;
+    worksheetRow.getCell(3).numFmt = currencyFormat;
+    worksheetRow.getCell(4).numFmt = currencyFormat;
+    worksheetRow.getCell(5).numFmt = currencyFormat;
+    rowIndex += 1;
+  });
+
+  sheet.views = [{ state: "frozen", ySplit: tableHeaderRowIndex }];
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  triggerDownload(
+    new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    buildVehicleProfitReportFilename("xlsx")
+  );
+}
+
+export async function exportVehicleProfitReportPdf(
+  rows: AccountingVehicleProfitBreakdown[],
+  summary: AccountingReportSummary,
+  filters: VehicleProfitReportFilter[]
+) {
+  const exportRows = buildVehicleProfitExportRows(rows);
+  const pdf = await PDFDocument.create();
+  let font: PDFFont;
+  let boldFont: PDFFont;
+
+  try {
+    const unicodeFontBytes = await loadAccountingUnicodeFontBytes();
+    if (unicodeFontBytes) {
+      pdf.registerFontkit(fontkit);
+      font = await pdf.embedFont(unicodeFontBytes, { subset: true });
+      boldFont = font;
+    } else {
+      font = await pdf.embedFont(StandardFonts.Helvetica);
+      boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+    }
+  } catch {
+    font = await pdf.embedFont(StandardFonts.Helvetica);
+    boldFont = await pdf.embedFont(StandardFonts.HelveticaBold);
+  }
+
+  const pageSize: [number, number] = [842, 595];
+  const pageMargin = 40;
+  const tableWidth = pageSize[0] - pageMargin * 2;
+  const tableColumns = [
+    { label: "Vehicle / Listing", width: 300, key: "vehicle" as const, truncate: 54 },
+    { label: "Customer", width: 170, key: "customer" as const, truncate: 28 },
+    { label: "Income", width: 96, key: "income" as const },
+    { label: "Expenses", width: 96, key: "expenses" as const },
+    { label: "Profit", width: 100, key: "profit" as const }
+  ];
+  let page = pdf.addPage(pageSize);
+  let y = pageSize[1] - pageMargin;
+
+  const ensureSpace = (requiredHeight: number) => {
+    if (y - requiredHeight < pageMargin) {
+      page = pdf.addPage(pageSize);
+      y = pageSize[1] - pageMargin;
+      return true;
+    }
+    return false;
+  };
+
+  const drawLine = async (
+    text: string,
+    options?: { x?: number; size?: number; bold?: boolean; color?: ReturnType<typeof rgb> }
+  ) => {
+    const size = options?.size ?? 11;
+    const color = options?.color ?? rgb(0.16, 0.17, 0.2);
+    ensureSpace(size + 10);
+    await drawAccountingPdfTextSafely(pdf, page, text, {
+      x: options?.x ?? pageMargin,
+      y,
+      size,
+      font: options?.bold ? boldFont : font,
+      bold: options?.bold,
+      color
+    });
+    y -= size + 8;
+  };
+
+  const drawKeyValueGrid = async (title: string, items: Array<{ label: string; value: string }>) => {
+    await drawLine(title, { bold: true, size: 13 });
+    for (let index = 0; index < items.length; index += 2) {
+      ensureSpace(34);
+      const left = items[index];
+      const right = items[index + 1];
+      const leftX = pageMargin;
+      const rightX = pageMargin + tableWidth / 2 + 12;
+
+      await drawAccountingPdfTextSafely(pdf, page, `${left.label}: ${left.value}`, {
+        x: leftX,
+        y,
+        size: 10,
+        font,
+        color: rgb(0.16, 0.17, 0.2)
+      });
+
+      if (right) {
+        await drawAccountingPdfTextSafely(pdf, page, `${right.label}: ${right.value}`, {
+          x: rightX,
+          y,
+          size: 10,
+          font,
+          color: rgb(0.16, 0.17, 0.2)
+        });
+      }
+
+      y -= 18;
+    }
+    y -= 6;
+  };
+
+  const drawTableHeader = async () => {
+    ensureSpace(28);
+    page.drawRectangle({
+      x: pageMargin,
+      y: y - 18,
+      width: tableWidth,
+      height: 24,
+      color: rgb(0.95, 0.93, 0.9)
+    });
+
+    let columnX = pageMargin + 8;
+    for (const column of tableColumns) {
+      await drawAccountingPdfTextSafely(pdf, page, column.label, {
+        x: columnX,
+        y: y - 11,
+        size: 9,
+        font: boldFont,
+        bold: true,
+        color: rgb(0.34, 0.29, 0.22)
+      });
+      columnX += column.width;
+    }
+    y -= 28;
+  };
+
+  const drawTableRow = async (
+    row: ReturnType<typeof buildVehicleProfitExportRows>[number],
+    rowIndex: number
+  ) => {
+    if (ensureSpace(26)) {
+      await drawTableHeader();
+    }
+
+    if (rowIndex % 2 === 0) {
+      page.drawRectangle({
+        x: pageMargin,
+        y: y - 17,
+        width: tableWidth,
+        height: 22,
+        color: rgb(0.985, 0.98, 0.965)
+      });
+    }
+
+    const values = {
+      vehicle: truncateVehicleProfitPdfCell(row.vehicle, tableColumns[0].truncate ?? 999),
+      customer: truncateVehicleProfitPdfCell(row.customer, tableColumns[1].truncate ?? 999),
+      income: formatAccountingCurrency(row.income),
+      expenses: formatAccountingCurrency(row.expenses),
+      profit: formatAccountingCurrency(row.profit)
+    };
+
+    let columnX = pageMargin + 8;
+    for (const column of tableColumns) {
+      const value = values[column.key];
+      await drawAccountingPdfTextSafely(pdf, page, value, {
+        x: columnX,
+        y: y - 10,
+        size: 9,
+        font,
+        color: column.key === "profit" && row.profit < 0 ? rgb(0.73, 0.42, 0.09) : rgb(0.16, 0.17, 0.2)
+      });
+      columnX += column.width;
+    }
+
+    page.drawLine({
+      start: { x: pageMargin, y: y - 18 },
+      end: { x: pageMargin + tableWidth, y: y - 18 },
+      thickness: 0.6,
+      color: rgb(0.9, 0.88, 0.84)
+    });
+    y -= 22;
+  };
+
+  await drawLine("Vehicle Profit Report", { bold: true, size: 18 });
+  await drawLine(`Export Date: ${formatVehicleProfitExportTimestamp()}`, {
+    size: 11,
+    color: rgb(0.45, 0.37, 0.27)
+  });
+  y -= 4;
+
+  await drawKeyValueGrid("Active Filters", filters);
+  await drawKeyValueGrid(
+    "Summary Totals",
+    buildSummaryValueRows(summary).map(({ label, value }) => ({
+      label,
+      value: formatAccountingCurrency(value)
+    }))
+  );
+
+  await drawLine("Vehicle Profit by Listing", { bold: true, size: 13 });
+  await drawTableHeader();
+  for (const [index, row] of exportRows.entries()) {
+    await drawTableRow(row, index);
+  }
+
+  const bytes = await pdf.save();
+  const pdfBytes = Uint8Array.from(bytes);
+  triggerDownload(new Blob([pdfBytes], { type: "application/pdf" }), buildVehicleProfitReportFilename("pdf"));
 }
