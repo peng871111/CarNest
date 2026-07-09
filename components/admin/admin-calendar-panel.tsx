@@ -128,74 +128,81 @@ function AppointmentFormModal({
   editing: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/35 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_24px_80px_rgba(15,15,15,0.18)] md:p-6">
+    <div className="fixed inset-0 z-[90] overflow-y-auto bg-black/35 px-4 py-4 sm:py-6">
+      <div className="flex min-h-full items-center justify-center">
+        <div className="max-h-[calc(100vh-32px)] w-[calc(100vw-32px)] max-w-[480px] overflow-y-auto rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_24px_80px_rgba(15,15,15,0.18)] md:max-h-[calc(100vh-48px)] md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-bronze">{editing ? "Edit appointment" : "Add appointment"}</p>
-            <h2 className="mt-2 text-2xl font-semibold text-ink">{editing ? "Update calendar event" : "Create calendar event"}</h2>
+            <h2 className="mt-2 text-[1.875rem] font-semibold leading-none text-ink md:text-2xl">{editing ? "Update calendar event" : "Create calendar event"}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            className="shrink-0 self-start rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
           >
             Close
           </button>
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Date</label>
-            <Input type="date" value={draft.date} onChange={(event) => onChange("date", event.target.value)} className="min-h-[44px]" />
+            <Input
+              type="date"
+              lang="en-AU"
+              value={draft.date}
+              onChange={(event) => onChange("date", event.target.value)}
+              className="min-h-[44px] min-w-0"
+            />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Time</label>
-            <Input type="time" value={draft.time} onChange={(event) => onChange("time", event.target.value)} className="min-h-[44px]" />
+            <Input type="time" value={draft.time} onChange={(event) => onChange("time", event.target.value)} className="min-h-[44px] min-w-0" />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 md:col-span-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Title</label>
             <Input
               value={draft.title}
               onChange={(event) => onChange("title", event.target.value)}
               placeholder="Vehicle inspection, customer handover, collection..."
-              className="min-h-[44px]"
+              className="min-h-[44px] min-w-0"
             />
           </div>
-          <div className="space-y-2 md:col-span-2">
+          <div className="min-w-0 space-y-2 md:col-span-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Notes / Description</label>
             <Textarea
               value={draft.description}
               onChange={(event) => onChange("description", event.target.value)}
               placeholder="Add any useful context for the team."
-              className="min-h-[120px]"
+              className="min-h-[120px] min-w-0"
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Customer name</label>
             <Input
               value={draft.customerName ?? ""}
               onChange={(event) => onChange("customerName", event.target.value)}
               placeholder="Optional"
-              className="min-h-[44px]"
+              className="min-h-[44px] min-w-0"
             />
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Vehicle / Rego</label>
             <Input
               value={draft.vehicleInfo ?? ""}
               onChange={(event) => onChange("vehicleInfo", event.target.value)}
               placeholder="Optional"
-              className="min-h-[44px]"
+              className="min-h-[44px] min-w-0"
             />
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full border border-black/10 px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            className="w-full rounded-full border border-black/10 px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze sm:w-auto"
           >
             Cancel
           </button>
@@ -203,11 +210,12 @@ function AppointmentFormModal({
             type="button"
             onClick={onSubmit}
             disabled={saving}
-            className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50"
+            className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50 sm:w-auto"
           >
             {saving ? "Saving..." : editing ? "Save changes" : "Add appointment"}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );
