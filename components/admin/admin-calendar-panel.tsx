@@ -88,6 +88,17 @@ function formatSelectedDate(dateKey: string) {
   }).format(parsed);
 }
 
+function formatAppointmentInputDate(dateKey: string) {
+  if (!dateKey) return "YYYY-MM-DD";
+  const parsed = new Date(`${dateKey}T12:00:00+10:00`);
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: MELBOURNE_TIMEZONE
+  }).format(parsed);
+}
+
 function formatTimeLabel(time: string) {
   if (!time) return "Time not set";
   const [hourText, minuteText = "00"] = time.split(":");
@@ -128,94 +139,106 @@ function AppointmentFormModal({
   editing: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-[90] overflow-y-auto bg-black/35 px-4 py-4 sm:py-6">
-      <div className="flex min-h-full items-center justify-center">
-        <div className="max-h-[calc(100vh-32px)] w-[calc(100vw-32px)] max-w-[480px] overflow-y-auto rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_24px_80px_rgba(15,15,15,0.18)] md:max-h-[calc(100vh-48px)] md:p-8">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-bronze">{editing ? "Edit appointment" : "Add appointment"}</p>
-            <h2 className="mt-2 text-[1.875rem] font-semibold leading-none text-ink md:text-2xl">{editing ? "Update calendar event" : "Create calendar event"}</h2>
+    <div className="fixed inset-0 z-[90] bg-black/35 md:px-4 md:py-6">
+      <div className="flex h-full w-full items-end md:items-center md:justify-center">
+        <div className="flex h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom))] max-h-[100dvh] w-full min-h-0 flex-col overflow-hidden rounded-t-[28px] bg-white shadow-[0_24px_80px_rgba(15,15,15,0.18)] md:h-auto md:max-h-[calc(100vh-48px)] md:w-[calc(100vw-32px)] md:max-w-[480px] md:rounded-[28px] md:border md:border-black/5">
+          <div className="sticky top-0 z-10 relative shrink-0 border-b border-black/6 bg-white px-5 pb-4 pt-[calc(env(safe-area-inset-top)+20px)] md:px-8 md:pb-5 md:pt-8">
+            <div className="pr-20">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-bronze">{editing ? "EDIT APPOINTMENT" : "ADD APPOINTMENT"}</p>
+              <h2 className="mt-2 text-[27px] font-semibold leading-[0.98] text-ink md:text-2xl">
+                {editing ? "Update calendar event" : "Create calendar event"}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="absolute right-5 top-[calc(env(safe-area-inset-top)+20px)] shrink-0 rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze md:right-8 md:top-8"
+            >
+              Close
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 self-start rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-          >
-            Close
-          </button>
-        </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <div className="min-w-0 space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Date</label>
-            <Input
-              type="date"
-              lang="en-AU"
-              value={draft.date}
-              onChange={(event) => onChange("date", event.target.value)}
-              className="min-h-[44px] min-w-0"
-            />
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 md:px-8 md:py-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="min-w-0 space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Date</label>
+                <Input
+                  type="date"
+                  lang="en-AU"
+                  value={draft.date}
+                  onChange={(event) => onChange("date", event.target.value)}
+                  className="min-h-[48px] min-w-0 max-w-full box-border"
+                />
+                <p className="text-xs text-ink/55">Selected date: {formatAppointmentInputDate(draft.date)}</p>
+              </div>
+              <div className="min-w-0 space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Time</label>
+                <Input
+                  type="time"
+                  value={draft.time}
+                  onChange={(event) => onChange("time", event.target.value)}
+                  className="min-h-[48px] min-w-0 max-w-full box-border"
+                />
+              </div>
+              <div className="min-w-0 space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Title</label>
+                <Input
+                  value={draft.title}
+                  onChange={(event) => onChange("title", event.target.value)}
+                  placeholder="Vehicle inspection, customer handover, collection..."
+                  className="min-h-[48px] min-w-0 max-w-full box-border"
+                />
+              </div>
+              <div className="min-w-0 space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Notes / Description</label>
+                <Textarea
+                  value={draft.description}
+                  onChange={(event) => onChange("description", event.target.value)}
+                  placeholder="Add any useful context for the team."
+                  className="min-h-[132px] min-w-0 max-w-full box-border"
+                />
+              </div>
+              <div className="min-w-0 space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Customer name</label>
+                <Input
+                  value={draft.customerName ?? ""}
+                  onChange={(event) => onChange("customerName", event.target.value)}
+                  placeholder="Optional"
+                  className="min-h-[48px] min-w-0 max-w-full box-border"
+                />
+              </div>
+              <div className="min-w-0 space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Vehicle / Rego</label>
+                <Input
+                  value={draft.vehicleInfo ?? ""}
+                  onChange={(event) => onChange("vehicleInfo", event.target.value)}
+                  placeholder="Optional"
+                  className="min-h-[48px] min-w-0 max-w-full box-border"
+                />
+              </div>
+            </div>
           </div>
-          <div className="min-w-0 space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Time</label>
-            <Input type="time" value={draft.time} onChange={(event) => onChange("time", event.target.value)} className="min-h-[44px] min-w-0" />
-          </div>
-          <div className="min-w-0 space-y-2 md:col-span-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Title</label>
-            <Input
-              value={draft.title}
-              onChange={(event) => onChange("title", event.target.value)}
-              placeholder="Vehicle inspection, customer handover, collection..."
-              className="min-h-[44px] min-w-0"
-            />
-          </div>
-          <div className="min-w-0 space-y-2 md:col-span-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Notes / Description</label>
-            <Textarea
-              value={draft.description}
-              onChange={(event) => onChange("description", event.target.value)}
-              placeholder="Add any useful context for the team."
-              className="min-h-[120px] min-w-0"
-            />
-          </div>
-          <div className="min-w-0 space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Customer name</label>
-            <Input
-              value={draft.customerName ?? ""}
-              onChange={(event) => onChange("customerName", event.target.value)}
-              placeholder="Optional"
-              className="min-h-[44px] min-w-0"
-            />
-          </div>
-          <div className="min-w-0 space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/55">Vehicle / Rego</label>
-            <Input
-              value={draft.vehicleInfo ?? ""}
-              onChange={(event) => onChange("vehicleInfo", event.target.value)}
-              placeholder="Optional"
-              className="min-h-[44px] min-w-0"
-            />
-          </div>
-        </div>
 
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full rounded-full border border-black/10 px-5 py-2.5 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze sm:w-auto"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={saving}
-            className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50 sm:w-auto"
-          >
-            {saving ? "Saving..." : editing ? "Save changes" : "Add appointment"}
-          </button>
+          <div className="sticky bottom-0 z-10 shrink-0 border-t border-black/6 bg-white px-5 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-4 md:px-8 md:py-6">
+            <div className="flex flex-col-reverse gap-3 min-[430px]:flex-row min-[430px]:justify-end">
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze min-[430px]:w-auto"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={saving}
+                className="w-full rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/92 disabled:opacity-50 min-[430px]:w-auto"
+              >
+                {saving ? "Saving..." : editing ? "Save changes" : "Add appointment"}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );
