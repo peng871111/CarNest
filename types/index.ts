@@ -656,6 +656,18 @@ export interface AdminAccountingEntry {
   updatedAt?: string;
 }
 
+export interface AdminAppointment {
+  id: string;
+  date: string;
+  time: string;
+  title: string;
+  description: string;
+  customerName?: string;
+  vehicleInfo?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface WarehouseRelationshipTree {
   customerProfile: CustomerProfile | null;
   vehicleRecord: VehicleRecord | null;

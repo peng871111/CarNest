@@ -29,6 +29,7 @@ import {
 import {
   AccountType,
   AdminAccountingEntry,
+  AdminAppointment,
   AdminAccountingGstMode,
   AdminAccountingEntryStatus,
   AdminAccountingEntryType,
@@ -140,7 +141,8 @@ type CollectionName =
   | "customerProfiles"
   | "vehicleRecords"
   | "adminOperationalEvents"
-  | "adminAccountingEntries";
+  | "adminAccountingEntries"
+  | "adminAppointments";
 export type VehicleDataSource = "firestore" | "mock";
 
 interface CollectionResult<T> {
@@ -1424,6 +1426,19 @@ export function createEmptyAdminAccountingEntry(): Omit<AdminAccountingEntry, "i
   };
 }
 
+export function createEmptyAdminAppointment(): Omit<AdminAppointment, "id"> {
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    time: "09:00",
+    title: "",
+    description: "",
+    customerName: "",
+    vehicleInfo: "",
+    createdAt: "",
+    updatedAt: ""
+  };
+}
+
 function normalizeAdminWarehouseAnalyticsNumber(value: unknown, fallback: number) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : fallback;
@@ -2041,6 +2056,23 @@ function serializeAdminAccountingEntryDoc(id: string, data: Record<string, unkno
     createdByName: typeof data.createdByName === "string" ? data.createdByName : "",
     updatedByUid: typeof data.updatedByUid === "string" ? data.updatedByUid : "",
     updatedByName: typeof data.updatedByName === "string" ? data.updatedByName : "",
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt)
+  };
+}
+
+function serializeAdminAppointmentDoc(id: string, data: Record<string, unknown>): AdminAppointment {
+  const base = createEmptyAdminAppointment();
+
+  return {
+    id,
+    ...base,
+    date: typeof data.date === "string" ? data.date : base.date,
+    time: typeof data.time === "string" ? data.time : base.time,
+    title: typeof data.title === "string" ? data.title : "",
+    description: typeof data.description === "string" ? data.description : "",
+    customerName: typeof data.customerName === "string" ? data.customerName : "",
+    vehicleInfo: typeof data.vehicleInfo === "string" ? data.vehicleInfo : "",
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   };
@@ -4435,6 +4467,10 @@ export async function getAdminAccountingEntriesData() {
   return await getCollection<AdminAccountingEntry>("adminAccountingEntries", [], serializeAdminAccountingEntryDoc);
 }
 
+export async function getAdminAppointmentsData() {
+  return await getCollection<AdminAppointment>("adminAppointments", [], serializeAdminAppointmentDoc);
+}
+
 export async function getAdminWarehouseAnalyticsSettings() {
   const fallback = createDefaultAdminWarehouseAnalyticsSettings();
 
@@ -4617,6 +4653,91 @@ export async function deleteAdminAccountingEntry(id: string, actor: VehicleActor
     actionType: "updated",
     affectedRecordId: id,
     summary: "Accounting entry deleted."
+  }).catch(() => undefined);
+
+  return {
+    deletedId: id,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function saveAdminAppointment(
+  input: Omit<AdminAppointment, "id" | "createdAt" | "updatedAt">,
+  actor: VehicleActor,
+  existingId?: string
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage calendar appointments.");
+
+  const payload = sanitizeFirestoreWriteData({
+    date: requireTrimmedValue(input.date, "Appointment date is required."),
+    time: requireTrimmedValue(input.time, "Appointment time is required."),
+    title: requireTrimmedValue(input.title, "Appointment title is required."),
+    description: sanitizeMultilineText(input.description ?? ""),
+    customerName: sanitizeSingleLineText(input.customerName ?? ""),
+    vehicleInfo: sanitizeSingleLineText(input.vehicleInfo ?? ""),
+    ...(existingId ? {} : { createdAt: serverTimestamp() }),
+    updatedAt: serverTimestamp()
+  });
+
+  if (!isFirebaseConfigured) {
+    const id = existingId || `mock-appointment-${Date.now()}`;
+    return {
+      appointment: {
+        id,
+        ...createEmptyAdminAppointment(),
+        ...input,
+        createdAt: existingId ? new Date().toISOString() : new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      } satisfies AdminAppointment,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const ref = existingId ? doc(db, "adminAppointments", existingId) : doc(collection(db, "adminAppointments"));
+  await setDoc(ref, payload, { merge: true });
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "vehicle_record",
+    actionType: existingId ? "updated" : "created",
+    affectedRecordId: ref.id,
+    summary: `Admin calendar appointment ${existingId ? "updated" : "created"}: ${sanitizeSingleLineText(input.title)}.`
+  }).catch(() => undefined);
+
+  return {
+    appointment: serializeAdminAppointmentDoc(ref.id, {
+      ...payload,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }),
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function deleteAdminAppointment(id: string, actor: VehicleActor) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage calendar appointments.");
+
+  if (!id) {
+    throw new Error("Appointment ID is required.");
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      deletedId: id,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await deleteDoc(doc(db, "adminAppointments", id));
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "vehicle_record",
+    actionType: "updated",
+    affectedRecordId: id,
+    summary: "Admin calendar appointment deleted."
   }).catch(() => undefined);
 
   return {

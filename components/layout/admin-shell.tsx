@@ -28,6 +28,7 @@ type AdminLinkConfig = (typeof ADMIN_LINKS)[number];
 
 const MOBILE_PRIMARY_LINK_HREFS = new Set([
   "/admin",
+  "/admin/calendar",
   "/admin/vehicles",
   "/admin/customers",
   "/admin/warehouse-intake",
