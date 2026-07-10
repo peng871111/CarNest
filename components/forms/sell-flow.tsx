@@ -4,12 +4,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useAuth } from "@/lib/auth";
-import { createVehicle } from "@/lib/data";
-import { db, isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
+import { recoverUserProfile, useAuth } from "@/lib/auth";
+import { createQuoteRequest, createVehicle } from "@/lib/data";
+import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
 import { prepareVehicleImageUploads } from "@/lib/image-processing";
 import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
@@ -51,9 +50,62 @@ function moveItemToFront<T>(items: T[], index: number) {
   return [items[index], ...items.slice(0, index), ...items.slice(index + 1)];
 }
 
+function getSubmissionErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+}
+
+function getSubmissionErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
+function isPermissionDeniedError(error: unknown) {
+  const code = getSubmissionErrorCode(error).toLowerCase();
+  const message = getSubmissionErrorMessage(error).toLowerCase();
+  return code.includes("permission-denied") || message.includes("missing or insufficient permissions");
+}
+
+function logSubmissionFailure(
+  operation: "profile-setup" | "photo-upload" | "listing-create" | "quote-create",
+  error: unknown,
+  context?: Record<string, unknown>
+) {
+  console.error("[sell-flow] vehicle submission failed", {
+    operation,
+    code: getSubmissionErrorCode(error),
+    message: getSubmissionErrorMessage(error),
+    ...context,
+    error
+  });
+}
+
+function resolveSubmissionFailureMessage(
+  operation: "profile-setup" | "photo-upload" | "listing-create" | "quote-create",
+  error: unknown
+) {
+  if (operation === "profile-setup") {
+    return "We couldn't finish setting up your account profile. Please refresh and try again.";
+  }
+
+  if (operation === "photo-upload") {
+    return isPermissionDeniedError(error)
+      ? "We couldn't upload your vehicle photos to your account storage. Please sign in again and try once more."
+      : "We couldn't upload your vehicle photos right now. Please try again.";
+  }
+
+  if (operation === "listing-create") {
+    return isPermissionDeniedError(error)
+      ? "We couldn't create your listing because your account doesn't have permission to submit it yet. Please refresh and try again."
+      : "We couldn't create your listing right now. Please try again.";
+  }
+
+  return isPermissionDeniedError(error)
+    ? "Your vehicle was submitted, but we couldn't create the linked service quote request. Please contact CarNest support so we can finish it for you."
+    : "Your vehicle was submitted, but we couldn't create the linked service quote request right now.";
+}
+
 export function SellFlow() {
   const router = useRouter();
-  const { appUser, loading } = useAuth();
+  const { appUser, firebaseUser, loading } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [processingImages, setProcessingImages] = useState(false);
@@ -177,6 +229,11 @@ export function SellFlow() {
   }
 
   async function handleSubmit() {
+    if (!firebaseUser) {
+      setError("Please sign in to submit your vehicle.");
+      return;
+    }
+
     if (!appUser || !canSubmit) return;
 
     const reviewError = validateStep(3);
@@ -191,8 +248,32 @@ export function SellFlow() {
     setMessage("");
 
     try {
-      const imageAssets =
-        selectedImages.length && isFirebaseStorageConfigured ? await uploadVehicleImageAssets(selectedImages, appUser.id) : [];
+      let submissionActor = appUser;
+      let quoteCreationFailed = false;
+      let quoteCreationNotice = "";
+
+      try {
+        submissionActor = await recoverUserProfile(firebaseUser);
+      } catch (profileError) {
+        logSubmissionFailure("profile-setup", profileError, {
+          userId: firebaseUser.uid,
+          listingChoice: form.listingChoice
+        });
+        throw new Error(resolveSubmissionFailureMessage("profile-setup", profileError));
+      }
+
+      let imageAssets = [] as Awaited<ReturnType<typeof uploadVehicleImageAssets>>;
+      try {
+        imageAssets =
+          selectedImages.length && isFirebaseStorageConfigured ? await uploadVehicleImageAssets(selectedImages, submissionActor.id) : [];
+      } catch (photoUploadError) {
+        logSubmissionFailure("photo-upload", photoUploadError, {
+          userId: submissionActor.id,
+          imageCount: selectedImages.length
+        });
+        throw new Error(resolveSubmissionFailureMessage("photo-upload", photoUploadError));
+      }
+
       const imageUrls = imageAssets.map((item) => item.fullUrl);
 
       const payload: VehicleFormInput = {
@@ -224,51 +305,49 @@ export function SellFlow() {
         serviceQuoteNotes: form.listingChoice === "service_quote" ? form.serviceQuoteNotes : ""
       };
 
-      const result = await createVehicle(payload, appUser);
-
-      // 新增：如果卖家选择了 Service Quote，同时写入 quotes collection
-      if (form.listingChoice === "service_quote" && isFirebaseConfigured) {
-        await addDoc(collection(db, "quotes"), {
-          vehicleId: result.vehicle.id,
-          sellerUid: appUser.id,
-          sellerName: appUser.name || appUser.displayName || "",
-          sellerEmail: appUser.email || "",
-          sellerPhone: appUser.phone || "",
-
-          make: form.make,
-          model: form.model,
-          year: form.year,
-
-          requestType: "CONCIERGE",
-          preferredServices: ["TAILORED_QUOTE"],
-          notes: form.serviceQuoteNotes || "",
-
-          linkedVehicleSnapshot: {
-            make: form.make,
-            model: form.model,
-            year: form.year,
-            bodyType: form.bodyType,
-            fuelType: form.fuelType,
-            transmission: form.transmission,
-            drivetrain: form.drivetrain,
-            mileage: Number(form.mileage || 0),
-            price: Number(form.price || 0),
-            colour: form.colour,
-            suburb: form.sellerLocationSuburb,
-            postcode: form.sellerLocationPostcode,
-            state: form.sellerLocationState,
-            description: form.description,
-            imageCount: selectedImages.length
-          },
-
-          status: "NEW",
-          createdAt: serverTimestamp()
+      let result;
+      try {
+        result = await createVehicle(payload, submissionActor);
+      } catch (listingCreateError) {
+        logSubmissionFailure("listing-create", listingCreateError, {
+          userId: submissionActor.id,
+          listingChoice: form.listingChoice,
+          imageCount: imageAssets.length,
+          listingType: payload.listingType
         });
+        throw new Error(resolveSubmissionFailureMessage("listing-create", listingCreateError));
+      }
+
+      if (form.listingChoice === "service_quote" && isFirebaseConfigured) {
+        try {
+          await createQuoteRequest({
+            ownerId: submissionActor.id,
+            sellerUid: submissionActor.id,
+            sellerName: submissionActor.name || submissionActor.displayName || "",
+            sellerEmail: submissionActor.email || "",
+            vehicleId: result.vehicle.id,
+            vehicleYear: Number(form.year),
+            vehicleMake: form.make,
+            vehicleModel: form.model,
+            quoteType: "SERVICE_SUPPORT",
+            source: "sell_flow",
+            notes: form.serviceQuoteNotes || ""
+          });
+        } catch (quoteCreateError) {
+          logSubmissionFailure("quote-create", quoteCreateError, {
+            userId: submissionActor.id,
+            vehicleId: result.vehicle.id
+          });
+          quoteCreationFailed = true;
+          quoteCreationNotice = resolveSubmissionFailureMessage("quote-create", quoteCreateError);
+        }
       }
 
       setMessage(
         result.writeSucceeded
-          ? "Vehicle submitted successfully. Your seller submission is now in the pending review queue."
+          ? quoteCreationNotice
+            ? `Vehicle submitted successfully. Your seller submission is now in the pending review queue. ${quoteCreationNotice}`
+            : "Vehicle submitted successfully. Your seller submission is now in the pending review queue."
           : "Vehicle captured in mock mode only. Configure Firebase to persist live submissions."
       );
 
@@ -276,7 +355,9 @@ export function SellFlow() {
         window.localStorage.removeItem(draftStorageKey);
       }
 
-      router.replace(`/seller/vehicles?write=${result.writeSucceeded ? "success" : "mock"}&action=create&vehicleId=${result.vehicle.id}`);
+      router.replace(
+        `/seller/vehicles?write=${result.writeSucceeded ? "success" : "mock"}&action=create&vehicleId=${result.vehicle.id}${quoteCreationFailed ? "&quote=failed" : ""}`
+      );
       router.refresh();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Unable to submit your vehicle right now.");

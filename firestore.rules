@@ -177,6 +177,219 @@ service cloud.firestore {
         || status == "SOLD";
     }
 
+    function isValidVehicleSubmissionPreference(preference) {
+      return preference == "basic"
+        || preference == "service_quote";
+    }
+
+    function validSellerOwnedVehicleData(data) {
+      return data.sellerId == request.auth.uid
+        && data.ownerUid == request.auth.uid
+        && data.ownerRole == "seller"
+        && data.listingType == "private"
+        && data.make is string
+        && data.model is string
+        && data.variant is string
+        && data.year is number
+        && data.price is number
+        && data.mileage is number
+        && data.transmission is string
+        && data.fuelType is string
+        && data.drivetrain is string
+        && data.bodyType is string
+        && data.colour is string
+        && data.vin is string
+        && data.rego is string
+        && (
+          !("regoExpiry" in data)
+          || data.regoExpiry is string
+        )
+        && data.description is string
+        && (
+          !("videoUrl" in data)
+          || data.videoUrl is string
+        )
+        && data.features is list
+        && data.conditionNotes is string
+        && data.serviceHistory is string
+        && data.keyCount is string
+        && (
+          !("sellerLocationSuburb" in data)
+          || data.sellerLocationSuburb is string
+        )
+        && (
+          !("sellerLocationPostcode" in data)
+          || data.sellerLocationPostcode is string
+        )
+        && (
+          !("sellerLocationState" in data)
+          || data.sellerLocationState is string
+        )
+        && (
+          !("customerEmail" in data)
+          || data.customerEmail is string
+        )
+        && (
+          !("customerName" in data)
+          || data.customerName == null
+          || data.customerName is string
+        )
+        && (
+          !("coverImage" in data)
+          || data.coverImage is string
+        )
+        && (
+          !("coverImageUrl" in data)
+          || data.coverImageUrl is string
+        )
+        && (
+          !("imageAssets" in data)
+          || data.imageAssets is list
+        )
+        && data.imageUrls is list
+        && data.images is list
+        && (
+          !("submissionPreference" in data)
+          || isValidVehicleSubmissionPreference(data.submissionPreference)
+        )
+        && (
+          !("serviceQuoteNotes" in data)
+          || data.serviceQuoteNotes is string
+        )
+        && (
+          !("underOfferBuyerUid" in data)
+          || data.underOfferBuyerUid is string
+        )
+        && (
+          !("soldAt" in data)
+          || data.soldAt is string
+          || data.soldAt is timestamp
+        );
+    }
+
+    function validSellerOwnedVehicleCreate() {
+      return request.resource.data.keys().hasOnly([
+          "sellerId",
+          "ownerUid",
+          "ownerRole",
+          "listingType",
+          "status",
+          "sellerStatus",
+          "ownershipVerified",
+          "publishAuthorized",
+          "storedInWarehouse",
+          "warehouseAddress",
+          "sellerLocationSuburb",
+          "sellerLocationPostcode",
+          "sellerLocationState",
+          "customerEmail",
+          "customerName",
+          "make",
+          "model",
+          "variant",
+          "year",
+          "price",
+          "mileage",
+          "transmission",
+          "fuelType",
+          "drivetrain",
+          "bodyType",
+          "colour",
+          "vin",
+          "rego",
+          "regoExpiry",
+          "description",
+          "videoUrl",
+          "features",
+          "conditionNotes",
+          "serviceHistory",
+          "keyCount",
+          "coverImage",
+          "coverImageUrl",
+          "imageAssets",
+          "imageUrls",
+          "images",
+          "submissionPreference",
+          "serviceQuoteNotes",
+          "underOfferBuyerUid",
+          "soldAt",
+          "createdAt",
+          "updatedAt"
+        ])
+        && validSellerOwnedVehicleData(request.resource.data)
+        && request.resource.data.status == "pending"
+        && request.resource.data.sellerStatus == "ACTIVE"
+        && request.resource.data.ownershipVerified == true
+        && request.resource.data.publishAuthorized == true
+        && request.resource.data.storedInWarehouse == false
+        && request.resource.data.warehouseAddress == ""
+        && (
+          !("underOfferBuyerUid" in request.resource.data)
+          || request.resource.data.underOfferBuyerUid == ""
+        )
+        && (
+          !("soldAt" in request.resource.data)
+          || request.resource.data.soldAt == ""
+        )
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+    }
+
+    function validSellerOwnedVehicleUpdate() {
+      return validSellerOwnedVehicleData(request.resource.data)
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.sellerId == resource.data.sellerId
+        && request.resource.data.ownerRole == resource.data.ownerRole
+        && request.resource.data.listingType == resource.data.listingType
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.ownershipVerified == resource.data.ownershipVerified
+        && request.resource.data.publishAuthorized == resource.data.publishAuthorized
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          "make",
+          "model",
+          "variant",
+          "year",
+          "price",
+          "mileage",
+          "transmission",
+          "fuelType",
+          "drivetrain",
+          "bodyType",
+          "colour",
+          "regoExpiry",
+          "description",
+          "videoUrl",
+          "serviceHistory",
+          "keyCount",
+          "sellerLocationSuburb",
+          "sellerLocationPostcode",
+          "sellerLocationState",
+          "coverImage",
+          "coverImageUrl",
+          "imageAssets",
+          "imageUrls",
+          "images",
+          "submissionPreference",
+          "serviceQuoteNotes",
+          "sellerStatus",
+          "underOfferBuyerUid",
+          "soldAt",
+          "updatedAt"
+        ])
+        && isValidSellerVehicleStatus(request.resource.data.sellerStatus)
+        && request.resource.data.updatedAt is timestamp
+        && (
+          !("underOfferBuyerUid" in request.resource.data)
+          || request.resource.data.sellerStatus == "UNDER_OFFER"
+          || request.resource.data.underOfferBuyerUid == ""
+        )
+        && (
+          !("soldAt" in request.resource.data)
+          || request.resource.data.sellerStatus == "SOLD"
+        );
+    }
+
     function vehicleStatusFieldsOnlyChanged() {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly([
         "sellerStatus",
@@ -788,8 +1001,16 @@ service cloud.firestore {
 
     match /vehicles/{vehicleId} {
       allow read: if true;
-      allow create: if isAdmin() || isSuperAdmin();
-      allow update: if isAdmin() || isSuperAdmin();
+      allow create: if isAdmin()
+        || isSuperAdmin()
+        || (isSellerWorkspaceUser() && validSellerOwnedVehicleCreate());
+      allow update: if isAdmin()
+        || isSuperAdmin()
+        || (
+          isSellerWorkspaceUser()
+          && resource.data.ownerUid == request.auth.uid
+          && validSellerOwnedVehicleUpdate()
+        );
       allow delete: if isAdmin() || isSuperAdmin();
     }
 
@@ -1376,11 +1597,15 @@ service cloud.firestore {
     }
 
     match /quotes/{id} {
-      allow create: if isSeller()
+      allow create: if isSellerWorkspaceUser()
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.sellerUid == request.auth.uid
         && request.resource.data.sellerName is string
         && request.resource.data.sellerEmail is string
+        && (
+          !("vehicleId" in request.resource.data)
+          || request.resource.data.vehicleId is string
+        )
         && request.resource.data.vehicleYear is number
         && request.resource.data.vehicleMake is string
         && request.resource.data.vehicleModel is string
@@ -1390,7 +1615,7 @@ service cloud.firestore {
         && isValidQuoteStatus(request.resource.data.status)
         && request.resource.data.status == "NEW";
       allow read: if isAdmin()
-        || (isSeller() && resource.data.ownerId == request.auth.uid);
+        || (isSellerWorkspaceUser() && resource.data.ownerId == request.auth.uid);
       allow update: if isAdmin()
         && isValidQuoteStatus(request.resource.data.status)
         && quoteFieldsUnchanged();

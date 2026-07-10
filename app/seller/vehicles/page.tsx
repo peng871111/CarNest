@@ -77,8 +77,15 @@ function SellerVehiclesPageContent() {
     searchParams.get("write") === "success"
       ? searchParams.get("sellerStatus")
         ? `Listing updated to ${searchParams.get("sellerStatus")?.replaceAll("_", " ").toLowerCase()}`
-        : "Vehicle updated successfully"
+        : searchParams.get("action") === "create"
+          ? "Vehicle submitted successfully"
+          : "Vehicle updated successfully"
       : "";
+  const quoteStatusNotice =
+    searchParams.get("quote") === "failed"
+      ? "The vehicle was submitted, but the linked service quote request still needs manual follow-up."
+      : "";
+  const workspaceBanner = [workspaceNotice, writeStatus, quoteStatusNotice].filter(Boolean).join(". ");
 
   function beginPriceEdit(vehicle: Vehicle) {
     if (!appUser || !canManageListings) return;
@@ -163,8 +170,8 @@ function SellerVehiclesPageContent() {
           </Link>
         ) : null}
       </div>
-      {writeStatus || workspaceNotice ? (
-        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">{workspaceNotice || writeStatus}</div>
+      {workspaceBanner ? (
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">{workspaceBanner}</div>
       ) : null}
       {error ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">

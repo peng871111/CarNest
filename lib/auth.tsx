@@ -692,6 +692,16 @@ async function assertAccountNotBanned(profile: AppUser) {
   throw new Error(ACCOUNT_BANNED_MESSAGE);
 }
 
+export async function recoverUserProfile(firebaseUser: User) {
+  if (!isFirebaseConfigured) {
+    throw new Error(PROFILE_LOAD_MESSAGE);
+  }
+
+  const profile = await ensureUserProfile(firebaseUser);
+  await assertAccountNotBanned(profile);
+  return profile;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
