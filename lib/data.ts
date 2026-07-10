@@ -789,7 +789,7 @@ function serializeUserDoc(id: string, data: Record<string, unknown>): AppUser {
   };
 }
 
-function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle {
+export function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle {
   const legacyImages = Array.isArray(data.images) ? (data.images as string[]) : [];
   const imageUrls = Array.isArray(data.imageUrls) ? (data.imageUrls as string[]) : legacyImages;
   const imageAssets = Array.isArray(data.imageAssets)
@@ -854,6 +854,10 @@ function serializeVehicleDoc(id: string, data: Record<string, unknown>): Vehicle
     vehicleReportFileName: typeof data.vehicleReportFileName === "string" ? data.vehicleReportFileName : "",
     vehicleReportGeneratedAt: serializeDate(data.vehicleReportGeneratedAt),
     vehicleConditionRating: normalizeVehicleConditionScore(data.vehicleConditionRating),
+    reviewedAt: serializeDate(data.reviewedAt),
+    reviewedByUid: typeof data.reviewedByUid === "string" ? data.reviewedByUid : "",
+    reviewedBy: typeof data.reviewedBy === "string" ? data.reviewedBy : "",
+    reviewReason: typeof data.reviewReason === "string" ? data.reviewReason : "",
     vehicleReportSummary:
       vehicleReportSummaryInput
         ? {
@@ -8421,7 +8425,15 @@ export async function deleteVehicleImage(
   };
 }
 
-export async function updateVehicleStatus(id: string, status: VehicleStatus, actor: VehicleActor, existingVehicle?: Vehicle) {
+export async function updateVehicleStatus(
+  id: string,
+  status: VehicleStatus,
+  actor: VehicleActor,
+  existingVehicle?: Vehicle,
+  options?: {
+    reviewReason?: string;
+  }
+) {
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can update vehicle approval status.");
 
   const baseVehicle = existingVehicle ?? (await getVehicleById(id));
@@ -8429,12 +8441,19 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
     throw new Error("Vehicle not found.");
   }
 
+  const nextReviewReason = options?.reviewReason?.trim() ?? "";
+  const reviewedBy = getActorDisplayName(actor) || actor.email || actor.id;
+
   if (!isFirebaseConfigured) {
     const approvedAt = status === "approved" ? baseVehicle.approvedAt || new Date().toISOString() : "";
     const vehicle = {
       ...baseVehicle,
       status,
       approvedAt,
+      reviewedAt: new Date().toISOString(),
+      reviewedByUid: actor.id,
+      reviewedBy,
+      reviewReason: status === "rejected" ? nextReviewReason : "",
       updatedAt: new Date().toISOString()
     } satisfies Vehicle;
 
@@ -8448,6 +8467,10 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
   await updateDoc(doc(db, "vehicles", id), {
     status,
     approvedAt: status === "approved" ? (baseVehicle.approvedAt ? Timestamp.fromDate(new Date(baseVehicle.approvedAt)) : serverTimestamp()) : deleteField(),
+    reviewedAt: serverTimestamp(),
+    reviewedByUid: actor.id,
+    reviewedBy,
+    reviewReason: status === "rejected" && nextReviewReason ? nextReviewReason : deleteField(),
     updatedAt: serverTimestamp()
   });
 
@@ -8465,6 +8488,10 @@ export async function updateVehicleStatus(id: string, status: VehicleStatus, act
     ...baseVehicle,
     status,
     approvedAt,
+    reviewedAt: new Date().toISOString(),
+    reviewedByUid: actor.id,
+    reviewedBy,
+    reviewReason: status === "rejected" ? nextReviewReason : "",
     updatedAt: new Date().toISOString()
   } satisfies Vehicle;
 

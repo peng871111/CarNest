@@ -1,7 +1,8 @@
 import { AdminShell } from "@/components/layout/admin-shell";
 import { QuoteStatusActions } from "@/components/quotes/quote-status-actions";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
-import { getQuotesData, getVehicleById } from "@/lib/data";
+import { getQuotesData } from "@/lib/data";
+import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import { getVehicleDisplayReference } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +16,7 @@ export default async function AdminQuotesPage({
   const vehiclesByQuote = await Promise.all(
     quotes.map(async (quote) => ({
       quoteId: quote.id,
-      vehicle: quote.vehicleId ? await getVehicleById(quote.vehicleId) : null
+      vehicle: quote.vehicleId ? await getAdminVehicleById(quote.vehicleId) : null
     }))
   );
   const vehicleMap = new Map(vehiclesByQuote.map((entry) => [entry.quoteId, entry.vehicle]));

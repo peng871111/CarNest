@@ -352,6 +352,31 @@ export function getSellerListingStatusTone(vehicle: Pick<Vehicle, "status" | "se
   return "bg-emerald-50 text-emerald-700 border-emerald-200";
 }
 
+export type AdminVehicleListingFilterGroup = "Pending Review" | "Active" | "Sold" | "Withdrawn";
+
+export function isAdminVehicleWithdrawn(vehicle: Pick<Vehicle, "deleted" | "status" | "sellerStatus">) {
+  return Boolean(vehicle.deleted) || vehicle.status === "rejected" || vehicle.sellerStatus === "WITHDRAWN";
+}
+
+export function isAdminVehicleSold(vehicle: Pick<Vehicle, "deleted" | "sellerStatus" | "soldAt">) {
+  return !vehicle.deleted && (vehicle.sellerStatus === "SOLD" || Boolean(vehicle.soldAt));
+}
+
+export function isAdminVehiclePendingReview(
+  vehicle: Pick<Vehicle, "deleted" | "status" | "sellerStatus" | "soldAt">
+) {
+  return !isAdminVehicleWithdrawn(vehicle) && !isAdminVehicleSold(vehicle) && vehicle.status !== "approved";
+}
+
+export function getAdminVehicleListingFilterGroup(
+  vehicle: Pick<Vehicle, "deleted" | "status" | "sellerStatus" | "soldAt">
+): AdminVehicleListingFilterGroup {
+  if (isAdminVehicleWithdrawn(vehicle)) return "Withdrawn";
+  if (isAdminVehicleSold(vehicle)) return "Sold";
+  if (isAdminVehiclePendingReview(vehicle)) return "Pending Review";
+  return "Active";
+}
+
 export function getOfferStatusLabel(status: OfferStatus) {
   if (status === "pending") return "Pending";
   if (status === "countered") return "Countered";

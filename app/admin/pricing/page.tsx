@@ -2,7 +2,8 @@ import Link from "next/link";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { PricingRequestAdminEditor } from "@/components/pricing/pricing-request-admin-editor";
 import { PricingRequestStatusBadge } from "@/components/pricing/pricing-request-status-badge";
-import { getAppUserById, getPricingRequestsData, getVehicleById } from "@/lib/data";
+import { getAppUserById, getPricingRequestsData } from "@/lib/data";
+import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export default async function AdminPricingPage({
     pricingRequests.map(async (pricingRequest) => ({
       pricingRequest,
       user: await getAppUserById(pricingRequest.userId),
-      vehicle: pricingRequest.vehicleId ? await getVehicleById(pricingRequest.vehicleId) : null
+      vehicle: pricingRequest.vehicleId ? await getAdminVehicleById(pricingRequest.vehicleId) : null
     }))
   );
 

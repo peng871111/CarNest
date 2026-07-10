@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { VehicleForm } from "@/components/forms/vehicle-form";
 import { AdminShell } from "@/components/layout/admin-shell";
-import { getVehicleById } from "@/lib/data";
+import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +11,7 @@ export default async function AdminEditVehiclePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const vehicle = await getVehicleById(id);
+  const vehicle = await getAdminVehicleById(id);
 
   if (!vehicle) notFound();
 

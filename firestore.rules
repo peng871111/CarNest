@@ -421,6 +421,16 @@ service cloud.firestore {
       return isPublicVehicleData(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data);
     }
 
+    function canReadVehicleData(data) {
+      return isAdmin()
+        || isSuperAdmin()
+        || isPublicVehicleData(data)
+        || (
+          signedIn()
+          && data.ownerUid == request.auth.uid
+        );
+    }
+
     function publicVehicleViewFieldsOnlyChanged() {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly([
         "viewCount",
@@ -1016,7 +1026,7 @@ service cloud.firestore {
     }
 
     match /vehicles/{vehicleId} {
-      allow read: if true;
+      allow read: if canReadVehicleData(resource.data);
       allow create: if isAdmin()
         || isSuperAdmin()
         || (isSellerWorkspaceUser() && validSellerOwnedVehicleCreate());

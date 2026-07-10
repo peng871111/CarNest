@@ -10,8 +10,9 @@ import { AdminPendingDescriptionActions } from "@/components/vehicles/admin-pend
 import { VehicleGallery } from "@/components/vehicles/vehicle-gallery";
 import { VehicleStatusBadge } from "@/components/vehicles/vehicle-status-badge";
 import { VehicleWarehouseIntakeSummary } from "@/components/admin/vehicle-warehouse-intake-summary";
-import { getVehicleById, getVehicleOwnerInfo } from "@/lib/data";
+import { getVehicleOwnerInfo } from "@/lib/data";
 import { getListingLabel, getVehicleGallery } from "@/lib/permissions";
+import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import {
   formatAdminDateTime,
   formatCurrency,
@@ -30,7 +31,7 @@ export default async function AdminVehicleDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const vehicle = await getVehicleById(id);
+  const vehicle = await getAdminVehicleById(id);
 
   if (!vehicle) notFound();
 

@@ -21,9 +21,14 @@ export function AdminVehicleActions({
 
   async function handleStatus(status: "approved" | "rejected") {
     if (!appUser) return;
+    const reviewReason =
+      status === "rejected"
+        ? window.prompt("Optional return reason", vehicle.reviewReason ?? "") ?? ""
+        : "";
     setBusy(true);
     try {
-      await updateVehicleStatus(vehicle.id, status, appUser, vehicle);
+      await updateVehicleStatus(vehicle.id, status, appUser, vehicle, status === "rejected" ? { reviewReason } : undefined);
+      window.dispatchEvent(new Event("admin-badge-refresh"));
       router.replace(`${redirectBase}?write=success&action=${status}&vehicleId=${vehicle.id}`);
       router.refresh();
     } finally {

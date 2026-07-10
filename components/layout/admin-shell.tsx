@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { ADMIN_LINKS } from "@/lib/constants";
 import { useAuth } from "@/lib/auth";
-import { canAccessRole, hasAdminPermission } from "@/lib/permissions";
+import { canAccessRole, getAdminVehicleListingFilterGroup, hasAdminPermission } from "@/lib/permissions";
 import {
   getComplianceAlertsData,
   getContactMessagesData,
@@ -238,7 +238,7 @@ export function AdminShell({
       if (cancelled) return;
 
       setBadgeCounts({
-        "/admin/vehicles": vehiclesResult.items.filter((vehicle) => vehicle.status === "pending").length,
+        "/admin/vehicles": vehiclesResult.items.filter((vehicle) => getAdminVehicleListingFilterGroup(vehicle) === "Pending Review").length,
         "/admin/enquiries": enquiriesResult.items.filter((item) => item.status === "NEW").length,
         "/admin/offers": offersResult.items.filter((item) => item.status === "pending").length,
         "/admin/inspections": inspectionsResult.items.filter((item) => item.status === "NEW").length,
@@ -249,10 +249,16 @@ export function AdminShell({
       });
     }
 
+    function handleBadgeRefresh() {
+      void loadBadgeCounts();
+    }
+
     void loadBadgeCounts();
+    window.addEventListener("admin-badge-refresh", handleBadgeRefresh);
 
     return () => {
       cancelled = true;
+      window.removeEventListener("admin-badge-refresh", handleBadgeRefresh);
     };
   }, [hasWorkspaceAccess, loading]);
 

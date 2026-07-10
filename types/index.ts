@@ -250,6 +250,10 @@ export interface Vehicle {
   videoUrl?: string;
   pendingDescription?: string;
   manualReviewReason?: "possible_unlicensed_trader";
+  reviewedAt?: string;
+  reviewedByUid?: string;
+  reviewedBy?: string;
+  reviewReason?: string;
   features: string[];
   conditionNotes: string;
   serviceHistory: string;

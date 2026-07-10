@@ -15,11 +15,18 @@ import {
   getVehicleActivityLog,
   saveCustomerProfile,
   saveVehicleRecord,
+  updateVehicleStatus,
   updateVehicleActivityImageUrls,
   updateSellerVehicleStatus
 } from "@/lib/data";
 import { uploadVehicleActivityImages } from "@/lib/storage";
-import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
+import {
+  getAdminVehicleListingFilterGroup,
+  getVehicleStatusLabel,
+  hasAdminPermission,
+  isAdminVehiclePendingReview,
+  isSuperAdminUser
+} from "@/lib/permissions";
 import { formatAccountingCurrency, formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AdminAccountingEntry, AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
@@ -33,8 +40,8 @@ type VehicleOperationalStatus =
   | "Sold"
   | "Withdrawn"
   | "Unlinked";
-type PublicListingStatus = "Available" | "Warehouse managed" | "Under offer" | "Sold" | "Draft" | "Withdrawn";
-type VehicleListingsFilter = "Active" | "Sold" | "Withdrawn" | "All";
+type AdminListingStatus = "Pending Review" | "Listed" | "Warehouse managed" | "Under offer" | "Sold" | "Withdrawn";
+type VehicleListingsFilter = "Pending Review" | "Active" | "Sold" | "Withdrawn" | "All";
 type VehicleRowStatusControl = "ACTIVE" | "SOLD" | "WITHDRAWN";
 type VehicleLogComposerMode = "internal" | "owner";
 type VehicleLogComposerDraft = {
@@ -93,6 +100,13 @@ function getVehicleListTitle(vehicle: Vehicle) {
 
 function getVehicleListedAt(vehicle: Vehicle) {
   return vehicle.approvedAt || vehicle.createdAt || "";
+}
+
+function getVehiclePhotoCount(vehicle: Vehicle) {
+  const assetCount = vehicle.imageAssets?.length ?? 0;
+  if (assetCount) return assetCount;
+  const uniqueUrls = new Set([...(vehicle.imageUrls ?? []), ...(vehicle.images ?? [])].filter(Boolean));
+  return uniqueUrls.size;
 }
 
 function parseIsoDateToTimestamp(value?: string) {
@@ -154,15 +168,13 @@ function getListingOperationalStatus(listing?: Vehicle | null): VehicleOperation
   return listing.listingType === "warehouse" || listing.storedInWarehouse ? "Warehouse managed" : "Listed";
 }
 
-function getPublicListingStatus(listing: Vehicle): PublicListingStatus {
-  if (listing.deleted || listing.status === "rejected" || listing.sellerStatus === "WITHDRAWN") return "Withdrawn";
-  if (listing.sellerStatus === "SOLD" || Boolean(listing.soldAt)) return "Sold";
+function getAdminListingStatus(listing: Vehicle): AdminListingStatus {
+  const filterGroup = getAdminVehicleListingFilterGroup(listing);
+  if (filterGroup === "Pending Review") return "Pending Review";
+  if (filterGroup === "Sold") return "Sold";
+  if (filterGroup === "Withdrawn") return "Withdrawn";
   if (listing.sellerStatus === "UNDER_OFFER") return "Under offer";
-  if (listing.status !== "approved") return "Draft";
-  if (listing.sellerStatus === "ACTIVE") {
-    return listing.listingType === "warehouse" || listing.storedInWarehouse ? "Warehouse managed" : "Available";
-  }
-  return "Draft";
+  return listing.listingType === "warehouse" || listing.storedInWarehouse ? "Warehouse managed" : "Listed";
 }
 
 function isPublicInventoryListing(listing: Vehicle) {
@@ -225,18 +237,19 @@ function getPublicationProgress(checklist?: VehicleRecord["publicationChecklist"
   };
 }
 
-function getStatusTone(status: VehicleOperationalStatus | PublicListingStatus) {
-  if (status === "Listed" || status === "Available") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+function getStatusTone(status: VehicleOperationalStatus | AdminListingStatus) {
+  if (status === "Listed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "Under offer") return "border-sky-200 bg-sky-50 text-sky-700";
   if (status === "Sold") return "border-blue-200 bg-blue-50 text-blue-700";
   if (status === "Withdrawn") return "border-zinc-200 bg-zinc-100 text-zinc-700";
   if (status === "Warehouse managed") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "Pending Review") return "border-orange-200 bg-orange-50 text-orange-700";
   if (status === "Draft") return "border-orange-200 bg-orange-50 text-orange-700";
   if (status === "Private seller managed") return "border-violet-200 bg-violet-50 text-violet-700";
   return "border-black/8 bg-shell text-ink/68";
 }
 
-function StatusPill({ label }: { label: VehicleOperationalStatus | PublicListingStatus }) {
+function StatusPill({ label }: { label: VehicleOperationalStatus | AdminListingStatus }) {
   return <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getStatusTone(label)}`}>{label}</span>;
 }
 
@@ -321,6 +334,7 @@ export function VehicleManagementHub({
   const [vehicleLogComposerByVehicleId, setVehicleLogComposerByVehicleId] = useState<Record<string, VehicleLogComposerDraft | null>>({});
   const [vehicleLogReminderCheckedByVehicleId, setVehicleLogReminderCheckedByVehicleId] = useState<Record<string, boolean>>({});
   const [showVehicleSummary, setShowVehicleSummary] = useState(false);
+  const [showReviewQueue, setShowReviewQueue] = useState(true);
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState<VehicleListingsFilter>(defaultView === "vehicles" ? "Active" : "All");
@@ -337,6 +351,8 @@ export function VehicleManagementHub({
   const [cleanupDeleting, setCleanupDeleting] = useState(false);
   const [notice, setNotice] = useState(writeStatus || "");
   const [actionError, setActionError] = useState("");
+  const [openRejectComposerId, setOpenRejectComposerId] = useState<string | null>(null);
+  const [rejectReasonByVehicleId, setRejectReasonByVehicleId] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setCustomerSearch(initialCustomerSearch);
@@ -471,8 +487,7 @@ export function VehicleManagementHub({
       .sort((left, right) => getCustomerLabel(left.profile).localeCompare(getCustomerLabel(right.profile)));
   }, [customerSearch, intakesByVehicleRecordId, listingMap, localCustomerProfiles, localVehicleRecords]);
 
-  const listingRows = useMemo(() => {
-    const term = globalSearch.trim().toLowerCase();
+  const allListingRows = useMemo(() => {
     return localVehicles
       .map((vehicle) => {
         const linkedRecord = localVehicleRecords.find((record) => record.publicListingId === vehicle.id) ?? null;
@@ -488,13 +503,8 @@ export function VehicleManagementHub({
         ).sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || ""));
         const projectedRevenue = linkedRecord?.estimatedTotalIncome
           || linkedIntakes.reduce((sum, intake) => sum + calculateServiceFeeTotals(intake.serviceItems).inclusive, 0);
-        const status = getPublicListingStatus(vehicle);
-        const filterGroup: VehicleListingsFilter =
-          status === "Sold"
-            ? "Sold"
-            : status === "Withdrawn"
-              ? "Withdrawn"
-              : "Active";
+        const status = getAdminListingStatus(vehicle);
+        const filterGroup = getAdminVehicleListingFilterGroup(vehicle);
         const searchText = [
           getVehicleDisplayReference(vehicle),
           vehicle.make,
@@ -512,20 +522,63 @@ export function VehicleManagementHub({
           .filter(Boolean)
           .join(" ")
           .toLowerCase();
-        return { vehicle, linkedRecord, linkedCustomer, linkedSeller, linkedIntakes, projectedRevenue, status, filterGroup, searchText };
+        return {
+          vehicle,
+          linkedRecord,
+          linkedCustomer,
+          linkedSeller,
+          linkedIntakes,
+          projectedRevenue,
+          status,
+          filterGroup,
+          searchText,
+          submittedAt: vehicle.createdAt || vehicle.updatedAt || ""
+        };
       })
-      .filter((row) => {
-        if (vehicleStatusFilter === "All") return true;
-        if (row.status === "Draft") return false;
-        return row.filterGroup === vehicleStatusFilter;
-      })
-      .filter((row) => (term ? row.searchText.includes(term) : true))
       .sort((left, right) => {
+        if (left.filterGroup === "Pending Review" && right.filterGroup !== "Pending Review") return -1;
+        if (right.filterGroup === "Pending Review" && left.filterGroup !== "Pending Review") return 1;
+        if (left.filterGroup === "Pending Review" && right.filterGroup === "Pending Review") {
+          const submissionSort = right.submittedAt.localeCompare(left.submittedAt);
+          if (submissionSort !== 0) return submissionSort;
+        }
         const leftRef = getVehicleDisplayReference(left.vehicle);
         const rightRef = getVehicleDisplayReference(right.vehicle);
         return leftRef.localeCompare(rightRef);
       });
-  }, [customerMap, globalSearch, intakesByVehicleId, intakesByVehicleRecordId, localVehicleRecords, localVehicles, ownerMap, vehicleStatusFilter]);
+  }, [customerMap, intakesByVehicleId, intakesByVehicleRecordId, localVehicleRecords, localVehicles, ownerMap]);
+
+  const pendingReviewRows = useMemo(
+    () => allListingRows.filter((row) => row.filterGroup === "Pending Review"),
+    [allListingRows]
+  );
+
+  const listingRows = useMemo(() => {
+    const term = globalSearch.trim().toLowerCase();
+    const statusRank: Record<Exclude<VehicleListingsFilter, "All">, number> = {
+      "Pending Review": 0,
+      Active: 1,
+      Sold: 2,
+      Withdrawn: 3
+    };
+
+    return allListingRows
+      .filter((row) => (vehicleStatusFilter === "All" ? true : row.filterGroup === vehicleStatusFilter))
+      .filter((row) => (term ? row.searchText.includes(term) : true))
+      .sort((left, right) => {
+        if (vehicleStatusFilter === "All") {
+          const groupSort = statusRank[left.filterGroup] - statusRank[right.filterGroup];
+          if (groupSort !== 0) return groupSort;
+        }
+        if (left.filterGroup === "Pending Review" && right.filterGroup === "Pending Review") {
+          const submissionSort = right.submittedAt.localeCompare(left.submittedAt);
+          if (submissionSort !== 0) return submissionSort;
+        }
+        const leftRef = getVehicleDisplayReference(left.vehicle);
+        const rightRef = getVehicleDisplayReference(right.vehicle);
+        return leftRef.localeCompare(rightRef);
+      });
+  }, [allListingRows, globalSearch, vehicleStatusFilter]);
 
   const workspaceMetrics = useMemo(() => {
     const listingLinkedRecords = localVehicleRecords
@@ -621,6 +674,44 @@ export function VehicleManagementHub({
       setActionError("");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "We couldn't update the listing status.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleVehicleModerationAction(vehicle: Vehicle, nextStatus: "approved" | "rejected") {
+    if (!actor) return;
+
+    const reviewReason = rejectReasonByVehicleId[vehicle.id]?.trim() ?? "";
+
+    try {
+      setSaving(true);
+      const result = await updateVehicleStatus(
+        vehicle.id,
+        nextStatus,
+        actor,
+        vehicle,
+        nextStatus === "rejected" ? { reviewReason } : undefined
+      );
+      setLocalVehicles((current) =>
+        current
+          .map((item) => (item.id === vehicle.id ? result.vehicle : item))
+          .sort((left, right) => getVehicleDisplayReference(left).localeCompare(getVehicleDisplayReference(right)))
+      );
+      setOpenRejectComposerId((current) => (current === vehicle.id ? null : current));
+      setRejectReasonByVehicleId((current) => ({
+        ...current,
+        [vehicle.id]: ""
+      }));
+      setNotice(
+        nextStatus === "approved"
+          ? `${getVehicleDisplayReference(result.vehicle)} approved and published.`
+          : `${getVehicleDisplayReference(result.vehicle)} returned to the customer for review.`
+      );
+      setActionError("");
+      window.dispatchEvent(new Event("admin-badge-refresh"));
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "We couldn't update the listing review status.");
     } finally {
       setSaving(false);
     }
@@ -1145,6 +1236,133 @@ export function VehicleManagementHub({
       {showingVehiclesPage ? (
         <section className="space-y-4">
           <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-bronze">Customer Listing Review Queue</p>
+                <h3 className="mt-2 text-xl font-semibold text-ink">Pending customer submissions</h3>
+                <p className="mt-2 text-sm text-ink/60">
+                  {pendingReviewRows.length} listing{pendingReviewRows.length === 1 ? "" : "s"} currently awaiting admin review.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReviewQueue((current) => !current)}
+                className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+              >
+                {showReviewQueue ? "Hide queue" : "Show queue"}
+              </button>
+            </div>
+
+            {showReviewQueue ? (
+              <div className="mt-5 space-y-3">
+                {pendingReviewRows.length ? (
+                  pendingReviewRows.map(({ vehicle, linkedCustomer, linkedSeller }) => {
+                    const customerName = linkedCustomer?.fullName || vehicle.customerName || linkedSeller?.displayName || linkedSeller?.name || "Customer details pending";
+                    const customerEmail = linkedCustomer?.email || vehicle.customerEmail || linkedSeller?.email || "Not provided";
+                    const customerPhone = linkedCustomer?.phone || linkedSeller?.phone || "";
+                    const photoCount = getVehiclePhotoCount(vehicle);
+                    const reviewStatus = getVehicleStatusLabel(vehicle.status);
+                    const rejectDraft = rejectReasonByVehicleId[vehicle.id] ?? "";
+                    const rejectComposerOpen = openRejectComposerId === vehicle.id;
+
+                    return (
+                      <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-ink/55">
+                              <span className="rounded-full border border-black/8 bg-white px-2.5 py-1 font-semibold text-ink/72">
+                                {getVehicleDisplayReference(vehicle)}
+                              </span>
+                              <span>{vehicle.createdAt ? formatAdminDateTime(vehicle.createdAt) : "Submission time pending"}</span>
+                            </div>
+                            <p className="mt-2 text-base font-semibold text-ink xl:text-lg">
+                              {[vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").trim() || getVehicleListTitle(vehicle)}
+                            </p>
+                            <div className="mt-2 grid gap-3 text-sm text-ink/62 md:grid-cols-2 xl:grid-cols-4">
+                              <span>Customer: {customerName}</span>
+                              <span>Email: {customerEmail}</span>
+                              <span>Phone: {customerPhone || "Not provided"}</span>
+                              <span>Asking price: {formatCurrency(vehicle.price)}</span>
+                              <span>Odometer: {vehicle.mileage.toLocaleString()} km</span>
+                              <span>{photoCount} uploaded photo{photoCount === 1 ? "" : "s"}</span>
+                              <span>Review status: {reviewStatus}</span>
+                              <span>{vehicle.reviewReason?.trim() ? `Latest return reason: ${vehicle.reviewReason.trim()}` : "No return reason recorded"}</span>
+                            </div>
+                          </div>
+                          <StatusPill label="Pending Review" />
+                        </div>
+
+                        <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                          <Link href={`/admin/vehicles/${vehicle.id}`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Review listing
+                          </Link>
+                          <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
+                            Edit listing
+                          </Link>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void handleVehicleModerationAction(vehicle, "approved")}
+                            className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full bg-emerald-600 px-3 py-2 text-center text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {saving ? "Saving..." : "Approve and publish"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => setOpenRejectComposerId((current) => (current === vehicle.id ? null : vehicle.id))}
+                            className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-[#B42318]/20 bg-[#FEF3F2] px-3 py-2 text-center text-xs font-semibold text-[#B42318] transition hover:border-[#B42318]/40 hover:bg-[#FEE4E2] disabled:opacity-50"
+                          >
+                            Reject / return to customer
+                          </button>
+                        </div>
+
+                        {rejectComposerOpen ? (
+                          <div className="mt-4 rounded-[18px] border border-[#F5D7B2] bg-white px-4 py-4">
+                            <div className="space-y-2">
+                              <FieldLabel>Optional return reason</FieldLabel>
+                              <CompactTextarea
+                                className="min-h-[92px]"
+                                value={rejectDraft}
+                                onChange={(event) => setRejectReasonByVehicleId((current) => ({
+                                  ...current,
+                                  [vehicle.id]: event.target.value
+                                }))}
+                                placeholder="Add any review notes or requested changes for the customer."
+                              />
+                            </div>
+                            <div className="mt-4 flex flex-wrap justify-end gap-3">
+                              <button
+                                type="button"
+                                onClick={() => setOpenRejectComposerId(null)}
+                                className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() => void handleVehicleModerationAction(vehicle, "rejected")}
+                                className="rounded-full bg-[#B42318] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#912018] disabled:opacity-50"
+                              >
+                                {saving ? "Saving..." : "Confirm return to customer"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-[22px] border border-dashed border-black/10 bg-shell px-4 py-8 text-sm text-ink/58">
+                    No customer listings are currently awaiting review.
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
             <div className="flex flex-wrap gap-3">
               <CompactInput
                 value={globalSearch}
@@ -1153,6 +1371,7 @@ export function VehicleManagementHub({
                 className="min-w-[260px] flex-1"
               />
               <CompactSelect value={vehicleStatusFilter} onChange={(event) => setVehicleStatusFilter(event.target.value as VehicleListingsFilter)} className="w-full md:w-56">
+                <option value="Pending Review">Pending Review</option>
                 <option value="Active">Active</option>
                 <option value="Sold">Sold</option>
                 <option value="Withdrawn">Withdrawn</option>
@@ -1226,15 +1445,15 @@ export function VehicleManagementHub({
                           </span>
                         ) : null}
                       </div>
-                    </div>
+                      </div>
 
                     <div className="flex flex-col items-start gap-3 xl:items-end">
                       <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-                        <StatusPill label={status === "Available" ? "Listed" : status === "Warehouse managed" ? "Warehouse managed" : status} />
+                        <StatusPill label={status} />
                         <CompactSelect
                           value={vehicle.sellerStatus === "SOLD" ? "SOLD" : vehicle.sellerStatus === "WITHDRAWN" ? "WITHDRAWN" : "ACTIVE"}
                           onChange={(event) => void handleVehicleListingStatusChange(vehicle, event.target.value as VehicleRowStatusControl)}
-                          disabled={saving}
+                          disabled={saving || isAdminVehiclePendingReview(vehicle)}
                           className="min-h-[40px] w-[150px] rounded-full px-4 py-2 text-xs font-semibold"
                         >
                           <option value="ACTIVE">Active</option>
@@ -1329,6 +1548,11 @@ export function VehicleManagementHub({
                       onSaved={handlePublicationChecklistSaved}
                     />
                   </div>
+                  {isAdminVehiclePendingReview(vehicle) ? (
+                    <div className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                      This customer listing is still pending review and will stay hidden from the public website until an admin approves it.
+                    </div>
+                  ) : null}
                   {logOpen ? (
                     <div className="mt-4 rounded-[18px] border border-black/6 bg-white/80 p-4">
                       <div className="flex flex-wrap gap-2">
