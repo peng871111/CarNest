@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/admin-calendar/reminders/next-day",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/internal/admin-calendar/reminders/next-day",
+      "schedule": "0 8 * * *"
+    }
+  ]
+}

@@ -663,8 +663,29 @@ export interface AdminAppointment {
   title: string;
   description: string;
   customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
   vehicleInfo?: string;
+  registration?: string;
+  location?: string;
+  appointmentType?: string;
+  status?: "active" | "cancelled";
+  cancelledAt?: string;
+  deletedAt?: string;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminAppointmentReminderLog {
+  id: string;
+  appointmentDate: string;
+  recipient: string;
+  appointmentCount: number;
+  deliveryStatus: "sent" | "failed" | "no_appointments";
+  providerMessageId?: string;
+  errorMessage?: string;
+  sentAt?: string;
+  checkedAt?: string;
   updatedAt?: string;
 }
 

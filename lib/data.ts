@@ -1433,7 +1433,15 @@ export function createEmptyAdminAppointment(): Omit<AdminAppointment, "id"> {
     title: "",
     description: "",
     customerName: "",
+    customerEmail: "",
+    customerPhone: "",
     vehicleInfo: "",
+    registration: "",
+    location: "",
+    appointmentType: "",
+    status: "active",
+    cancelledAt: "",
+    deletedAt: "",
     createdAt: "",
     updatedAt: ""
   };
@@ -2072,7 +2080,15 @@ function serializeAdminAppointmentDoc(id: string, data: Record<string, unknown>)
     title: typeof data.title === "string" ? data.title : "",
     description: typeof data.description === "string" ? data.description : "",
     customerName: typeof data.customerName === "string" ? data.customerName : "",
+    customerEmail: typeof data.customerEmail === "string" ? data.customerEmail : "",
+    customerPhone: typeof data.customerPhone === "string" ? data.customerPhone : "",
     vehicleInfo: typeof data.vehicleInfo === "string" ? data.vehicleInfo : "",
+    registration: typeof data.registration === "string" ? data.registration : "",
+    location: typeof data.location === "string" ? data.location : "",
+    appointmentType: typeof data.appointmentType === "string" ? data.appointmentType : "",
+    status: data.status === "cancelled" ? "cancelled" : "active",
+    cancelledAt: serializeDate(data.cancelledAt),
+    deletedAt: serializeDate(data.deletedAt),
     createdAt: serializeDate(data.createdAt),
     updatedAt: serializeDate(data.updatedAt)
   };
