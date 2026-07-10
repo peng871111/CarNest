@@ -682,9 +682,25 @@ service cloud.firestore {
         && request.resource.data.mustResetPassword is bool;
       allow update: if signedIn()
         && request.auth.uid == userId
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.email == resource.data.email
-        && request.resource.data.role == resource.data.role
+        && (
+          request.resource.data.uid == resource.data.uid
+          || (!("uid" in resource.data) && request.resource.data.uid == request.auth.uid)
+        )
+        && (
+          request.resource.data.email == resource.data.email
+          || (!("email" in resource.data) && request.resource.data.email == request.auth.token.email)
+        )
+        && (
+          request.resource.data.role == resource.data.role
+          || (
+            !("role" in resource.data)
+            && (
+              request.resource.data.role == "private"
+              || request.resource.data.role == "seller"
+              || request.resource.data.role == "dealer"
+            )
+          )
+        )
         && request.resource.data.role != "admin"
         && request.resource.data.role != "super_admin"
         && (

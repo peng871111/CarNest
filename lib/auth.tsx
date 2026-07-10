@@ -21,7 +21,7 @@ import {
   User
 } from "firebase/auth";
 import { Timestamp, doc, getDoc, setDoc } from "firebase/firestore";
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { auth, db, isFirebaseConfigured, missingFirebaseConfigKeys } from "@/lib/firebase";
 import { AccountType, AppUser } from "@/types";
 import { createAdminPermissions, resolveManagedUserAccess } from "@/lib/permissions";
@@ -32,6 +32,7 @@ interface AuthContextValue {
   appUser: AppUser | null;
   loading: boolean;
   authError: string;
+  refreshProfile: () => Promise<AppUser | null>;
   login: (email: string, password: string) => Promise<AppUser>;
   register: (input: { name: string; email: string; password: string; accountType: AccountType }) => Promise<AppUser>;
   continueWithGoogle: (accountType?: AccountType) => Promise<AppUser | null>;
@@ -708,6 +709,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState("");
 
+  const refreshProfile = useCallback(async () => {
+    if (!isFirebaseConfigured) {
+      throw new Error(PROFILE_LOAD_MESSAGE);
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      setAppUser(null);
+      setSessionCookies(null);
+      return null;
+    }
+
+    try {
+      const profile = await recoverUserProfile(currentUser);
+      setAppUser(profile);
+      setSessionCookies(profile);
+      setAuthError("");
+      return profile;
+    } catch (error) {
+      console.error("Profile refresh failed", {
+        code: getErrorCode(error),
+        message: getErrorMessage(error),
+        error
+      });
+      setAppUser(null);
+      setSessionCookies(null);
+      setAuthError(error instanceof Error && error.message ? error.message : PROFILE_LOAD_MESSAGE);
+      throw error;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isFirebaseConfigured) {
       setFirebaseUser(null);
@@ -768,6 +800,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       appUser,
       loading,
       authError,
+      refreshProfile,
       login: async (email, password) => {
         if (!isFirebaseConfigured) {
           throw new Error(AUTH_UNAVAILABLE_MESSAGE);
@@ -1000,7 +1033,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     }),
-    [appUser, authError, firebaseUser, loading]
+    [appUser, authError, firebaseUser, loading, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

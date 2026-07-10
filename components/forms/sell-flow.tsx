@@ -6,14 +6,14 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { recoverUserProfile, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { createQuoteRequest, createVehicle } from "@/lib/data";
 import { isFirebaseConfigured, isFirebaseStorageConfigured } from "@/lib/firebase";
 import { prepareVehicleImageUploads } from "@/lib/image-processing";
 import { uploadVehicleImageAssets } from "@/lib/storage";
 import { VEHICLE_PLACEHOLDER_IMAGE } from "@/lib/constants";
 import { formatCurrency } from "@/lib/utils";
-import { PreparedVehicleImageUpload, VehicleFormFieldsValue, VehicleFormInput } from "@/types";
+import { AppUser, PreparedVehicleImageUpload, VehicleFormFieldsValue, VehicleFormInput } from "@/types";
 import {
   VehicleFormFields,
   buildVehicleFormFieldsValue,
@@ -78,6 +78,28 @@ function logSubmissionFailure(
   });
 }
 
+function logSubmissionStage(
+  operation: "profile-setup" | "photo-upload" | "listing-create" | "quote-create",
+  status: "start" | "success",
+  context?: Record<string, unknown>
+) {
+  if (process.env.NODE_ENV !== "development") {
+    return;
+  }
+
+  console.info("[sell-flow] vehicle submission stage", {
+    operation,
+    status,
+    ...context
+  });
+}
+
+function canSubmitVehicleForProfile(user: Pick<AppUser, "role" | "dealerStatus"> | null | undefined) {
+  if (!user) return false;
+  if (user.role === "dealer") return user.dealerStatus === "approved";
+  return user.role === "seller" || user.role === "buyer";
+}
+
 function resolveSubmissionFailureMessage(
   operation: "profile-setup" | "photo-upload" | "listing-create" | "quote-create",
   error: unknown
@@ -105,7 +127,7 @@ function resolveSubmissionFailureMessage(
 
 export function SellFlow() {
   const router = useRouter();
-  const { appUser, firebaseUser, loading } = useAuth();
+  const { appUser, firebaseUser, loading, refreshProfile } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [processingImages, setProcessingImages] = useState(false);
@@ -114,7 +136,8 @@ export function SellFlow() {
   const [form, setForm] = useState<SellFlowState>(initialState);
   const [selectedImages, setSelectedImages] = useState<PreparedVehicleImageUpload[]>([]);
   const [draftReady, setDraftReady] = useState(false);
-  const draftStorageKey = useMemo(() => `draft:sell-flow:${appUser?.id ?? "anonymous"}`, [appUser?.id]);
+  const [bootstrapAttemptedUid, setBootstrapAttemptedUid] = useState<string | null>(null);
+  const draftStorageKey = useMemo(() => `draft:sell-flow:${appUser?.id ?? firebaseUser?.uid ?? "anonymous"}`, [appUser?.id, firebaseUser?.uid]);
 
   const previewImages = useMemo(
     () => (selectedImages.length ? selectedImages.map((image) => image.previewUrl) : [VEHICLE_PLACEHOLDER_IMAGE]),
@@ -163,9 +186,29 @@ export function SellFlow() {
     window.localStorage.setItem(draftStorageKey, JSON.stringify(draftPayload));
   }, [currentStep, draftReady, draftStorageKey, form]);
 
-  const isApprovedDealer = appUser?.role === "dealer" && appUser.dealerStatus === "approved";
+  useEffect(() => {
+    if (!firebaseUser) {
+      setBootstrapAttemptedUid(null);
+      return;
+    }
+
+    if (loading || appUser || bootstrapAttemptedUid === firebaseUser.uid) {
+      return;
+    }
+
+    setBootstrapAttemptedUid(firebaseUser.uid);
+    void refreshProfile().catch((profileError) => {
+      logSubmissionFailure("profile-setup", profileError, {
+        userId: firebaseUser.uid,
+        path: `/users/${firebaseUser.uid}`,
+        ownerField: "uid",
+        attemptedInBackground: true
+      });
+    });
+  }, [appUser, bootstrapAttemptedUid, firebaseUser, loading, refreshProfile]);
+
   const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
-  const canSubmit = appUser?.role === "seller" || appUser?.role === "buyer" || isApprovedDealer;
+  const canSubmit = Boolean(firebaseUser) && !loading && (!appUser || canSubmitVehicleForProfile(appUser)) && !isBlockedDealer;
 
   function setField<K extends keyof SellFlowState>(key: K, value: SellFlowState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -234,8 +277,6 @@ export function SellFlow() {
       return;
     }
 
-    if (!appUser || !canSubmit) return;
-
     const reviewError = validateStep(3);
     if (reviewError) {
       setError(reviewError);
@@ -253,23 +294,62 @@ export function SellFlow() {
       let quoteCreationNotice = "";
 
       try {
-        submissionActor = await recoverUserProfile(firebaseUser);
+        logSubmissionStage("profile-setup", "start", {
+          userId: firebaseUser.uid,
+          path: `/users/${firebaseUser.uid}`,
+          ownerField: "uid"
+        });
+        submissionActor = await refreshProfile();
+        if (!submissionActor) {
+          throw new Error("User profile refresh returned an empty result.");
+        }
+        logSubmissionStage("profile-setup", "success", {
+          userId: submissionActor.id,
+          path: `/users/${submissionActor.id}`,
+          ownerField: "uid",
+          role: submissionActor.role
+        });
       } catch (profileError) {
         logSubmissionFailure("profile-setup", profileError, {
           userId: firebaseUser.uid,
-          listingChoice: form.listingChoice
+          listingChoice: form.listingChoice,
+          path: `/users/${firebaseUser.uid}`,
+          ownerField: "uid"
         });
         throw new Error(resolveSubmissionFailureMessage("profile-setup", profileError));
       }
 
+      if (!canSubmitVehicleForProfile(submissionActor)) {
+        setError(
+          submissionActor.role === "dealer"
+            ? "Your dealer application still needs approval before you can submit vehicles."
+            : `You are currently signed in as a ${submissionActor.role}. Switch to a seller account to submit a vehicle.`
+        );
+        return;
+      }
+
       let imageAssets = [] as Awaited<ReturnType<typeof uploadVehicleImageAssets>>;
       try {
+        logSubmissionStage("photo-upload", "start", {
+          userId: submissionActor.id,
+          path: `vehicle-images/${submissionActor.id}/...`,
+          ownerField: "auth.uid",
+          imageCount: selectedImages.length
+        });
         imageAssets =
           selectedImages.length && isFirebaseStorageConfigured ? await uploadVehicleImageAssets(selectedImages, submissionActor.id) : [];
+        logSubmissionStage("photo-upload", "success", {
+          userId: submissionActor.id,
+          path: `vehicle-images/${submissionActor.id}/...`,
+          ownerField: "auth.uid",
+          imageCount: imageAssets.length
+        });
       } catch (photoUploadError) {
         logSubmissionFailure("photo-upload", photoUploadError, {
           userId: submissionActor.id,
-          imageCount: selectedImages.length
+          imageCount: selectedImages.length,
+          path: `vehicle-images/${submissionActor.id}/...`,
+          ownerField: "auth.uid"
         });
         throw new Error(resolveSubmissionFailureMessage("photo-upload", photoUploadError));
       }
@@ -307,19 +387,50 @@ export function SellFlow() {
 
       let result;
       try {
+        logSubmissionStage("listing-create", "start", {
+          userId: submissionActor.id,
+          collection: "vehicles",
+          ownerFields: {
+            ownerUid: submissionActor.id,
+            sellerId: submissionActor.id
+          },
+          listingChoice: form.listingChoice
+        });
         result = await createVehicle(payload, submissionActor);
+        logSubmissionStage("listing-create", "success", {
+          userId: submissionActor.id,
+          documentPath: `/vehicles/${result.vehicle.id}`,
+          ownerFields: {
+            ownerUid: submissionActor.id,
+            sellerId: submissionActor.id
+          }
+        });
       } catch (listingCreateError) {
         logSubmissionFailure("listing-create", listingCreateError, {
           userId: submissionActor.id,
           listingChoice: form.listingChoice,
           imageCount: imageAssets.length,
-          listingType: payload.listingType
+          listingType: payload.listingType,
+          collection: "vehicles",
+          ownerFields: {
+            ownerUid: submissionActor.id,
+            sellerId: submissionActor.id
+          }
         });
         throw new Error(resolveSubmissionFailureMessage("listing-create", listingCreateError));
       }
 
       if (form.listingChoice === "service_quote" && isFirebaseConfigured) {
         try {
+          logSubmissionStage("quote-create", "start", {
+            userId: submissionActor.id,
+            collection: "quotes",
+            ownerFields: {
+              ownerId: submissionActor.id,
+              sellerUid: submissionActor.id
+            },
+            vehicleId: result.vehicle.id
+          });
           await createQuoteRequest({
             ownerId: submissionActor.id,
             sellerUid: submissionActor.id,
@@ -333,10 +444,24 @@ export function SellFlow() {
             source: "sell_flow",
             notes: form.serviceQuoteNotes || ""
           });
+          logSubmissionStage("quote-create", "success", {
+            userId: submissionActor.id,
+            collection: "quotes",
+            ownerFields: {
+              ownerId: submissionActor.id,
+              sellerUid: submissionActor.id
+            },
+            vehicleId: result.vehicle.id
+          });
         } catch (quoteCreateError) {
           logSubmissionFailure("quote-create", quoteCreateError, {
             userId: submissionActor.id,
-            vehicleId: result.vehicle.id
+            vehicleId: result.vehicle.id,
+            collection: "quotes",
+            ownerFields: {
+              ownerId: submissionActor.id,
+              sellerUid: submissionActor.id
+            }
           });
           quoteCreationFailed = true;
           quoteCreationNotice = resolveSubmissionFailureMessage("quote-create", quoteCreateError);
@@ -370,7 +495,7 @@ export function SellFlow() {
     return <div className="rounded-[32px] border border-white/10 bg-[#121212] p-8 text-sm text-[#F5F5F5]/72">Loading sell flow...</div>;
   }
 
-  if (!appUser) {
+  if (!firebaseUser) {
     return (
       <div className="rounded-[32px] border border-white/10 bg-[#121212] p-8 text-[#F5F5F5] shadow-panel">
         <p className="text-xs uppercase tracking-[0.28em] text-[#C6A87D]">Seller access</p>
@@ -391,7 +516,7 @@ export function SellFlow() {
     );
   }
 
-  if (!canSubmit) {
+  if (appUser && !canSubmitVehicleForProfile(appUser)) {
     return (
       <div className="rounded-[32px] border border-white/10 bg-[#121212] p-8 text-[#F5F5F5] shadow-panel">
         <p className="text-xs uppercase tracking-[0.28em] text-[#C6A87D]">Seller access</p>

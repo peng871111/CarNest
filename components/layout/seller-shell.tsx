@@ -19,19 +19,22 @@ export function SellerShell({
   title,
   description,
   children,
-  allowedRoles = ["seller"]
+  allowedRoles = ["seller"],
+  allowAuthenticatedFallback = false
 }: {
   title: string;
   description: string;
   children: ReactNode;
   allowedRoles?: UserRole[];
+  allowAuthenticatedFallback?: boolean;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { appUser, loading } = useAuth();
+  const { appUser, firebaseUser, loading } = useAuth();
   const isBlockedDealer = appUser?.role === "dealer" && appUser.dealerStatus !== "approved";
   const workspaceHomeHref = appUser?.role === "admin" || appUser?.role === "super_admin" ? "/admin/vehicles" : "/seller/vehicles";
-  const hasWorkspaceAccess = canAccessRole(allowedRoles, appUser?.role) && !isBlockedDealer;
+  const hasAuthenticatedFallback = allowAuthenticatedFallback && Boolean(firebaseUser) && !appUser;
+  const hasWorkspaceAccess = (canAccessRole(allowedRoles, appUser?.role) && !isBlockedDealer) || hasAuthenticatedFallback;
   const sidebarLinks = SELLER_LINKS.filter((link) => {
     if (link.href === "/seller/offers") return appUser?.role === "seller" || appUser?.role === "dealer";
     if (link.href === "/seller/vehicles/new") return appUser?.role === "seller" || appUser?.role === "dealer";

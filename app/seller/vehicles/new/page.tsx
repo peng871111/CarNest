@@ -7,6 +7,7 @@ export default function SellerNewVehiclePage() {
       title="Add Vehicle"
       description="Start a new CarNest listing directly from your workspace."
       allowedRoles={["seller", "buyer", "dealer"]}
+      allowAuthenticatedFallback
     >
       <SellFlow />
     </SellerShell>

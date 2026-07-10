@@ -383,6 +383,32 @@ function isFirestoreAuthPermissionError(error: unknown) {
     || message.includes("unauthenticated");
 }
 
+function getFirestoreOperationErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code ?? "") : "";
+}
+
+function getFirestoreOperationErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error ?? "");
+}
+
+function logOptionalVehicleSubmissionFailure(
+  operation:
+    | "vehicle-activity-log"
+    | "user-compliance-update"
+    | "manual-review-flag"
+    | "vehicle-record-sync",
+  error: unknown,
+  context?: Record<string, unknown>
+) {
+  console.error("[vehicles] optional submission follow-up failed", {
+    operation,
+    code: getFirestoreOperationErrorCode(error),
+    message: getFirestoreOperationErrorMessage(error),
+    ...context,
+    error
+  });
+}
+
 async function readFirestoreWithAuthRetry<T>(operation: () => Promise<T>) {
   try {
     return await operation();
@@ -7976,27 +8002,59 @@ export async function createVehicle(input: VehicleFormInput, actor: VehicleActor
       : "Vehicle submitted for review.",
     actor,
     "admin"
-  ).catch(() => null);
+  ).catch((error) => {
+    logOptionalVehicleSubmissionFailure("vehicle-activity-log", error, {
+      collection: "vehicleActivityEvents",
+      vehicleId: ref.id,
+      actorUid: actor.id
+    });
+    return null;
+  });
 
-  if (isSellerWorkspaceActor(actor)) {
-    const assessment = await syncUserComplianceState(actor.id, [vehicle], vehicle.id);
+  // Standard customer submissions should not depend on privileged compliance writes.
+  if (isAdminLikeRole(actor.role)) {
+    const assessment = await syncUserComplianceState(actor.id, [vehicle], vehicle.id).catch((error) => {
+      logOptionalVehicleSubmissionFailure("user-compliance-update", error, {
+        documentPath: `/users/${actor.id}`,
+        vehicleId: ref.id,
+        actorUid: actor.id
+      });
+      return null;
+    });
+
     if (assessment?.status === "possible_unlicensed_trader") {
-      await updateDoc(doc(db, "vehicles", ref.id), {
+      const manualReviewApplied = await updateDoc(doc(db, "vehicles", ref.id), {
         status: "pending",
         manualReviewReason: "possible_unlicensed_trader",
         updatedAt: serverTimestamp()
-      });
+      })
+        .then(() => true)
+        .catch((error) => {
+          logOptionalVehicleSubmissionFailure("manual-review-flag", error, {
+            documentPath: `/vehicles/${ref.id}`,
+            actorUid: actor.id
+          });
+          return false;
+        });
 
-      vehicle = {
-        ...vehicle,
-        status: "pending",
-        manualReviewReason: "possible_unlicensed_trader",
-        updatedAt: new Date().toISOString()
-      };
+      if (manualReviewApplied) {
+        vehicle = {
+          ...vehicle,
+          status: "pending",
+          manualReviewReason: "possible_unlicensed_trader",
+          updatedAt: new Date().toISOString()
+        };
+      }
     }
   }
 
-  await syncVehicleRecordFromPublicListing(vehicle, actor, "created").catch(() => undefined);
+  await syncVehicleRecordFromPublicListing(vehicle, actor, "created").catch((error) => {
+    logOptionalVehicleSubmissionFailure("vehicle-record-sync", error, {
+      vehicleId: ref.id,
+      actorUid: actor.id
+    });
+    return undefined;
+  });
 
   return {
     vehicle,
