@@ -682,6 +682,7 @@ export interface AdminAppointment {
 
 export interface AdminAppointmentReminderLog {
   id: string;
+  sendType?: "automatic" | "manual";
   appointmentDate: string;
   recipient: string;
   appointmentCount: number;

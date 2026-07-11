@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   const authAccessToken = getBearerToken(request);
 
   try {
-    const result = await runAdminCalendarReminder({ force: true, authAccessToken });
+    const result = await runAdminCalendarReminder({ force: true, authAccessToken, sendType: "manual" });
     const diagnostics = await getAdminCalendarReminderDiagnostics({ authAccessToken });
     return NextResponse.json({
       success: true,

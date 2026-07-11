@@ -256,11 +256,6 @@ export function buildAdminCalendarReminderEmailContent(appointments: AdminAppoin
   };
 }
 
-export function getAdminAppointmentReminderLogId(appointmentDate: string, recipient = ADMIN_CALENDAR_REMINDER_RECIPIENT) {
-  const normalizedRecipient = sanitizeField(recipient).toLowerCase().replace(/[^a-z0-9@._-]+/g, "-");
-  return `calendar-reminder-${appointmentDate}-${normalizedRecipient}`;
-}
-
 export function hasSuccessfulReminderDelivery(log?: Partial<AdminAppointmentReminderLog> | null) {
   return log?.deliveryStatus === "sent";
 }

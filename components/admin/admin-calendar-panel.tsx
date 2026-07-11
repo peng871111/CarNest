@@ -429,19 +429,13 @@ export function AdminCalendarPanel() {
       }
 
       const result = payload.result;
-      if (result?.reason === "already_sent") {
-        setNotice("Tomorrow reminder already sent. No duplicate email was created.");
-        return;
-      }
-
       if (result?.reason === "no_appointments") {
-        setNotice("No eligible appointments were found for tomorrow, so no reminder email was sent.");
+        setNotice("No appointments are scheduled for tomorrow.");
         return;
       }
 
       if (result?.reason === "sent") {
-        const providerMessageId = result.providerMessageId ? ` Message ID: ${result.providerMessageId}` : "";
-        setNotice(`Tomorrow reminder email sent successfully to info@carnest.au.${providerMessageId}`);
+        setNotice("Tomorrow’s appointment reminder was sent successfully.");
         return;
       }
 

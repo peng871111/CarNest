@@ -8,7 +8,6 @@ import {
   formatMelbourneDateTime,
   filterReminderEligibleAppointments,
   getNextAdminCalendarReminderAttempts,
-  getAdminAppointmentReminderLogId,
   getTomorrowMelbourneDateKey,
   hasSuccessfulReminderDelivery,
   isMelbourneReminderExecutionTime
@@ -21,6 +20,10 @@ import { getAdminDb } from "@/lib/firebase-admin-server";
 
 const ADMIN_APPOINTMENTS_COLLECTION = "adminAppointments";
 const ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION = "adminAppointmentReminderLogs";
+const AUTOMATIC_REMINDER_SEND_TYPE = "automatic";
+const MANUAL_REMINDER_SEND_TYPE = "manual";
+
+type ReminderSendType = typeof AUTOMATIC_REMINDER_SEND_TYPE | typeof MANUAL_REMINDER_SEND_TYPE;
 
 type ReminderDataAccessOptions = {
   authAccessToken?: string;
@@ -191,6 +194,10 @@ function serializeAdminAppointmentRecord(id: string, data: Record<string, unknow
 function serializeReminderLogRecord(id: string, data: Record<string, unknown>): AdminAppointmentReminderLog {
   return {
     id,
+    sendType:
+      data.sendType === MANUAL_REMINDER_SEND_TYPE || data.sendType === AUTOMATIC_REMINDER_SEND_TYPE
+        ? data.sendType
+        : undefined,
     appointmentDate: typeof data.appointmentDate === "string" ? data.appointmentDate : "",
     recipient: typeof data.recipient === "string" ? data.recipient : ADMIN_CALENDAR_REMINDER_RECIPIENT,
     appointmentCount: typeof data.appointmentCount === "number" ? data.appointmentCount : 0,
@@ -203,39 +210,84 @@ function serializeReminderLogRecord(id: string, data: Record<string, unknown>): 
   };
 }
 
-async function getReminderLog(
+function normalizeRecipient(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getReminderLogSortValue(log: AdminAppointmentReminderLog) {
+  return log.sentAt || log.checkedAt || log.updatedAt || "";
+}
+
+function getLatestReminderLog(logs: AdminAppointmentReminderLog[]) {
+  return [...logs].sort((left, right) => getReminderLogSortValue(right).localeCompare(getReminderLogSortValue(left)))[0] ?? null;
+}
+
+function filterLogsForTargetDateAndRecipient(
+  logs: AdminAppointmentReminderLog[],
   appointmentDate: string,
-  recipient: string,
+  recipient: string
+) {
+  const normalizedRecipient = normalizeRecipient(recipient);
+  return logs.filter((log) => (
+    log.appointmentDate === appointmentDate
+    && normalizeRecipient(log.recipient) === normalizedRecipient
+  ));
+}
+
+function getLatestSuccessfulAutomaticReminderLog(logs: AdminAppointmentReminderLog[]) {
+  return getLatestReminderLog(
+    logs.filter((log) => log.sendType === AUTOMATIC_REMINDER_SEND_TYPE && hasSuccessfulReminderDelivery(log))
+  );
+}
+
+async function getReminderLogsForDate(
+  appointmentDate: string,
   options: ReminderDataAccessOptions = {}
 ) {
-  const logId = getAdminAppointmentReminderLogId(appointmentDate, recipient);
-
   try {
     const db = getAdminDb();
-    const snapshot = await db.collection(ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION).doc(logId).get();
-    if (!snapshot.exists) return null;
-    return serializeReminderLogRecord(snapshot.id, snapshot.data() ?? {});
+    const snapshot = await db.collection(ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION).where("appointmentDate", "==", appointmentDate).get();
+    return snapshot.docs.map((doc) => serializeReminderLogRecord(doc.id, doc.data() ?? {}));
   } catch (error) {
     if (!shouldUseFirestoreRestFallback(error, options)) {
       throw error;
     }
 
     const authAccessToken = getRestAccessToken(options);
-    const payload = await callFirestoreRest(
-      `${ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION}/${encodeURIComponent(logId)}`,
-      authAccessToken,
-      undefined,
-      { allowNotFound: true }
-    );
-    if (!payload || typeof payload !== "object") return null;
+    const payload = await callFirestoreRest(":runQuery", authAccessToken, {
+      method: "POST",
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId: ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: "appointmentDate" },
+              op: "EQUAL",
+              value: { stringValue: appointmentDate }
+            }
+          }
+        }
+      })
+    });
 
-    const document = payload as { fields?: Record<string, unknown>; name?: string };
-    const id = typeof document.name === "string" ? extractDocumentId(document.name) : logId;
-    return serializeReminderLogRecord(id, decodeFirestoreRestFields(document.fields ?? {}));
+    if (!Array.isArray(payload)) return [];
+
+    return payload
+      .map((entry) => {
+        if (!entry || typeof entry !== "object" || !("document" in entry)) return null;
+        const document = (entry as { document?: { name?: string; fields?: Record<string, unknown> } }).document;
+        if (!document?.name) return null;
+        return serializeReminderLogRecord(
+          extractDocumentId(document.name),
+          decodeFirestoreRestFields(document.fields ?? {})
+        );
+      })
+      .filter((log): log is AdminAppointmentReminderLog => Boolean(log));
   }
 }
 
 async function saveReminderLog(input: {
+  sendType: ReminderSendType;
   appointmentDate: string;
   recipient: string;
   appointmentCount: number;
@@ -245,9 +297,9 @@ async function saveReminderLog(input: {
   sentAt?: Date | null;
   checkedAt?: Date;
 }, options: ReminderDataAccessOptions = {}) {
-  const logId = getAdminAppointmentReminderLogId(input.appointmentDate, input.recipient);
   const checkedAt = input.checkedAt ?? new Date();
   const logPayload = {
+    sendType: input.sendType,
     appointmentDate: input.appointmentDate,
     recipient: input.recipient,
     appointmentCount: input.appointmentCount,
@@ -261,7 +313,8 @@ async function saveReminderLog(input: {
 
   try {
     const db = getAdminDb();
-    await db.collection(ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION).doc(logId).set({
+    await db.collection(ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION).add({
+      sendType: input.sendType,
       appointmentDate: input.appointmentDate,
       recipient: input.recipient,
       appointmentCount: input.appointmentCount,
@@ -271,7 +324,7 @@ async function saveReminderLog(input: {
       ...(input.sentAt ? { sentAt: Timestamp.fromDate(input.sentAt) } : {}),
       checkedAt: Timestamp.fromDate(checkedAt),
       updatedAt: Timestamp.fromDate(checkedAt)
-    }, { merge: true });
+    });
   } catch (error) {
     if (!shouldUseFirestoreRestFallback(error, options)) {
       throw error;
@@ -279,10 +332,10 @@ async function saveReminderLog(input: {
 
     const authAccessToken = getRestAccessToken(options);
     await callFirestoreRest(
-      `${ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION}/${encodeURIComponent(logId)}`,
+      ADMIN_APPOINTMENT_REMINDER_LOGS_COLLECTION,
       authAccessToken,
       {
-        method: "PATCH",
+        method: "POST",
         body: JSON.stringify({
           fields: encodeFirestoreRestFields(logPayload)
         })
@@ -339,12 +392,14 @@ export interface AdminCalendarReminderRunOptions {
   force?: boolean;
   recipient?: string;
   authAccessToken?: string;
+  sendType?: ReminderSendType;
 }
 
 export interface AdminCalendarReminderRunResult {
   ok: boolean;
   sent: boolean;
   skipped: boolean;
+  sendType: ReminderSendType;
   reason:
     | "sent"
     | "outside_reminder_window"
@@ -383,11 +438,14 @@ export async function getAdminCalendarReminderDiagnostics(options: {
   const now = options.now ?? new Date();
   const recipient = options.recipient?.trim().toLowerCase() || ADMIN_CALENDAR_REMINDER_RECIPIENT;
   const appointmentDate = getTomorrowMelbourneDateKey(now);
-  const [existingLog, appointments] = await Promise.all([
-    getReminderLog(appointmentDate, recipient, options),
+  const [logs, appointments] = await Promise.all([
+    getReminderLogsForDate(appointmentDate, options),
     getAppointmentsForDate(appointmentDate, options)
   ]);
   const eligibleAppointments = filterReminderEligibleAppointments(appointments);
+  const existingLog = getLatestSuccessfulAutomaticReminderLog(
+    filterLogsForTargetDateAndRecipient(logs, appointmentDate, recipient)
+  );
 
   return {
     melbourneNow: formatMelbourneDateTime(now),
@@ -409,29 +467,38 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
   const force = options.force === true;
   const recipient = options.recipient?.trim().toLowerCase() || ADMIN_CALENDAR_REMINDER_RECIPIENT;
   const appointmentDate = getTomorrowMelbourneDateKey(now);
+  const sendType = options.sendType ?? AUTOMATIC_REMINDER_SEND_TYPE;
 
   if (!force && !isMelbourneReminderExecutionTime(now, ADMIN_CALENDAR_REMINDER_HOUR)) {
     return {
       ok: true,
       sent: false,
       skipped: true,
+      sendType,
       reason: "outside_reminder_window",
       appointmentDate,
       appointmentCount: 0
     };
   }
 
-  const existingLog = await getReminderLog(appointmentDate, recipient, options);
-  if (hasSuccessfulReminderDelivery(existingLog)) {
-    return {
-      ok: true,
-      sent: false,
-      skipped: true,
-      reason: "already_sent",
-      appointmentDate,
-      appointmentCount: existingLog?.appointmentCount ?? 0,
-      providerMessageId: existingLog?.providerMessageId ?? null
-    };
+  if (sendType === AUTOMATIC_REMINDER_SEND_TYPE) {
+    const logs = await getReminderLogsForDate(appointmentDate, options);
+    const existingAutomaticLog = getLatestSuccessfulAutomaticReminderLog(
+      filterLogsForTargetDateAndRecipient(logs, appointmentDate, recipient)
+    );
+
+    if (hasSuccessfulReminderDelivery(existingAutomaticLog)) {
+      return {
+        ok: true,
+        sent: false,
+        skipped: true,
+        sendType,
+        reason: "already_sent",
+        appointmentDate,
+        appointmentCount: existingAutomaticLog?.appointmentCount ?? 0,
+        providerMessageId: existingAutomaticLog?.providerMessageId ?? null
+      };
+    }
   }
 
   let appointments: AdminAppointment[] = [];
@@ -440,11 +507,13 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
     appointments = filterReminderEligibleAppointments(await getAppointmentsForDate(appointmentDate, options));
   } catch (error) {
     console.error("[admin-calendar-reminder] Failed to retrieve appointments", {
+      sendType,
       appointmentDate,
       recipient,
       error
     });
     await saveReminderLog({
+      sendType,
       appointmentDate,
       recipient,
       appointmentCount: 0,
@@ -452,11 +521,20 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
       errorMessage: error instanceof Error ? error.message : String(error),
       checkedAt: now
     }, options);
-    throw error;
+    return {
+      ok: false,
+      sent: false,
+      skipped: false,
+      sendType,
+      reason: "failed",
+      appointmentDate,
+      appointmentCount: 0
+    };
   }
 
   if (!appointments.length) {
     await saveReminderLog({
+      sendType,
       appointmentDate,
       recipient,
       appointmentCount: 0,
@@ -469,6 +547,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
       ok: true,
       sent: false,
       skipped: true,
+      sendType,
       reason: "no_appointments",
       appointmentDate,
       appointmentCount: 0
@@ -483,6 +562,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
     });
 
     await saveReminderLog({
+      sendType,
       appointmentDate,
       recipient,
       appointmentCount: appointments.length,
@@ -497,6 +577,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
       ok: true,
       sent: true,
       skipped: false,
+      sendType,
       reason: "sent",
       appointmentDate,
       appointmentCount: appointments.length,
@@ -504,6 +585,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
     };
   } catch (error) {
     console.error("[admin-calendar-reminder] Failed to send reminder email", {
+      sendType,
       appointmentDate,
       recipient,
       appointmentCount: appointments.length,
@@ -511,6 +593,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
     });
 
     await saveReminderLog({
+      sendType,
       appointmentDate,
       recipient,
       appointmentCount: appointments.length,
@@ -523,6 +606,7 @@ export async function runAdminCalendarReminder(options: AdminCalendarReminderRun
       ok: false,
       sent: false,
       skipped: false,
+      sendType,
       reason: "failed",
       appointmentDate,
       appointmentCount: appointments.length
