@@ -393,15 +393,22 @@ export function AdminCalendarPanel() {
   }
 
   async function handleSendTomorrowReminder() {
+    if (!firebaseUser) {
+      setErrorMessage("Please sign in again before sending the tomorrow reminder.");
+      return;
+    }
+
     try {
       setReminderBusy(true);
       setErrorMessage("");
       setNotice("");
+      const authAccessToken = await firebaseUser.getIdToken();
 
       const response = await fetch("/api/admin/calendar/reminders/next-day", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authAccessToken}`
         }
       });
       const payload = await response.json().catch(() => null);

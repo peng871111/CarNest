@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { hasAdminApiAccess } from "@/lib/admin-api-auth";
+import { getBearerToken, hasAdminApiAccess } from "@/lib/admin-api-auth";
 import {
   getAdminCalendarReminderDiagnostics,
   runAdminCalendarReminder
@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const diagnostics = await getAdminCalendarReminderDiagnostics();
+    const diagnostics = await getAdminCalendarReminderDiagnostics({
+      authAccessToken: getBearerToken(request)
+    });
     return NextResponse.json({ success: true, diagnostics });
   } catch (error) {
     console.error("[admin-calendar-reminder-manual] Diagnostics failed.", error);
@@ -37,9 +39,11 @@ export async function POST(request: NextRequest) {
     return unauthorized();
   }
 
+  const authAccessToken = getBearerToken(request);
+
   try {
-    const result = await runAdminCalendarReminder({ force: true });
-    const diagnostics = await getAdminCalendarReminderDiagnostics();
+    const result = await runAdminCalendarReminder({ force: true, authAccessToken });
+    const diagnostics = await getAdminCalendarReminderDiagnostics({ authAccessToken });
     return NextResponse.json({
       success: true,
       result,
@@ -47,7 +51,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("[admin-calendar-reminder-manual] Manual reminder send failed.", error);
-    const diagnostics = await getAdminCalendarReminderDiagnostics().catch(() => null);
+    const diagnostics = await getAdminCalendarReminderDiagnostics({ authAccessToken }).catch(() => null);
     return NextResponse.json(
       {
         success: false,
