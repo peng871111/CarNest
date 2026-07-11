@@ -33,6 +33,14 @@ function hasValidCronAccess(request: NextRequest) {
   }
 
   const providedSecret = getProvidedCronSecret(request);
+  if (!providedSecret) {
+    console.warn("[admin-calendar-reminder] Request missing cron secret.", {
+      userAgent: request.headers.get("user-agent") ?? "",
+      hasAuthorizationHeader: Boolean(request.headers.get("authorization")),
+      hasCronSecretHeader: Boolean(request.headers.get("x-cron-secret"))
+    });
+    return false;
+  }
   return secretsMatch(expectedSecret, providedSecret);
 }
 
@@ -42,7 +50,12 @@ async function handleReminderRequest(request: NextRequest) {
   }
 
   const force = request.nextUrl.searchParams.get("force") === "1";
+  console.info("[admin-calendar-reminder] Trigger received.", {
+    force,
+    userAgent: request.headers.get("user-agent") ?? ""
+  });
   const result = await runAdminCalendarReminder({ force });
+  console.info("[admin-calendar-reminder] Trigger completed.", result);
 
   return NextResponse.json(result, { status: result.ok ? 200 : 500 });
 }

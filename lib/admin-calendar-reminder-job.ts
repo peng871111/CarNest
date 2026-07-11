@@ -5,13 +5,18 @@ import { AdminAppointment, AdminAppointmentReminderLog } from "@/types";
 import {
   ADMIN_CALENDAR_REMINDER_HOUR,
   ADMIN_CALENDAR_REMINDER_RECIPIENT,
+  formatMelbourneDateTime,
   filterReminderEligibleAppointments,
+  getNextAdminCalendarReminderAttempts,
   getAdminAppointmentReminderLogId,
   getTomorrowMelbourneDateKey,
   hasSuccessfulReminderDelivery,
   isMelbourneReminderExecutionTime
 } from "@/lib/admin-calendar-reminders";
-import { sendAdminCalendarReminderEmail } from "@/lib/admin-calendar-reminder-email";
+import {
+  ADMIN_CALENDAR_REMINDER_EMAIL_FROM,
+  sendAdminCalendarReminderEmail
+} from "@/lib/admin-calendar-reminder-email";
 import { getAdminDb } from "@/lib/firebase-admin-server";
 
 const ADMIN_APPOINTMENTS_COLLECTION = "adminAppointments";
@@ -121,6 +126,53 @@ export interface AdminCalendarReminderRunResult {
   appointmentDate: string;
   appointmentCount: number;
   providerMessageId?: string | null;
+}
+
+export interface AdminCalendarReminderDiagnostics {
+  melbourneNow: string;
+  appointmentDate: string;
+  recipient: string;
+  sender: string;
+  cronSecretConfigured: boolean;
+  reminderHourMelbourne: number;
+  nextCronAttempts: Array<{
+    schedule: string;
+    utcHour: number;
+    runAtIso: string;
+    runAtMelbourne: string;
+  }>;
+  existingLog: AdminAppointmentReminderLog | null;
+  appointmentCount: number;
+  eligibleAppointmentCount: number;
+  appointments: AdminAppointment[];
+}
+
+export async function getAdminCalendarReminderDiagnostics(options: {
+  now?: Date;
+  recipient?: string;
+} = {}): Promise<AdminCalendarReminderDiagnostics> {
+  const now = options.now ?? new Date();
+  const recipient = options.recipient?.trim().toLowerCase() || ADMIN_CALENDAR_REMINDER_RECIPIENT;
+  const appointmentDate = getTomorrowMelbourneDateKey(now);
+  const [existingLog, appointments] = await Promise.all([
+    getReminderLog(appointmentDate, recipient),
+    getAppointmentsForDate(appointmentDate)
+  ]);
+  const eligibleAppointments = filterReminderEligibleAppointments(appointments);
+
+  return {
+    melbourneNow: formatMelbourneDateTime(now),
+    appointmentDate,
+    recipient,
+    sender: ADMIN_CALENDAR_REMINDER_EMAIL_FROM,
+    cronSecretConfigured: Boolean(process.env.CRON_SECRET?.trim()),
+    reminderHourMelbourne: ADMIN_CALENDAR_REMINDER_HOUR,
+    nextCronAttempts: getNextAdminCalendarReminderAttempts(now),
+    existingLog,
+    appointmentCount: appointments.length,
+    eligibleAppointmentCount: eligibleAppointments.length,
+    appointments: eligibleAppointments
+  };
 }
 
 export async function runAdminCalendarReminder(options: AdminCalendarReminderRunOptions = {}): Promise<AdminCalendarReminderRunResult> {

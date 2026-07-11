@@ -4,6 +4,7 @@ import { buildAbsoluteUrl } from "@/lib/seo";
 export const MELBOURNE_TIMEZONE = "Australia/Melbourne";
 export const ADMIN_CALENDAR_REMINDER_RECIPIENT = "info@carnest.au";
 export const ADMIN_CALENDAR_REMINDER_HOUR = 18;
+export const ADMIN_CALENDAR_REMINDER_CRON_SCHEDULES = ["0 7 * * *", "0 8 * * *"] as const;
 
 type MelbourneDateTimeParts = {
   year: number;
@@ -75,6 +76,46 @@ export function getTomorrowMelbourneDateKey(date = new Date()) {
 
 export function isMelbourneReminderExecutionTime(date = new Date(), targetHour = ADMIN_CALENDAR_REMINDER_HOUR) {
   return getMelbourneDateTimeParts(date).hour === targetHour;
+}
+
+export function formatMelbourneDateTime(date: Date) {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeZone: MELBOURNE_TIMEZONE,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true
+  }).format(date);
+}
+
+function getNextUtcScheduleOccurrence(date: Date, utcHour: number) {
+  const next = new Date(date);
+  next.setUTCMinutes(0, 0, 0);
+  next.setUTCHours(utcHour);
+  if (next.getTime() <= date.getTime()) {
+    next.setUTCDate(next.getUTCDate() + 1);
+  }
+  return next;
+}
+
+export function getNextAdminCalendarReminderAttempts(date = new Date()) {
+  return ADMIN_CALENDAR_REMINDER_CRON_SCHEDULES
+    .map((schedule) => {
+      const match = /^0 (\d{1,2}) \* \* \*$/.exec(schedule);
+      const utcHour = match ? Number(match[1]) : 0;
+      const runAt = getNextUtcScheduleOccurrence(date, utcHour);
+      return {
+        schedule,
+        utcHour,
+        runAtIso: runAt.toISOString(),
+        runAtMelbourne: formatMelbourneDateTime(runAt)
+      };
+    })
+    .sort((left, right) => left.runAtIso.localeCompare(right.runAtIso));
 }
 
 export function formatReminderDateHeading(dateKey: string) {

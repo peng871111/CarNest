@@ -260,6 +260,7 @@ export function AdminCalendarPanel() {
   const [formOpen, setFormOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [reminderBusy, setReminderBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -391,6 +392,60 @@ export function AdminCalendarPanel() {
     }
   }
 
+  async function handleSendTomorrowReminder() {
+    try {
+      setReminderBusy(true);
+      setErrorMessage("");
+      setNotice("");
+
+      const response = await fetch("/api/admin/calendar/reminders/next-day", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok || !payload?.success) {
+        const diagnostics = payload?.diagnostics;
+        const appointmentCount =
+          typeof diagnostics?.eligibleAppointmentCount === "number"
+            ? diagnostics.eligibleAppointmentCount
+            : typeof diagnostics?.appointmentCount === "number"
+              ? diagnostics.appointmentCount
+              : null;
+        const context =
+          appointmentCount == null
+            ? ""
+            : ` Tomorrow has ${appointmentCount} eligible appointment${appointmentCount === 1 ? "" : "s"}.`;
+        throw new Error(`${payload?.error || "We couldn't send the tomorrow reminder."}${context}`);
+      }
+
+      const result = payload.result;
+      if (result?.reason === "already_sent") {
+        setNotice("Tomorrow reminder already sent. No duplicate email was created.");
+        return;
+      }
+
+      if (result?.reason === "no_appointments") {
+        setNotice("No eligible appointments were found for tomorrow, so no reminder email was sent.");
+        return;
+      }
+
+      if (result?.reason === "sent") {
+        const providerMessageId = result.providerMessageId ? ` Message ID: ${result.providerMessageId}` : "";
+        setNotice(`Tomorrow reminder email sent successfully to info@carnest.au.${providerMessageId}`);
+        return;
+      }
+
+      setNotice("Tomorrow reminder check completed.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't send the tomorrow reminder.");
+    } finally {
+      setReminderBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {notice ? <div className="rounded-[22px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div> : null}
@@ -432,6 +487,14 @@ export function AdminCalendarPanel() {
             >
               Next month
               <ChevronRight className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSendTomorrowReminder()}
+              disabled={reminderBusy}
+              className="inline-flex min-h-[42px] items-center rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:opacity-50"
+            >
+              {reminderBusy ? "Sending reminder..." : "Send tomorrow reminder now"}
             </button>
             <button
               type="button"
