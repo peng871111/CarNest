@@ -51,16 +51,25 @@ function getServiceAccountCredentialOptions() {
 function buildFirebaseAdminOptions(): AppOptions {
   const storageBucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET?.trim() ?? undefined;
   const serviceAccount = getServiceAccountCredentialOptions();
+  const projectId =
+    serviceAccount?.projectId
+    || process.env.FIREBASE_ADMIN_PROJECT_ID?.trim()
+    || process.env.GOOGLE_CLOUD_PROJECT?.trim()
+    || process.env.GCLOUD_PROJECT?.trim()
+    || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim()
+    || undefined;
 
   if (serviceAccount) {
     return {
       credential: cert(serviceAccount),
+      ...(projectId ? { projectId } : {}),
       ...(storageBucket ? { storageBucket } : {})
     };
   }
 
   return {
     credential: applicationDefault(),
+    ...(projectId ? { projectId } : {}),
     ...(storageBucket ? { storageBucket } : {})
   };
 }
