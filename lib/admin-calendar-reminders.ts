@@ -1,5 +1,4 @@
 import { AdminAppointment, AdminAppointmentReminderLog } from "@/types";
-import { buildAbsoluteUrl } from "@/lib/seo";
 
 export const MELBOURNE_TIMEZONE = "Australia/Melbourne";
 export const ADMIN_CALENDAR_REMINDER_RECIPIENT = "info@carnest.au";
@@ -209,7 +208,6 @@ function getAppointmentReminderFields(appointment: AdminAppointment): ReminderFi
 export function buildAdminCalendarReminderEmailContent(appointments: AdminAppointment[], appointmentDate: string) {
   const sortedAppointments = filterReminderEligibleAppointments(appointments);
   const formattedDate = formatReminderDateHeading(appointmentDate);
-  const calendarUrl = buildAbsoluteUrl("/admin/calendar");
   const appointmentCountLabel = `${sortedAppointments.length} appointment${sortedAppointments.length === 1 ? "" : "s"} scheduled`;
 
   const textSections = sortedAppointments.map((appointment) => {
@@ -240,9 +238,7 @@ export function buildAdminCalendarReminderEmailContent(appointments: AdminAppoin
       "",
       appointmentCountLabel,
       "",
-      ...textSections.flatMap((section, index) => index === textSections.length - 1 ? [section] : [section, "", "--------------------------------------------------", ""]),
-      "",
-      `Admin Calendar: ${calendarUrl}`
+      ...textSections.flatMap((section, index) => index === textSections.length - 1 ? [section] : [section, "", "--------------------------------------------------", ""])
     ].join("\n"),
     html: `
       <div style="background:#f6f1e8;padding:24px 12px;font-family:Arial,sans-serif;color:#1b1b18;">
@@ -254,9 +250,6 @@ export function buildAdminCalendarReminderEmailContent(appointments: AdminAppoin
             <p style="margin:0;font-size:15px;line-height:1.7;color:#1b1b18;">${escapeHtml(appointmentCountLabel)}</p>
           </div>
           ${htmlSections}
-          <p style="margin:0;font-size:14px;line-height:1.7;">
-            <a href="${escapeHtml(calendarUrl)}" style="color:#8f5b2e;text-decoration:none;font-weight:700;">Open Admin Calendar</a>
-          </p>
         </div>
       </div>
     `
