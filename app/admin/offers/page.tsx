@@ -106,25 +106,45 @@ export default function AdminOffersPage() {
           {offers.length ? (
             offers.map((offer) => {
               const vehicle = vehicleMap.get(offer.id);
-              const vehicleReference = vehicle
+              const vehicleReference = offer.vehicleReference || (vehicle
                 ? getVehicleDisplayReference(vehicle)
-                : getVehicleDisplayReference(offer.vehicleId);
+                : getVehicleDisplayReference(offer.vehicleId));
+              const askingPrice = offer.askingPriceAtSubmission || offer.vehiclePrice;
+              const offerAmount = offer.offerAmount ?? offer.amount;
+              const offerPercentage = offer.offerPercentage || (askingPrice > 0 ? (offerAmount / askingPrice) * 100 : 0);
+              const sourceLabel = offer.source === "guest" ? "Guest" : offer.source === "authenticated" ? "Registered user" : "Existing flow";
+              const verificationLabel = offer.emailVerified ? "Email verified" : "Verification not recorded";
 
               return (
                 <div key={offer.id} className="grid grid-cols-[1.4fr,1fr,1fr,1fr,280px] gap-4 border-b border-black/5 px-6 py-5 text-sm last:border-b-0">
                   <div>
                     <p className="font-semibold text-ink">{offer.vehicleTitle}</p>
                     <p className="mt-1 text-[11px] uppercase tracking-[0.18em] text-ink/45">Vehicle Ref: {vehicleReference}</p>
-                    <p className="mt-1 text-ink/55">Asking price: {formatCurrency(offer.vehiclePrice)}</p>
+                    <p className="mt-1 text-ink/55">Asking price: {formatCurrency(askingPrice)}</p>
                   </div>
                   <div>
                     <p className="font-medium text-ink">{offer.buyerName}</p>
                     <p className="mt-1 text-ink/55">{offer.buyerEmail}</p>
                     <p className="mt-1 text-ink/55">{offer.buyerPhone}</p>
                     <p className="mt-1 text-ink/55">Submitted {formatAdminDateTime(offer.createdAt)}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-shell px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink/55">
+                        {sourceLabel}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                        offer.emailVerified
+                          ? "bg-emerald-50 text-emerald-800"
+                          : "bg-amber-50 text-amber-800"
+                      }`}>
+                        {verificationLabel}
+                      </span>
+                    </div>
                   </div>
                   <div>
-                    <p className="font-semibold text-ink">{formatCurrency(offer.amount)}</p>
+                    <p className="font-semibold text-ink">{formatCurrency(offerAmount)}</p>
+                    <p className="mt-1 text-ink/55">
+                      {offerPercentage ? `${offerPercentage.toFixed(1)}% of asking` : "Percentage not available"}
+                    </p>
                     <p className="mt-1 line-clamp-3 text-ink/55">{offer.message}</p>
                   </div>
                   <div>

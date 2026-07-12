@@ -850,11 +850,16 @@ export interface Offer {
   listingOwnerUid: string;
   vehicleId: string;
   vehicleTitle: string;
+  vehicleReference?: string;
   vehiclePrice: number;
+  askingPriceAtSubmission?: number;
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string;
+  normalizedBuyerEmail?: string;
+  normalizedBuyerPhone?: string;
   amount: number;
+  offerPercentage?: number;
   message: string;
   messages: OfferThreadEntry[];
   buyerViewed: boolean;
@@ -872,15 +877,30 @@ export interface Offer {
   userId?: string;
   offerAmount?: number;
   sellerOwnerUid?: string;
+  source?: "guest" | "authenticated";
+  emailVerified?: boolean;
+  verificationMethod?: "email_otp" | "account_email";
+  idempotencyKey?: string;
+  submissionIpHash?: string;
+  adminNotificationStatus?: "pending" | "sent" | "failed";
+  adminNotificationProviderMessageId?: string | null;
+  adminNotificationFailedAt?: string | null;
+  sellerNotificationStatus?: "pending" | "sent" | "failed";
+  sellerNotificationProviderMessageId?: string | null;
+  sellerNotificationFailedAt?: string | null;
 }
 
 export interface InspectionRequest {
   id: string;
   vehicleId: string;
   vehicleTitle: string;
+  vehicleReference?: string;
   buyerName: string;
   buyerEmail: string;
   buyerPhone: string;
+  normalizedBuyerEmail?: string;
+  normalizedBuyerPhone?: string;
+  preferredDate?: string;
   preferredTime: string;
   message: string;
   status: InspectionRequestStatus;
@@ -888,6 +908,15 @@ export interface InspectionRequest {
   sellerOwnerUid: string;
   submittedByUid?: string;
   createdAt?: string;
+  updatedAt?: string;
+  source?: "guest" | "authenticated";
+  emailVerified?: boolean;
+  verificationMethod?: "email_otp" | "account_email";
+  idempotencyKey?: string;
+  submissionIpHash?: string;
+  adminNotificationStatus?: "pending" | "sent" | "failed";
+  adminNotificationProviderMessageId?: string | null;
+  adminNotificationFailedAt?: string | null;
 }
 
 export interface SavedVehicle {

@@ -2936,11 +2936,21 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
     listingOwnerUid,
     vehicleId: String(data.vehicleId ?? ""),
     vehicleTitle: String(data.vehicleTitle ?? ""),
+    vehicleReference: typeof data.vehicleReference === "string" ? data.vehicleReference : "",
     vehiclePrice: Number(data.vehiclePrice ?? 0),
+    askingPriceAtSubmission: Number(data.askingPriceAtSubmission ?? data.vehiclePrice ?? 0),
     buyerName: String(data.buyerName ?? ""),
     buyerEmail: String(data.buyerEmail ?? ""),
     buyerPhone: String(data.buyerPhone ?? ""),
+    normalizedBuyerEmail:
+      typeof data.normalizedBuyerEmail === "string"
+        ? data.normalizedBuyerEmail
+        : String(data.buyerEmail ?? "").trim().toLowerCase(),
+    normalizedBuyerPhone: typeof data.normalizedBuyerPhone === "string" ? data.normalizedBuyerPhone : "",
     amount,
+    offerPercentage: Number(data.offerPercentage ?? ((Number(data.vehiclePrice ?? 0) > 0 && amount > 0)
+      ? (amount / Number(data.vehiclePrice ?? 0)) * 100
+      : 0)),
     message: String(data.message ?? ""),
     messages,
     buyerViewed: Boolean(data.buyerViewed ?? status === "pending"),
@@ -2973,7 +2983,96 @@ function serializeOfferDoc(id: string, data: Record<string, unknown>): Offer {
     respondedAt: data.respondedAt === null ? null : serializeDate(data.respondedAt) ?? null,
     userId: typeof data.userId === "string" ? data.userId : buyerUid,
     offerAmount: amount,
-    sellerOwnerUid: typeof data.sellerOwnerUid === "string" ? data.sellerOwnerUid : listingOwnerUid
+    sellerOwnerUid: typeof data.sellerOwnerUid === "string" ? data.sellerOwnerUid : listingOwnerUid,
+    source: data.source === "guest" ? "guest" : data.source === "authenticated" ? "authenticated" : undefined,
+    emailVerified: data.emailVerified === true,
+    verificationMethod:
+      data.verificationMethod === "email_otp"
+      || data.verificationMethod === "account_email"
+        ? data.verificationMethod
+        : undefined,
+    idempotencyKey: typeof data.idempotencyKey === "string" ? data.idempotencyKey : undefined,
+    submissionIpHash: typeof data.submissionIpHash === "string" ? data.submissionIpHash : undefined,
+    adminNotificationStatus:
+      data.adminNotificationStatus === "pending"
+      || data.adminNotificationStatus === "sent"
+      || data.adminNotificationStatus === "failed"
+        ? data.adminNotificationStatus
+        : undefined,
+    adminNotificationProviderMessageId:
+      typeof data.adminNotificationProviderMessageId === "string"
+        ? data.adminNotificationProviderMessageId
+        : data.adminNotificationProviderMessageId === null
+          ? null
+          : undefined,
+    adminNotificationFailedAt:
+      data.adminNotificationFailedAt === null ? null : serializeDate(data.adminNotificationFailedAt) ?? undefined,
+    sellerNotificationStatus:
+      data.sellerNotificationStatus === "pending"
+      || data.sellerNotificationStatus === "sent"
+      || data.sellerNotificationStatus === "failed"
+        ? data.sellerNotificationStatus
+        : undefined,
+    sellerNotificationProviderMessageId:
+      typeof data.sellerNotificationProviderMessageId === "string"
+        ? data.sellerNotificationProviderMessageId
+        : data.sellerNotificationProviderMessageId === null
+          ? null
+          : undefined,
+    sellerNotificationFailedAt:
+      data.sellerNotificationFailedAt === null ? null : serializeDate(data.sellerNotificationFailedAt) ?? undefined
+  };
+}
+
+function serializeInspectionRequestDoc(id: string, data: Record<string, unknown>): InspectionRequest {
+  return {
+    id,
+    vehicleId: String(data.vehicleId ?? ""),
+    vehicleTitle: String(data.vehicleTitle ?? ""),
+    vehicleReference: typeof data.vehicleReference === "string" ? data.vehicleReference : "",
+    buyerName: String(data.buyerName ?? ""),
+    buyerEmail: String(data.buyerEmail ?? ""),
+    buyerPhone: String(data.buyerPhone ?? ""),
+    normalizedBuyerEmail:
+      typeof data.normalizedBuyerEmail === "string"
+        ? data.normalizedBuyerEmail
+        : String(data.buyerEmail ?? "").trim().toLowerCase(),
+    normalizedBuyerPhone: typeof data.normalizedBuyerPhone === "string" ? data.normalizedBuyerPhone : "",
+    preferredDate: typeof data.preferredDate === "string" ? data.preferredDate : "",
+    preferredTime: String(data.preferredTime ?? ""),
+    message: String(data.message ?? ""),
+    status:
+      data.status === "CONTACTED" || data.status === "BOOKED" || data.status === "CLOSED"
+        ? data.status
+        : "NEW",
+    listingType: data.listingType === "warehouse" ? "warehouse" : "private",
+    sellerOwnerUid: String(data.sellerOwnerUid ?? ""),
+    submittedByUid: typeof data.submittedByUid === "string" ? data.submittedByUid : undefined,
+    createdAt: serializeDate(data.createdAt),
+    updatedAt: serializeDate(data.updatedAt),
+    source: data.source === "guest" ? "guest" : data.source === "authenticated" ? "authenticated" : undefined,
+    emailVerified: data.emailVerified === true,
+    verificationMethod:
+      data.verificationMethod === "email_otp"
+      || data.verificationMethod === "account_email"
+        ? data.verificationMethod
+        : undefined,
+    idempotencyKey: typeof data.idempotencyKey === "string" ? data.idempotencyKey : undefined,
+    submissionIpHash: typeof data.submissionIpHash === "string" ? data.submissionIpHash : undefined,
+    adminNotificationStatus:
+      data.adminNotificationStatus === "pending"
+      || data.adminNotificationStatus === "sent"
+      || data.adminNotificationStatus === "failed"
+        ? data.adminNotificationStatus
+        : undefined,
+    adminNotificationProviderMessageId:
+      typeof data.adminNotificationProviderMessageId === "string"
+        ? data.adminNotificationProviderMessageId
+        : data.adminNotificationProviderMessageId === null
+          ? null
+          : undefined,
+    adminNotificationFailedAt:
+      data.adminNotificationFailedAt === null ? null : serializeDate(data.adminNotificationFailedAt) ?? undefined
   };
 }
 
@@ -3976,7 +4075,7 @@ export async function getPricingRequestsData() {
 }
 
 export async function getInspectionRequestsData() {
-  return getCollection<InspectionRequest>("inspectionRequests", []);
+  return getCollection<InspectionRequest>("inspectionRequests", [], serializeInspectionRequestDoc);
 }
 
 export async function getInspectionRequestById(id: string) {
@@ -3986,7 +4085,7 @@ export async function getInspectionRequestById(id: string) {
 
   const snapshot = await getDoc(doc(db, "inspectionRequests", id));
   if (!snapshot.exists()) return null;
-  return serializeDoc<InspectionRequest>(snapshot.id, snapshot.data());
+  return serializeInspectionRequestDoc(snapshot.id, snapshot.data());
 }
 
 export async function getSellerInspectionRequestsData(ownerUid: string) {
@@ -4000,7 +4099,7 @@ export async function getSellerInspectionRequestsData(ownerUid: string) {
   try {
     const snapshot = await getDocs(query(collection(db, "inspectionRequests"), where("sellerOwnerUid", "==", ownerUid)));
     const items = snapshot.docs
-      .map((item) => serializeDoc<InspectionRequest>(item.id, item.data()))
+      .map((item) => serializeInspectionRequestDoc(item.id, item.data()))
       .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
 
     return {
@@ -7148,7 +7247,7 @@ async function buildVehicleAnalyticsSummary(vehicleId: string, sellerOwnerUid?: 
   const viewEvents = viewEventSnapshot.docs.map((item) => serializeVehicleViewEventDoc(item.id, item.data()));
   const savedVehicles = (savedVehicleSnapshot?.docs ?? []).map((item) => serializeDoc<SavedVehicle>(item.id, item.data()));
   const offers = offerSnapshot.docs.map((item) => serializeOfferDoc(item.id, item.data()));
-  const inspections = inspectionSnapshot.docs.map((item) => serializeDoc<InspectionRequest>(item.id, item.data()));
+  const inspections = inspectionSnapshot.docs.map((item) => serializeInspectionRequestDoc(item.id, item.data()));
   const now = Date.now();
   const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
   const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
@@ -7763,7 +7862,7 @@ async function findRecentInspectionRequestsForUser(userId: string, vehicleId: st
   const snapshot = await getDocs(
     query(collection(db, "inspectionRequests"), where("submittedByUid", "==", userId), where("vehicleId", "==", vehicleId))
   );
-  return snapshot.docs.map((item) => serializeDoc<InspectionRequest>(item.id, item.data()));
+  return snapshot.docs.map((item) => serializeInspectionRequestDoc(item.id, item.data()));
 }
 
 async function findRecentPricingRequestsForUser(userId: string) {
