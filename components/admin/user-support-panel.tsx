@@ -6,7 +6,17 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
-import { getUserSupportActionTarget, getUserSupportRecord, getUserSupportSuggestions, listUsers, softDeleteVehicle, updateUserAccess, updateUserSupportStatus } from "@/lib/data";
+import {
+  getDealerRiskSupportAccounts,
+  getHighActivityUserSupportAccounts,
+  getUserSupportActionTarget,
+  getUserSupportRecord,
+  getUserSupportSuggestions,
+  listUsers,
+  softDeleteVehicle,
+  updateUserAccess,
+  updateUserSupportStatus
+} from "@/lib/data";
 import { hasAdminPermission, isSuperAdminUser } from "@/lib/permissions";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 import { AppUser, UserSupportDealerRiskAccount, UserSupportHighActivityAccount, UserSupportRecord, UserSupportSuggestion, VehicleActor } from "@/types";
@@ -100,7 +110,7 @@ export function UserSupportPanel({
   initialLoadError?: string;
 }) {
   const router = useRouter();
-  const { appUser, requestPasswordReset } = useAuth();
+  const { appUser, loading: authLoading, requestPasswordReset } = useAuth();
   const [query, setQuery] = useState(initialQuery);
   const [record, setRecord] = useState(initialRecord);
   const [suggestions, setSuggestions] = useState<UserSupportSuggestion[]>([]);
@@ -117,6 +127,10 @@ export function UserSupportPanel({
   const [userDirectory, setUserDirectory] = useState<AppUser[]>([]);
   const [loadingUserDirectory, setLoadingUserDirectory] = useState(false);
   const [userDirectoryError, setUserDirectoryError] = useState("");
+  const [highActivityAccounts, setHighActivityAccounts] = useState<UserSupportHighActivityAccount[]>(initialHighActivityAccounts);
+  const [dealerRiskAccounts, setDealerRiskAccounts] = useState<UserSupportDealerRiskAccount[]>(initialDealerRiskAccounts);
+  const [loadingSupportSignals, setLoadingSupportSignals] = useState(false);
+  const [supportSignalsError, setSupportSignalsError] = useState(initialLoadError);
   const [roleSearch, setRoleSearch] = useState("");
   const [pendingRoleChange, setPendingRoleChange] = useState<{ user: AppUser; nextRole: AppUser["role"] } | null>(null);
   const normalizedQuery = normalizeQuery(query);
@@ -138,6 +152,18 @@ export function UserSupportPanel({
   useEffect(() => {
     setRecord(initialRecord);
   }, [initialRecord]);
+
+  useEffect(() => {
+    setHighActivityAccounts(initialHighActivityAccounts);
+  }, [initialHighActivityAccounts]);
+
+  useEffect(() => {
+    setDealerRiskAccounts(initialDealerRiskAccounts);
+  }, [initialDealerRiskAccounts]);
+
+  useEffect(() => {
+    setSupportSignalsError(initialLoadError);
+  }, [initialLoadError]);
 
   useEffect(() => {
     setQuery(initialQuery);
@@ -204,6 +230,33 @@ export function UserSupportPanel({
   useEffect(() => {
     let cancelled = false;
 
+    async function loadSupportSignals() {
+      if (authLoading || !canViewUsers) return;
+
+      setLoadingSupportSignals(true);
+      setSupportSignalsError("");
+
+      try {
+        const [nextHighActivityAccounts, nextDealerRiskAccounts] = await Promise.all([
+          getHighActivityUserSupportAccounts(20),
+          getDealerRiskSupportAccounts(20)
+        ]);
+
+        if (cancelled) return;
+        setHighActivityAccounts(nextHighActivityAccounts);
+        setDealerRiskAccounts(nextDealerRiskAccounts);
+      } catch (signalsError) {
+        if (cancelled) return;
+        console.error("[admin-user-support] Failed to load support signals.", signalsError);
+        setHighActivityAccounts([]);
+        setDealerRiskAccounts([]);
+        setSupportSignalsError("User support data could not be loaded right now. Please check server logs.");
+      } finally {
+        if (cancelled) return;
+        setLoadingSupportSignals(false);
+      }
+    }
+
     async function loadUserDirectory() {
       if (!canViewUsers) return;
       setLoadingUserDirectory(true);
@@ -223,12 +276,13 @@ export function UserSupportPanel({
       }
     }
 
+    void loadSupportSignals();
     void loadUserDirectory();
 
     return () => {
       cancelled = true;
     };
-  }, [canViewUsers]);
+  }, [authLoading, canViewUsers]);
 
   async function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -389,13 +443,13 @@ export function UserSupportPanel({
 
   return (
     <section className="space-y-6">
-      {initialLoadError ? (
+      {supportSignalsError ? (
         <div className="rounded-[28px] border border-amber-200 bg-amber-50 px-6 py-5 text-sm text-amber-900 shadow-panel">
           User support data could not be loaded right now. Please check server logs.
         </div>
       ) : null}
 
-      {!initialLoadError && !normalizedQuery && !initialHighActivityAccounts.length && !initialDealerRiskAccounts.length ? (
+      {!supportSignalsError && !authLoading && !loadingSupportSignals && !normalizedQuery && !highActivityAccounts.length && !dealerRiskAccounts.length ? (
         <div className="rounded-[28px] border border-black/5 bg-white px-6 py-5 text-sm text-ink/60 shadow-panel">
           No user support requests found.
         </div>
@@ -587,10 +641,14 @@ export function UserSupportPanel({
         </button>
         {dealerRiskOpen ? (
           <div className="border-t border-black/5 px-6 py-5">
-            {initialDealerRiskAccounts.length ? (
+            {authLoading || loadingSupportSignals ? (
+              <p className="text-sm text-ink/60">Loading user support data...</p>
+            ) : dealerRiskAccounts.length ? (
               <div className="space-y-3">
-                {initialDealerRiskAccounts.map((account) => {
+                {dealerRiskAccounts.map((account) => {
                   const isExpanded = expandedDealerRiskUsers[account.user.id] ?? false;
+                  const riskReasons = account.riskReasons ?? [];
+                  const listings = account.listings ?? [];
 
                   return (
                     <div key={account.user.id} className="rounded-[24px] border border-black/8 bg-shell">
@@ -632,34 +690,44 @@ export function UserSupportPanel({
                           </div>
                           <div className="mb-4 rounded-[18px] bg-white px-4 py-3">
                             <p className="text-xs uppercase tracking-[0.18em] text-bronze">Risk reasons</p>
-                            <div className="mt-3 space-y-2">
-                              {account.riskReasons.map((reason) => (
-                                <p key={reason} className="text-sm text-ink/70">
-                                  {reason}
-                                </p>
-                              ))}
-                            </div>
+                            {riskReasons.length ? (
+                              <div className="mt-3 space-y-2">
+                                {riskReasons.map((reason) => (
+                                  <p key={reason} className="text-sm text-ink/70">
+                                    {reason}
+                                  </p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-3 text-sm text-ink/60">No risk reasons were recorded.</p>
+                            )}
                           </div>
                           <div className="space-y-3">
-                            {account.listings.map((vehicle) => (
-                              <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
-                                <div>
-                                  <p className="font-medium text-ink">
-                                    {vehicle.year} {vehicle.make} {vehicle.model}
-                                  </p>
-                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
-                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                            {listings.length ? (
+                              listings.map((vehicle) => (
+                                <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
+                                  <div>
+                                    <p className="font-medium text-ink">
+                                      {vehicle.year} {vehicle.make} {vehicle.model}
+                                    </p>
+                                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
+                                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
+                                    <span>{formatCurrency(vehicle.price)}</span>
+                                    <span>{vehicle.status}</span>
+                                    <span>{vehicle.sellerStatus}</span>
+                                    <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
+                                      Open listing
+                                    </Link>
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
-                                  <span>{formatCurrency(vehicle.price)}</span>
-                                  <span>{vehicle.status}</span>
-                                  <span>{vehicle.sellerStatus}</span>
-                                  <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
-                                    Open listing
-                                  </Link>
-                                </div>
+                              ))
+                            ) : (
+                              <div className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
+                                <p className="text-sm text-ink/60">No recent listings were available for this account.</p>
                               </div>
-                            ))}
+                            )}
                           </div>
                         </div>
                       ) : null}
@@ -689,10 +757,13 @@ export function UserSupportPanel({
         </button>
         {highActivityOpen ? (
           <div className="border-t border-black/5 px-6 py-5">
-            {initialHighActivityAccounts.length ? (
+            {authLoading || loadingSupportSignals ? (
+              <p className="text-sm text-ink/60">Loading user support data...</p>
+            ) : highActivityAccounts.length ? (
               <div className="space-y-3">
-                {initialHighActivityAccounts.map((account) => {
+                {highActivityAccounts.map((account) => {
                   const isExpanded = expandedHighActivityUsers[account.user.id] ?? false;
+                  const soldListings = account.soldListings ?? [];
 
                   return (
                     <div key={account.user.id} className="rounded-[24px] border border-black/8 bg-shell">
@@ -728,24 +799,30 @@ export function UserSupportPanel({
                             </Link>
                           </div>
                           <div className="space-y-3">
-                            {account.soldListings.map((vehicle) => (
-                              <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
-                                <div>
-                                  <p className="font-medium text-ink">
-                                    {vehicle.year} {vehicle.make} {vehicle.model}
-                                  </p>
-                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
-                                  <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
-                                  <p className="mt-1 text-sm text-ink/60">Sold: {formatAdminDateTime(vehicle.soldAt, "Not available")}</p>
+                            {soldListings.length ? (
+                              soldListings.map((vehicle) => (
+                                <div key={vehicle.id} className="flex flex-wrap items-center justify-between gap-4 rounded-[18px] bg-white px-4 py-3">
+                                  <div>
+                                    <p className="font-medium text-ink">
+                                      {vehicle.year} {vehicle.make} {vehicle.model}
+                                    </p>
+                                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
+                                    <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
+                                    <p className="mt-1 text-sm text-ink/60">Sold: {formatAdminDateTime(vehicle.soldAt, "Not available")}</p>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
+                                    <span>{formatCurrency(vehicle.price)}</span>
+                                    <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
+                                      Open listing
+                                    </Link>
+                                  </div>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
-                                  <span>{formatCurrency(vehicle.price)}</span>
-                                  <Link href={`/admin/vehicles/${vehicle.id}`} className="font-semibold text-ink underline-offset-4 hover:underline">
-                                    Open listing
-                                  </Link>
-                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-[18px] bg-white px-4 py-3 text-sm text-ink/60">
+                                No sold listings were available for this account.
                               </div>
-                            ))}
+                            )}
                           </div>
                         </div>
                       ) : null}
