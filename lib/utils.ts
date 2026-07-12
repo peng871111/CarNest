@@ -83,8 +83,9 @@ export function getVehicleLiveTimingLabel(vehicle: { approvedAt?: string; soldAt
   return vehicle.sellerStatus === "SOLD" ? `Sold after ${dayCount} day${dayCount === 1 ? "" : "s"}` : `Live for ${dayCount} day${dayCount === 1 ? "" : "s"}`;
 }
 
-export function formatAdminDateTime(value?: string) {
-  if (!value) return "Just now";
+export function formatAdminDateTime(value?: string, fallback = "Just now") {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return fallback;
 
   return new Intl.DateTimeFormat("en-AU", {
     day: "2-digit",
@@ -94,17 +95,18 @@ export function formatAdminDateTime(value?: string) {
     minute: "2-digit",
     hour12: true
   })
-    .format(new Date(value))
+    .format(parsed)
     .replace(",", " ·");
 }
 
-export function formatMonthYear(value?: string) {
-  if (!value) return "Recently joined";
+export function formatMonthYear(value?: string, fallback = "Recently joined") {
+  const parsed = parseIsoDate(value);
+  if (!parsed) return fallback;
 
   return new Intl.DateTimeFormat("en-AU", {
     month: "short",
     year: "numeric"
-  }).format(new Date(value));
+  }).format(parsed);
 }
 
 export function formatCalendarDate(

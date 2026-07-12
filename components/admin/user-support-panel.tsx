@@ -60,7 +60,7 @@ function getRoleActionLabel(nextRole: AppUser["role"]) {
 }
 
 function getEffectiveLastLoginLabel(user: AppUser) {
-  return user.lastLoginAt ? formatAdminDateTime(user.lastLoginAt) : "Not recorded";
+  return user.lastLoginAt ? formatAdminDateTime(user.lastLoginAt, "Not recorded") : "Not recorded";
 }
 
 function resolveRevokedRole(user: AppUser): AppUser["role"] {
@@ -90,12 +90,14 @@ export function UserSupportPanel({
   initialQuery,
   initialRecord,
   initialHighActivityAccounts,
-  initialDealerRiskAccounts
+  initialDealerRiskAccounts,
+  initialLoadError = ""
 }: {
   initialQuery: string;
   initialRecord: UserSupportRecord;
   initialHighActivityAccounts: UserSupportHighActivityAccount[];
   initialDealerRiskAccounts: UserSupportDealerRiskAccount[];
+  initialLoadError?: string;
 }) {
   const router = useRouter();
   const { appUser, requestPasswordReset } = useAuth();
@@ -387,6 +389,18 @@ export function UserSupportPanel({
 
   return (
     <section className="space-y-6">
+      {initialLoadError ? (
+        <div className="rounded-[28px] border border-amber-200 bg-amber-50 px-6 py-5 text-sm text-amber-900 shadow-panel">
+          User support data could not be loaded right now. Please check server logs.
+        </div>
+      ) : null}
+
+      {!initialLoadError && !normalizedQuery && !initialHighActivityAccounts.length && !initialDealerRiskAccounts.length ? (
+        <div className="rounded-[28px] border border-black/5 bg-white px-6 py-5 text-sm text-ink/60 shadow-panel">
+          No user support requests found.
+        </div>
+      ) : null}
+
       <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <p className="text-xs uppercase tracking-[0.26em] text-bronze">Phase 1 support</p>
         <h2 className="mt-3 text-2xl font-semibold text-ink">Find a user or listing</h2>
@@ -504,7 +518,7 @@ export function UserSupportPanel({
                           <p>Email: {user.email || "No email"}</p>
                           <p>Phone: {user.phone || "Not provided"}</p>
                           <p>UID: {user.id}</p>
-                          <p>Created: {formatAdminDateTime(user.createdAt)}</p>
+                          <p>Created: {formatAdminDateTime(user.createdAt, "Not available")}</p>
                           <p>Last login: {getEffectiveLastLoginLabel(user)}</p>
                           <p>Reference: {getAccountDisplayReference(user)}</p>
                         </div>
@@ -697,7 +711,7 @@ export function UserSupportPanel({
                           <p className="text-sm text-ink/65">{account.user.email}</p>
                           <p className="text-sm text-ink/60">
                             Total listings: {account.totalListings} · Sold listings (12 months): {account.soldListingsLast12Months} · Member since:{" "}
-                            {account.user.createdAt ? formatAdminDateTime(account.user.createdAt) : "Not available"}
+                            {formatAdminDateTime(account.user.createdAt, "Not available")}
                           </p>
                         </div>
                         <span className={`text-lg text-ink/45 transition-transform ${isExpanded ? "rotate-180" : ""}`}>⌄</span>
@@ -722,7 +736,7 @@ export function UserSupportPanel({
                                   </p>
                                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Listing ID: {getVehicleDisplayReference(vehicle)}</p>
                                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">Vehicle ID: {vehicle.id}</p>
-                                  <p className="mt-1 text-sm text-ink/60">Sold: {vehicle.soldAt ? formatAdminDateTime(vehicle.soldAt) : "Not available"}</p>
+                                  <p className="mt-1 text-sm text-ink/60">Sold: {formatAdminDateTime(vehicle.soldAt, "Not available")}</p>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-3 text-sm text-ink/65">
                                   <span>{formatCurrency(vehicle.price)}</span>
@@ -854,7 +868,7 @@ export function UserSupportPanel({
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Created</p>
-                    <p className="mt-2 text-sm text-ink">{formatAdminDateTime(matchedUser.createdAt)}</p>
+                    <p className="mt-2 text-sm text-ink">{formatAdminDateTime(matchedUser.createdAt, "Not available")}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-ink/45">Restricted</p>
