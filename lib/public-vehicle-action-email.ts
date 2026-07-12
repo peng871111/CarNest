@@ -6,12 +6,7 @@ import { Vehicle } from "@/types";
 import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/public-vehicle-action-validation";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const EMAIL_FROM =
-  process.env.VEHICLE_ACTION_EMAIL_FROM
-  || process.env.EMAIL_FROM
-  || process.env.RESEND_FROM_EMAIL
-  || process.env.CALENDAR_EMAIL_FROM
-  || "CarNest <notifications@carnest.au>";
+const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
 const ADMIN_NOTIFICATION_RECIPIENT = "info@carnest.au";
 
 function escapeHtml(value: string) {
@@ -24,8 +19,11 @@ function escapeHtml(value: string) {
 }
 
 function requireResendConfiguration() {
-  if (!RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is missing.");
+  if (!RESEND_API_KEY || !EMAIL_FROM) {
+    throw new Error([
+      !RESEND_API_KEY ? "RESEND_API_KEY" : null,
+      !EMAIL_FROM ? "EMAIL_FROM" : null
+    ].filter(Boolean).join(", ") || "Resend configuration is missing.");
   }
 }
 
@@ -100,6 +98,12 @@ export async function sendVehicleActionVerificationCodeEmail(email: string, code
     "If you did not request this code, you can ignore this email."
   ].join("\n");
 
+  console.log("[public-vehicle-action-email] Executing resend.emails.send()", {
+    recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
+    subject: "Your CarNest verification code",
+    from: EMAIL_FROM
+  });
+
   const { data, error } = await resend.emails.send({
     from: EMAIL_FROM,
     to: email,
@@ -109,8 +113,22 @@ export async function sendVehicleActionVerificationCodeEmail(email: string, code
   });
 
   if (error) {
+    console.error("[public-vehicle-action-email] Resend rejected verification email.", {
+      recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
+      subject: "Your CarNest verification code",
+      from: EMAIL_FROM,
+      errorName: error.name,
+      errorMessage: error.message
+    });
     throw new Error(error.message || "Verification email send failed.");
   }
+
+  console.log("[public-vehicle-action-email] Resend accepted verification email.", {
+    recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
+    subject: "Your CarNest verification code",
+    from: EMAIL_FROM,
+    providerMessageId: data?.id ?? null
+  });
 
   return {
     providerMessageId: data?.id ?? null

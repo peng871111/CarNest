@@ -170,13 +170,7 @@ function getVerificationRuntimeConfigState() {
 
   return {
     hasResendApiKey: Boolean(process.env.RESEND_API_KEY?.trim()),
-    hasEmailFrom: Boolean((
-      process.env.VEHICLE_ACTION_EMAIL_FROM
-      || process.env.EMAIL_FROM
-      || process.env.RESEND_FROM_EMAIL
-      || process.env.CALENDAR_EMAIL_FROM
-      || "CarNest <notifications@carnest.au>"
-    ).trim()),
+    hasEmailFrom: Boolean((process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>").trim()),
     hasOtpSigningSecret: Boolean(getPublicActionSecret()),
     hasFirebaseAdminCredential: hasServiceAccountJson || hasSplitServiceAccount,
     hasApplicationDefaultProject,

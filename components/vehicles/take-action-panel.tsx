@@ -436,6 +436,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
 
   const codeCooldownActive = verification.cooldownUntil > nowMs;
   const codeCooldownSeconds = Math.max(0, Math.ceil((verification.cooldownUntil - nowMs) / 1000));
+  const submitDisabled = saving || isUnderOffer || !emailVerifiedForSubmission;
 
   return (
     <div id="take-action-panel" className="scroll-mt-24 rounded-[28px] border border-black/5 bg-white p-5 shadow-panel sm:p-6">
@@ -691,7 +692,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
       </div>
 
       <div className={`${mobileFormExpanded ? "mt-4 sm:mt-5" : "hidden md:block md:mt-5"}`}>
-        <Button type="button" disabled={saving || isUnderOffer} onClick={() => void submitAction()} className="w-full sm:w-auto">
+        <Button type="button" disabled={submitDisabled} onClick={() => void submitAction()} className="w-full sm:w-auto">
           {saving ? (activeTab === "offer" ? "Submitting offer..." : "Requesting inspection...") : activeTab === "offer" ? "Submit offer" : "Book inspection"}
         </Button>
       </div>
