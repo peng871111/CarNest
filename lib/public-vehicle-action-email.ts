@@ -7,9 +7,11 @@ import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/public-vehicle-action-validation
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
 const EMAIL_FROM =
-  process.env.EMAIL_FROM
+  process.env.VEHICLE_ACTION_EMAIL_FROM
+  || process.env.EMAIL_FROM
   || process.env.RESEND_FROM_EMAIL
-  || "CarNest <offers@mail.carnest.au>";
+  || process.env.CALENDAR_EMAIL_FROM
+  || "CarNest <notifications@carnest.au>";
 const ADMIN_NOTIFICATION_RECIPIENT = "info@carnest.au";
 
 function escapeHtml(value: string) {

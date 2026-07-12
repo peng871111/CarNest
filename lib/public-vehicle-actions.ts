@@ -69,7 +69,7 @@ type VerificationSessionRecord = {
   verificationTokenHash?: string;
   attemptCount: number;
   ipHash: string;
-  deliveryStatus: "sent" | "failed";
+  deliveryStatus: "pending" | "sent" | "failed";
   resendAvailableAt?: Date;
   expiresAt?: Date;
   createdAt?: Date;
@@ -86,6 +86,7 @@ type AuthenticatedContext = {
 } | null;
 
 type PublicRouteErrorCode =
+  | "SERVER_CONFIGURATION"
   | "AUTH_REQUIRED"
   | "INVALID_REQUEST"
   | "LISTING_UNAVAILABLE"
@@ -122,6 +123,12 @@ class PublicRouteError extends Error {
   }
 }
 
+type PublicActionLogContext = {
+  requestId?: string;
+  actionType?: PublicVehicleActionType;
+  vehicleId?: string;
+};
+
 type VerificationResolution =
   | {
       verified: true;
@@ -143,6 +150,56 @@ export function getClientIp(request: NextRequest) {
   );
 }
 
+function getEmailDomain(value: string) {
+  const domain = value.split("@")[1]?.trim().toLowerCase() ?? "";
+  return domain || "unknown";
+}
+
+function getVerificationRuntimeConfigState() {
+  const hasServiceAccountJson = Boolean(process.env.FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON?.trim());
+  const hasSplitServiceAccount = Boolean(
+    process.env.FIREBASE_ADMIN_PROJECT_ID?.trim()
+    && process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim()
+    && process.env.FIREBASE_ADMIN_PRIVATE_KEY?.trim()
+  );
+  const hasApplicationDefaultProject = Boolean(
+    process.env.GOOGLE_CLOUD_PROJECT?.trim()
+    || process.env.GCLOUD_PROJECT?.trim()
+    || process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim()
+  );
+
+  return {
+    hasResendApiKey: Boolean(process.env.RESEND_API_KEY?.trim()),
+    hasEmailFrom: Boolean((
+      process.env.VEHICLE_ACTION_EMAIL_FROM
+      || process.env.EMAIL_FROM
+      || process.env.RESEND_FROM_EMAIL
+      || process.env.CALENDAR_EMAIL_FROM
+      || "CarNest <notifications@carnest.au>"
+    ).trim()),
+    hasOtpSigningSecret: Boolean(getPublicActionSecret()),
+    hasFirebaseAdminCredential: hasServiceAccountJson || hasSplitServiceAccount,
+    hasApplicationDefaultProject,
+    turnstileSiteKeyConfigured: Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim()),
+    turnstileSecretConfigured: Boolean((process.env.TURNSTILE_SECRET_KEY || process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY || "").trim())
+  };
+}
+
+function logVerificationStage(
+  context: PublicActionLogContext,
+  stage: string,
+  details: Record<string, unknown> = {},
+  level: "info" | "warn" | "error" = "info"
+) {
+  console[level]("[public-vehicle-actions] verification", {
+    requestId: context.requestId,
+    actionType: context.actionType,
+    vehicleId: context.vehicleId,
+    stage,
+    ...details
+  });
+}
+
 function getVehicleTitle(vehicle: Vehicle) {
   return [vehicle.year, vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
 }
@@ -162,7 +219,11 @@ function getPublicActionSecret() {
 function hashValue(scope: string, value: string) {
   const secret = getPublicActionSecret();
   if (!secret) {
-    throw new Error("A server-side signing secret is not configured.");
+    throw new PublicRouteError(
+      "SERVER_CONFIGURATION",
+      "We could not send the verification email right now. Please try again shortly.",
+      503
+    );
   }
 
   return createHmac("sha256", secret).update(`${scope}:${value}`).digest("hex");
@@ -206,7 +267,10 @@ function normalizeVerificationSession(
     verificationTokenHash: typeof data.verificationTokenHash === "string" ? data.verificationTokenHash : undefined,
     attemptCount: typeof data.attemptCount === "number" ? data.attemptCount : 0,
     ipHash: typeof data.ipHash === "string" ? data.ipHash : "",
-    deliveryStatus: data.deliveryStatus === "failed" ? "failed" : "sent",
+    deliveryStatus:
+      data.deliveryStatus === "sent" || data.deliveryStatus === "failed" || data.deliveryStatus === "pending"
+        ? data.deliveryStatus
+        : "pending",
     resendAvailableAt: data.resendAvailableAt instanceof Timestamp ? data.resendAvailableAt.toDate() : undefined,
     expiresAt: data.expiresAt instanceof Timestamp ? data.expiresAt.toDate() : undefined,
     createdAt: data.createdAt instanceof Timestamp ? data.createdAt.toDate() : undefined,
@@ -219,7 +283,13 @@ function normalizeVerificationSession(
 
 async function verifyTurnstileTokenServer(token: string, ip: string) {
   const secret = process.env.TURNSTILE_SECRET_KEY ?? process.env.CLOUDFLARE_TURNSTILE_SECRET_KEY ?? "";
-  if (!secret) return true;
+  const siteKeyConfigured = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY?.trim());
+  if (!secret) {
+    if (siteKeyConfigured) {
+      throw new PublicRouteError("SERVER_CONFIGURATION", "Security verification failed. Please refresh and try again.", 503);
+    }
+    return true;
+  }
   if (!token.trim()) return false;
 
   const formData = new URLSearchParams();
@@ -239,7 +309,7 @@ async function verifyTurnstileTokenServer(token: string, ip: string) {
   });
 
   if (!response.ok) {
-    throw new PublicRouteError("TURNSTILE_FAILED", "Please complete the security check before submitting.", 502);
+    throw new PublicRouteError("TURNSTILE_FAILED", "Security verification failed. Please refresh and try again.", 502);
   }
 
   const payload = await response.json() as { success?: boolean };
@@ -485,12 +555,22 @@ export async function sendPublicActionVerificationCode(input: {
   email: string;
   turnstileToken: string;
   request: NextRequest;
+  requestId?: string;
 }) {
+  const logContext: PublicActionLogContext = {
+    requestId: input.requestId,
+    actionType: input.actionType,
+    vehicleId: input.vehicleId
+  };
+
   if (!isPublicVehicleActionType(input.actionType)) {
     throw new PublicRouteError("INVALID_REQUEST", "Unable to send a verification code.");
   }
 
-  const vehicle = await loadPublicVehicleOrThrow(input.vehicleId, input.actionType);
+  logVerificationStage(logContext, "request_received", {
+    runtimeConfig: getVerificationRuntimeConfigState()
+  });
+
   const email = normalizeEmailAddress(input.email.slice(0, PUBLIC_ACTION_EMAIL_MAX_LENGTH));
   if (!isValidEmailAddress(email)) {
     throw new PublicRouteError("INVALID_REQUEST", "Please enter a valid email address.");
@@ -500,50 +580,75 @@ export async function sendPublicActionVerificationCode(input: {
   const ipHash = buildIpHash(ip);
   const turnstileOk = await verifyTurnstileTokenServer(input.turnstileToken, ip);
   if (!turnstileOk) {
-    throw new PublicRouteError("TURNSTILE_FAILED", "Please complete the security check before submitting.");
+    logVerificationStage(logContext, "captcha_failed", { emailDomain: getEmailDomain(email) }, "warn");
+    throw new PublicRouteError("TURNSTILE_FAILED", "Security verification failed. Please refresh and try again.");
   }
+  logVerificationStage(logContext, "captcha_passed", { emailDomain: getEmailDomain(email) });
 
   const recentSessions = await getRecentOtpSessions(HOUR_MS);
-  const recentForEmail = recentSessions.filter((session) => session.email === email);
-  const recentForIp = ipHash ? recentSessions.filter((session) => session.ipHash === ipHash) : [];
+  const recentlyDeliveredSessions = recentSessions.filter((session) => session.deliveryStatus === "sent");
+  const recentForEmail = recentlyDeliveredSessions.filter((session) => session.email === email);
+  const recentForIp = ipHash ? recentlyDeliveredSessions.filter((session) => session.ipHash === ipHash) : [];
   if (recentForEmail.length >= EMAIL_OTP_MAX_REQUESTS_PER_EMAIL_PER_HOUR) {
-    throw new PublicRouteError("OTP_REQUEST_LIMIT_EMAIL", "Too many verification code requests. Please try again later.", 429);
+    throw new PublicRouteError("OTP_REQUEST_LIMIT_EMAIL", "Too many verification-code requests. Please try again later.", 429);
   }
   if (recentForIp.length >= EMAIL_OTP_MAX_REQUESTS_PER_IP_PER_HOUR) {
-    throw new PublicRouteError("OTP_REQUEST_LIMIT_IP", "Too many verification code requests. Please try again later.", 429);
+    throw new PublicRouteError("OTP_REQUEST_LIMIT_IP", "Too many verification-code requests. Please try again later.", 429);
   }
 
-  const recentForSameListingAction = recentSessions
-    .filter((session) => session.email === email && session.vehicleId === vehicle.id && session.actionType === input.actionType && session.deliveryStatus === "sent")
+  const recentForSameListingAction = recentlyDeliveredSessions
+    .filter((session) => session.email === email && session.vehicleId === input.vehicleId && session.actionType === input.actionType && session.deliveryStatus === "sent")
     .sort((left, right) => (right.createdAt?.getTime() ?? 0) - (left.createdAt?.getTime() ?? 0))[0];
 
   if (recentForSameListingAction?.createdAt && Date.now() - recentForSameListingAction.createdAt.getTime() < OTP_RESEND_COOLDOWN_MS) {
-    throw new PublicRouteError("OTP_COOLDOWN", "Please wait before requesting another code.", 429);
+    throw new PublicRouteError("OTP_COOLDOWN", "Please wait before requesting another verification code.", 429);
   }
+
+  const vehicle = await loadPublicVehicleOrThrow(input.vehicleId, input.actionType);
+  logVerificationStage(logContext, "listing_available", { emailDomain: getEmailDomain(email) });
 
   const sessionRef = getAdminDb().collection(OTP_SESSION_COLLECTION).doc();
   const code = createOtpCode();
   const now = getNow();
   const expiresAt = new Date(now.getTime() + OTP_EXPIRY_MS);
+  const codeHash = buildOtpHash(sessionRef.id, code);
 
   try {
-    const emailResult = await sendVehicleActionVerificationCodeEmail(email, code);
     await sessionRef.set({
       actionType: input.actionType,
       vehicleId: vehicle.id,
       vehicleTitle: getVehicleTitle(vehicle),
       vehicleReference: getVehicleDisplayReference(vehicle),
       email,
-      codeHash: buildOtpHash(sessionRef.id, code),
+      codeHash,
       verificationTokenHash: "",
       attemptCount: 0,
       ipHash,
-      deliveryStatus: "sent",
-      resendAvailableAt: Timestamp.fromDate(new Date(now.getTime() + OTP_RESEND_COOLDOWN_MS)),
-      expiresAt: Timestamp.fromDate(expiresAt),
-      providerMessageId: emailResult.providerMessageId,
+      deliveryStatus: "pending",
       createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now)
+    });
+  } catch (error) {
+    logVerificationStage(logContext, "otp_pending_session_write_failed", {
+      emailDomain: getEmailDomain(email),
+      error: error instanceof Error ? error.message : String(error),
+      runtimeConfig: getVerificationRuntimeConfigState()
+    }, "error");
+    throw new PublicRouteError("OTP_SEND_FAILED", "We could not send the verification email right now. Please try again shortly.", 503);
+  }
+
+  logVerificationStage(logContext, "otp_generated_and_pending_session_saved", {
+    emailDomain: getEmailDomain(email),
+    sessionId: sessionRef.id
+  });
+
+  let emailResult: { providerMessageId: string | null };
+  try {
+    logVerificationStage(logContext, "resend_send_attempt", { emailDomain: getEmailDomain(email) });
+    emailResult = await sendVehicleActionVerificationCodeEmail(email, code);
+    logVerificationStage(logContext, "resend_send_success", {
+      emailDomain: getEmailDomain(email),
+      providerMessageId: emailResult.providerMessageId
     });
   } catch (error) {
     await sessionRef.set({
@@ -558,19 +663,42 @@ export async function sendPublicActionVerificationCode(input: {
       ipHash,
       deliveryStatus: "failed",
       deliveryErrorMessage: error instanceof Error ? error.message : String(error),
-      createdAt: Timestamp.fromDate(now),
       updatedAt: Timestamp.fromDate(now)
+    }, { merge: true }).catch((writeError) => {
+      logVerificationStage(logContext, "failed_session_marker_write_failed", {
+        emailDomain: getEmailDomain(email),
+        error: writeError instanceof Error ? writeError.message : String(writeError)
+      }, "error");
     });
 
-    console.error("[public-vehicle-actions] Verification email send failed.", {
-      operation: "send_verification_code",
-      vehicleId: vehicle.id,
-      actionType: input.actionType,
-      email,
+    logVerificationStage(logContext, "resend_send_failed", {
+      emailDomain: getEmailDomain(email),
       error: error instanceof Error ? error.message : String(error)
-    });
-    throw new PublicRouteError("OTP_SEND_FAILED", "Verification email could not be sent. Please try again.");
+    }, "error");
+    throw new PublicRouteError("OTP_SEND_FAILED", "We could not send the verification email right now. Please try again shortly.", 502);
   }
+
+  try {
+    await sessionRef.set({
+      deliveryStatus: "sent",
+      resendAvailableAt: Timestamp.fromDate(new Date(now.getTime() + OTP_RESEND_COOLDOWN_MS)),
+      expiresAt: Timestamp.fromDate(expiresAt),
+      providerMessageId: emailResult.providerMessageId,
+      updatedAt: Timestamp.fromDate(getNow())
+    }, { merge: true });
+  } catch (error) {
+    logVerificationStage(logContext, "otp_sent_session_update_failed", {
+      emailDomain: getEmailDomain(email),
+      providerMessageId: emailResult.providerMessageId,
+      error: error instanceof Error ? error.message : String(error)
+    }, "error");
+    throw new PublicRouteError("OTP_SEND_FAILED", "We could not send the verification email right now. Please try again shortly.", 503);
+  }
+
+  logVerificationStage(logContext, "otp_session_marked_sent", {
+    emailDomain: getEmailDomain(email),
+    providerMessageId: emailResult.providerMessageId
+  });
 
   return {
     sessionId: sessionRef.id,
@@ -769,7 +897,7 @@ export async function submitPublicOffer(input: {
   const ip = getClientIp(input.request);
   const turnstileOk = await verifyTurnstileTokenServer(input.turnstileToken, ip);
   if (!turnstileOk) {
-    throw new PublicRouteError("TURNSTILE_FAILED", "Please complete the security check before submitting.");
+    throw new PublicRouteError("TURNSTILE_FAILED", "Security verification failed. Please refresh and try again.");
   }
 
   const verification = await resolveVerificationForSubmission({
@@ -1028,7 +1156,7 @@ export async function submitPublicInspectionRequest(input: {
   const ip = getClientIp(input.request);
   const turnstileOk = await verifyTurnstileTokenServer(input.turnstileToken, ip);
   if (!turnstileOk) {
-    throw new PublicRouteError("TURNSTILE_FAILED", "Please complete the security check before submitting.");
+    throw new PublicRouteError("TURNSTILE_FAILED", "Security verification failed. Please refresh and try again.");
   }
 
   const verification = await resolveVerificationForSubmission({
@@ -1176,25 +1304,46 @@ export async function submitPublicInspectionRequest(input: {
   };
 }
 
-export function createPublicRouteErrorResponse(error: unknown) {
+export function createPublicRouteErrorResponse(
+  error: unknown,
+  requestId?: string,
+  fallbackMessage = "Something went wrong. Please try again."
+) {
   if (error instanceof PublicRouteError) {
+    console.warn("[public-vehicle-actions] controlled public route error", {
+      requestId,
+      code: error.code,
+      status: error.status
+    });
+
     return {
       status: error.status,
       body: {
         success: false,
         code: error.code,
-        message: error.message
+        message: error.message,
+        requestId
       }
     };
   }
 
-  console.error("[public-vehicle-actions] Unhandled public route error.", error);
+  console.error("[public-vehicle-actions] Unhandled public route error.", {
+    requestId,
+    error: error instanceof Error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
+        }
+      : String(error)
+  });
   return {
     status: 500,
     body: {
       success: false,
       code: "SAVE_FAILED" satisfies PublicRouteErrorCode,
-      message: "Something went wrong. Please try again."
+      message: fallbackMessage,
+      requestId
     }
   };
 }

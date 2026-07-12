@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import {
   createPublicRouteErrorResponse,
   submitPublicInspectionRequest,
@@ -10,10 +11,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") || request.headers.get("x-vercel-id") || randomUUID();
+
   try {
     const body = await request.json() as Record<string, unknown>;
     const actionType = body.actionType;
-    const vehicleId = typeof body.vehicleId === "string" ? body.vehicleId.trim() : "";
+    const vehicleId =
+      typeof body.vehicleId === "string"
+        ? body.vehicleId.trim()
+        : typeof body.listingId === "string"
+          ? body.listingId.trim()
+          : "";
     const buyerName = typeof body.buyerName === "string" ? body.buyerName : "";
     const buyerEmail = typeof body.buyerEmail === "string" ? body.buyerEmail : "";
     const buyerPhone = typeof body.buyerPhone === "string" ? body.buyerPhone : "";
@@ -30,7 +38,8 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           code: "INVALID_REQUEST",
-          message: "Unable to submit this request."
+          message: "Unable to submit this request.",
+          requestId
         },
         { status: 400 }
       );
@@ -45,7 +54,12 @@ export async function POST(request: NextRequest) {
         buyerPhone,
         offerAmount,
         message: typeof body.message === "string" ? body.message : "",
-        turnstileToken: typeof body.turnstileToken === "string" ? body.turnstileToken : "",
+        turnstileToken:
+          typeof body.turnstileToken === "string"
+            ? body.turnstileToken
+            : typeof body.captchaToken === "string"
+              ? body.captchaToken
+              : "",
         idempotencyKey,
         request,
         authToken,
@@ -55,6 +69,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
+        requestId,
         ...result
       });
     }
@@ -67,7 +82,12 @@ export async function POST(request: NextRequest) {
       preferredDate: typeof body.preferredDate === "string" ? body.preferredDate : "",
       preferredTime: typeof body.preferredTime === "string" ? body.preferredTime : "",
       message: typeof body.message === "string" ? body.message : "",
-      turnstileToken: typeof body.turnstileToken === "string" ? body.turnstileToken : "",
+      turnstileToken:
+        typeof body.turnstileToken === "string"
+          ? body.turnstileToken
+          : typeof body.captchaToken === "string"
+            ? body.captchaToken
+            : "",
       idempotencyKey,
       request,
       authToken,
@@ -77,10 +97,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      requestId,
       ...result
     });
   } catch (error) {
-    const response = createPublicRouteErrorResponse(error);
+    const response = createPublicRouteErrorResponse(error, requestId);
     return NextResponse.json(response.body, { status: response.status });
   }
 }
