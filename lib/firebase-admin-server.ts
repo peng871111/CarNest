@@ -14,14 +14,21 @@ function getServiceAccountCredentialOptions() {
     try {
       const parsed = JSON.parse(rawServiceAccountJson) as {
         projectId?: string;
+        project_id?: string;
         clientEmail?: string;
+        client_email?: string;
         privateKey?: string;
+        private_key?: string;
       };
-      if (parsed.projectId && parsed.clientEmail && parsed.privateKey) {
+      const projectId = parsed.projectId || parsed.project_id;
+      const clientEmail = parsed.clientEmail || parsed.client_email;
+      const privateKey = parsed.privateKey || parsed.private_key;
+
+      if (projectId && clientEmail && privateKey) {
         return {
-          projectId: parsed.projectId,
-          clientEmail: parsed.clientEmail,
-          privateKey: normalizePrivateKey(parsed.privateKey)
+          projectId,
+          clientEmail,
+          privateKey: normalizePrivateKey(privateKey)
         };
       }
     } catch (error) {
