@@ -169,7 +169,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
       if (!form.offerAmount.trim()) nextErrors.offerAmount = "Please enter your offer amount.";
       else if (!Number(form.offerAmount) || Number(form.offerAmount) <= 0) nextErrors.offerAmount = "Offer amount must be greater than zero.";
       else if (Number(form.offerAmount) < minimumOffer) {
-        nextErrors.offerAmount = `The minimum offer for this vehicle is ${formatCurrency(minimumOffer)}.`;
+        nextErrors.offerAmount = "This offer is too low. Please enter a higher amount.";
       }
     }
 
@@ -560,14 +560,12 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
                 <span className="text-sm font-medium text-ink">Offer amount</span>
                 <Input
                   type="number"
-                  min={minimumOffer}
                   inputMode="decimal"
                   value={form.offerAmount}
                   onChange={(event) => setField("offerAmount", event.target.value)}
                   required
                   aria-invalid={Boolean(fieldErrors.offerAmount)}
                 />
-                <p className="text-xs text-ink/50">Minimum offer: {formatCurrency(minimumOffer)}</p>
                 {fieldErrors.offerAmount ? <p className="text-sm text-red-700">{fieldErrors.offerAmount}</p> : null}
               </label>
               <label className="block space-y-2">

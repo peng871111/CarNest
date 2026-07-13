@@ -894,7 +894,7 @@ export async function submitPublicOffer(input: {
 
   const minimumOffer = calculateMinimumOfferAmount(vehicle.price);
   if (input.offerAmount < minimumOffer) {
-    throw new PublicRouteError("OFFER_BELOW_MINIMUM", `The minimum offer for this vehicle is ${formatCurrency(minimumOffer)}.`);
+    throw new PublicRouteError("OFFER_BELOW_MINIMUM", "This offer is too low. Please enter a higher amount.");
   }
 
   const ip = getClientIp(input.request);
