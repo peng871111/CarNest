@@ -9,7 +9,8 @@ import {
   sendAdminInspectionNotificationEmail,
   sendAdminOfferNotificationEmail,
   sendSellerOfferNotificationEmail,
-  sendVehicleActionVerificationCodeEmail
+  sendVehicleActionVerificationCodeEmail,
+  VehicleActionEmailProviderError
 } from "@/lib/public-vehicle-action-email";
 import {
   calculateMinimumOfferAmount,
@@ -170,7 +171,13 @@ function getVerificationRuntimeConfigState() {
 
   return {
     hasResendApiKey: Boolean(process.env.RESEND_API_KEY?.trim()),
-    hasEmailFrom: Boolean((process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>").trim()),
+    hasVerificationEmailFrom: Boolean(
+      (
+        process.env.VEHICLE_ACTION_VERIFICATION_EMAIL_FROM
+        ?? process.env.VEHICLE_ACTION_EMAIL_FROM
+        ?? "CarNest <verification@mail.carnest.au>"
+      ).trim()
+    ),
     hasOtpSigningSecret: Boolean(getPublicActionSecret()),
     hasFirebaseAdminCredential: hasServiceAccountJson || hasSplitServiceAccount,
     hasApplicationDefaultProject,
@@ -667,7 +674,9 @@ export async function sendPublicActionVerificationCode(input: {
 
     logVerificationStage(logContext, "resend_send_failed", {
       emailDomain: getEmailDomain(email),
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
+      providerStatusCode: error instanceof VehicleActionEmailProviderError ? error.providerStatusCode : null,
+      providerErrorName: error instanceof VehicleActionEmailProviderError ? error.providerErrorName : null
     }, "error");
     throw new PublicRouteError("OTP_SEND_FAILED", "We could not send the verification email right now. Please try again shortly.", 502);
   }

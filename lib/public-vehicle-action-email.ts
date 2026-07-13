@@ -6,8 +6,22 @@ import { Vehicle } from "@/types";
 import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/public-vehicle-action-validation";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
+const DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM = "CarNest <verification@mail.carnest.au>";
+const DEFAULT_VERIFIED_CARNEST_ADMIN_FROM = "CarNest <offers@mail.carnest.au>";
+const ADMIN_EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? DEFAULT_VERIFIED_CARNEST_ADMIN_FROM;
 const ADMIN_NOTIFICATION_RECIPIENT = "info@carnest.au";
+
+export class VehicleActionEmailProviderError extends Error {
+  providerStatusCode: number | null;
+  providerErrorName: string | null;
+
+  constructor(message: string, providerStatusCode: number | null, providerErrorName: string | null) {
+    super(message);
+    this.name = "VehicleActionEmailProviderError";
+    this.providerStatusCode = providerStatusCode;
+    this.providerErrorName = providerErrorName;
+  }
+}
 
 function escapeHtml(value: string) {
   return value
@@ -18,17 +32,40 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#39;");
 }
 
-function requireResendConfiguration() {
-  if (!RESEND_API_KEY || !EMAIL_FROM) {
+function isResendTestingSender(value: string) {
+  return /@resend\.dev/i.test(value) || /onboarding@resend\.dev/i.test(value);
+}
+
+function getVerificationEmailFrom() {
+  const configuredSender =
+    process.env.VEHICLE_ACTION_VERIFICATION_EMAIL_FROM?.trim()
+    || process.env.VEHICLE_ACTION_EMAIL_FROM?.trim()
+    || "";
+
+  if (configuredSender && !isResendTestingSender(configuredSender)) {
+    return configuredSender;
+  }
+
+  if (configuredSender) {
+    console.warn("[public-vehicle-action-email] Ignoring Resend testing sender for OTP email.", {
+      configuredSenderDomain: configuredSender.split("@")[1]?.replace(/[>"]/g, "").toLowerCase() ?? "unknown"
+    });
+  }
+
+  return DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM;
+}
+
+function requireResendConfiguration(from: string) {
+  if (!RESEND_API_KEY || !from) {
     throw new Error([
       !RESEND_API_KEY ? "RESEND_API_KEY" : null,
-      !EMAIL_FROM ? "EMAIL_FROM" : null
+      !from ? "EMAIL_FROM" : null
     ].filter(Boolean).join(", ") || "Resend configuration is missing.");
   }
 }
 
-function createResendClient() {
-  requireResendConfiguration();
+function createResendClient(from: string) {
+  requireResendConfiguration(from);
   return new Resend(RESEND_API_KEY);
 }
 
@@ -75,7 +112,8 @@ function formatMelbourneDate(value: Date | string) {
 }
 
 export async function sendVehicleActionVerificationCodeEmail(email: string, code: string) {
-  const resend = createResendClient();
+  const from = getVerificationEmailFrom();
+  const resend = createResendClient(from);
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b1b18;">
       <p style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#9d6b2f;margin:0 0 12px;">CarNest</p>
@@ -101,11 +139,11 @@ export async function sendVehicleActionVerificationCodeEmail(email: string, code
   console.log("[public-vehicle-action-email] Executing resend.emails.send()", {
     recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
     subject: "Your CarNest verification code",
-    from: EMAIL_FROM
+    from
   });
 
   const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM,
+    from,
     to: email,
     subject: "Your CarNest verification code",
     html,
@@ -116,17 +154,22 @@ export async function sendVehicleActionVerificationCodeEmail(email: string, code
     console.error("[public-vehicle-action-email] Resend rejected verification email.", {
       recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
       subject: "Your CarNest verification code",
-      from: EMAIL_FROM,
+      from,
       errorName: error.name,
-      errorMessage: error.message
+      errorMessage: error.message,
+      statusCode: error.statusCode ?? null
     });
-    throw new Error(error.message || "Verification email send failed.");
+    throw new VehicleActionEmailProviderError(
+      error.message || "Verification email send failed.",
+      error.statusCode ?? null,
+      error.name ?? null
+    );
   }
 
   console.log("[public-vehicle-action-email] Resend accepted verification email.", {
     recipientEmailDomain: email.split("@")[1]?.toLowerCase() ?? "unknown",
     subject: "Your CarNest verification code",
-    from: EMAIL_FROM,
+    from,
     providerMessageId: data?.id ?? null
   });
 
@@ -151,7 +194,7 @@ export async function sendAdminOfferNotificationEmail(input: {
   verificationMethodLabel: string;
   submittedAt: Date;
 }) {
-  const resend = createResendClient();
+  const resend = createResendClient(ADMIN_EMAIL_FROM);
   const vehicleTitle = [input.vehicle.year, input.vehicle.make, input.vehicle.model, input.vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
   const vehicleReference = getVehicleDisplayReference(input.vehicle);
   const adminOfferUrl = getStableAdminUrl("/admin/offers");
@@ -196,7 +239,7 @@ export async function sendAdminOfferNotificationEmail(input: {
   ].join("\n");
 
   const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM,
+    from: ADMIN_EMAIL_FROM,
     to: ADMIN_NOTIFICATION_RECIPIENT,
     subject: `New Verified Offer — ${vehicleTitle} — ${formatCurrency(input.offerAmount)}`,
     html,
@@ -223,7 +266,7 @@ export async function sendAdminInspectionNotificationEmail(input: {
   verificationMethodLabel: string;
   submittedAt: Date;
 }) {
-  const resend = createResendClient();
+  const resend = createResendClient(ADMIN_EMAIL_FROM);
   const vehicleTitle = [input.vehicle.year, input.vehicle.make, input.vehicle.model, input.vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
   const vehicleReference = getVehicleDisplayReference(input.vehicle);
   const html = `
@@ -260,7 +303,7 @@ export async function sendAdminInspectionNotificationEmail(input: {
   ].join("\n");
 
   const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM,
+    from: ADMIN_EMAIL_FROM,
     to: ADMIN_NOTIFICATION_RECIPIENT,
     subject: `New Inspection Request — ${vehicleTitle} — ${formatMelbourneDate(input.preferredDate)}`,
     html,
@@ -288,7 +331,7 @@ export async function sendSellerOfferNotificationEmail(input: {
   amount: number;
   offerId: string;
 }) {
-  const resend = createResendClient();
+  const resend = createResendClient(ADMIN_EMAIL_FROM);
   const reviewUrl = getStableAdminUrl(`/seller/offers/${input.offerId}`);
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b1b18;">
@@ -310,7 +353,7 @@ export async function sendSellerOfferNotificationEmail(input: {
   ].join("\n");
 
   const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM,
+    from: ADMIN_EMAIL_FROM,
     to: input.to,
     subject: "You’ve received a new offer on your vehicle",
     html,
