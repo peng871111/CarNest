@@ -18,6 +18,12 @@ async function dataUrlToFile(dataUrl: string, fileName: string) {
   return new File([blob], fileName, { type: blob.type || "image/png" });
 }
 
+function getFirebaseStorageErrorCode(error: unknown) {
+  return error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code ?? "")
+    : "";
+}
+
 export async function uploadVehicleImageAssets(images: PreparedVehicleImageUpload[], ownerUid: string): Promise<VehicleImageAsset[]> {
   if (!images.length) return [];
 
@@ -286,9 +292,23 @@ export async function uploadWarehouseIntakeSignature(dataUrl: string, intakeId: 
 
   const signatureFile = await dataUrlToFile(dataUrl, `signature-${Date.now()}.png`);
   const storageRef = ref(storage, `warehouse-intakes/${intakeId}/signature/${signatureFile.name}`);
-  await uploadBytes(storageRef, signatureFile, {
-    contentType: signatureFile.type || "image/png"
-  });
+  try {
+    await uploadBytes(storageRef, signatureFile, {
+      contentType: signatureFile.type || "image/png"
+    });
+  } catch (error) {
+    const errorCode = getFirebaseStorageErrorCode(error);
+    console.error("[warehouse-intake-signature] Signature upload failed.", {
+      intakeId,
+      errorCode: errorCode || "unknown"
+    });
+
+    if (errorCode === "storage/unauthorized") {
+      throw new Error("Unable to upload the signature. Please refresh your admin session and try again.");
+    }
+
+    throw error;
+  }
 
   return storageRef.fullPath;
 }

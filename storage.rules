@@ -9,11 +9,23 @@ service firebase.storage {
       return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
     }
 
+    function isCraigEmail(email) {
+      return email is string
+        && email.matches("(?i)^peng871111@gmail\\.com$");
+    }
+
+    function isLeonEmail(email) {
+      return email is string
+        && email.matches("(?i)^dengue0111@gmail\\.com$");
+    }
+
     function isAdmin() {
       return signedIn()
         && (
           userDoc().data.role == "admin"
           || userDoc().data.role == "super_admin"
+          || isCraigEmail(request.auth.token.email)
+          || isLeonEmail(request.auth.token.email)
         );
     }
 
