@@ -113,6 +113,7 @@ export type AdminAuditActionType =
   | "linked_listing_synced"
   | "intake_completed"
   | "fees_updated"
+  | "photo_deleted"
   | "editor_heartbeat"
   | "role_changed";
 export type WarehouseServiceFeeCategory =
@@ -735,6 +736,10 @@ export interface WarehouseIntakeRecord {
   vehicleReportPdfStoragePath?: string;
   vehicleReportPdfFileName?: string;
   vehicleReportGeneratedAt?: string;
+  pdfRegenerationRequiredAt?: string;
+  pdfRegenerationReason?: string;
+  pdfRegenerationRequiredByUid?: string;
+  pdfRegenerationRequiredByName?: string;
   completedAt?: string;
   emailSentAt?: string;
   photoCount?: number;

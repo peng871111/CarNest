@@ -1,5 +1,9 @@
 type WarehouseIntakeEvidenceInput = {
   status?: unknown;
+  vehicleId?: unknown;
+  listingId?: unknown;
+  publicListingId?: unknown;
+  linkedListingId?: unknown;
   signedPdfStoragePath?: unknown;
   signedPdfFileName?: unknown;
   pdfGeneratedAt?: unknown;
@@ -33,9 +37,17 @@ export function isWarehouseIntakeEvidenceLocked(intake: WarehouseIntakeEvidenceI
   );
 }
 
+export function isWarehouseIntakeLinkedToListing(intake: WarehouseIntakeEvidenceInput) {
+  return (
+    hasMeaningfulEvidenceValue(intake.vehicleId)
+    || hasMeaningfulEvidenceValue(intake.listingId)
+    || hasMeaningfulEvidenceValue(intake.publicListingId)
+    || hasMeaningfulEvidenceValue(intake.linkedListingId)
+  );
+}
+
 export function canDeleteWarehouseIntakePhotos(intake: WarehouseIntakeEvidenceInput) {
-  const status = typeof intake.status === "string" ? intake.status : "";
-  return (status === "draft" || status === "review_ready") && !isWarehouseIntakeEvidenceLocked(intake);
+  return !isWarehouseIntakeLinkedToListing(intake);
 }
 
 export function canDeleteWarehouseIntakeDraftRecord(intake: WarehouseIntakeEvidenceInput) {

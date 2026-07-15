@@ -3,12 +3,15 @@ import "server-only";
 import { FieldValue, Timestamp, type DocumentReference } from "firebase-admin/firestore";
 import { getAdminDb, getAdminStorageBucket } from "@/lib/firebase-admin-server";
 import { extractFirebaseStoragePath } from "@/lib/firebase-storage-paths";
+import { WAREHOUSE_PHOTO_SECTIONS } from "@/lib/warehouse-intake-config";
 import {
   canDeleteWarehouseIntakeDraftRecord,
   canDeleteWarehouseIntakePhotos,
+  isWarehouseIntakeLinkedToListing,
 } from "@/lib/warehouse-intake-evidence";
 
 type WarehouseIntakeRawData = Record<string, unknown>;
+const CONDITION_PHOTO_CATEGORIES = new Set<string>(WAREHOUSE_PHOTO_SECTIONS.map((section) => section.key));
 
 export class WarehouseIntakeDeleteError extends Error {
   status: number;
@@ -92,6 +95,54 @@ function getStringField(data: WarehouseIntakeRawData, key: string) {
   return typeof data[key] === "string" ? data[key] as string : "";
 }
 
+function sanitizeDeletionReason(value: unknown) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, 240) : "";
+}
+
+function isPdfAvailable(data: WarehouseIntakeRawData) {
+  return Boolean(
+    getStringField(data, "signedPdfStoragePath").trim()
+    || getStringField(data, "signedPdfFileName").trim()
+    || getStringField(data, "pdfGeneratedAt").trim()
+  );
+}
+
+async function writePhotoDeletionAuditEvent(input: {
+  intakeId: string;
+  photoId: string;
+  storagePath: string;
+  actorUid: string;
+  actorEmail?: string;
+  pdfExisted: boolean;
+  deletionReason: string;
+  linkedListingState: "unlinked" | "linked";
+  vehicleId: string;
+  customerProfileId: string;
+  vehicleRecordId: string;
+}) {
+  await getAdminDb().collection("adminOperationalEvents").add({
+    recordType: "warehouse_intake",
+    actionType: "photo_deleted",
+    affectedRecordId: input.intakeId,
+    customerProfileId: input.customerProfileId,
+    vehicleRecordId: input.vehicleRecordId,
+    intakeEventId: input.intakeId,
+    publicListingId: input.vehicleId,
+    staffUid: input.actorUid,
+    staffName: input.actorEmail || "CarNest Admin",
+    staffEmail: input.actorEmail || "",
+    summary: `Condition photo ${input.photoId} deleted from warehouse intake ${input.intakeId}.`,
+    photoId: input.photoId,
+    storagePath: input.storagePath,
+    deletedByUid: input.actorUid,
+    deletedAt: Timestamp.now(),
+    pdfExisted: input.pdfExisted,
+    deletionReason: input.deletionReason,
+    linkedListingState: input.linkedListingState,
+    createdAt: Timestamp.now(),
+  });
+}
+
 async function deleteStorageObject(storagePath: string) {
   try {
     await getAdminStorageBucket().file(storagePath).delete();
@@ -146,6 +197,7 @@ export async function deleteWarehouseIntakePhoto(input: {
   photoId: string;
   actorUid: string;
   actorEmail?: string;
+  deletionReason?: string;
 }) {
   const intakeId = input.intakeId.trim();
   const photoId = input.photoId.trim();
@@ -164,7 +216,7 @@ export async function deleteWarehouseIntakePhoto(input: {
 
   const data = snapshot.data() ?? {};
   if (!canDeleteWarehouseIntakePhotos(data)) {
-    throw new WarehouseIntakeDeleteError("Finalised contract photos cannot be deleted.", 409, "evidence_locked");
+    throw new WarehouseIntakeDeleteError("Photos cannot be deleted after this contract is linked to a listing.", 409, "listing_linked");
   }
 
   const photos = getRawPhotos(data);
@@ -178,11 +230,22 @@ export async function deleteWarehouseIntakePhoto(input: {
     };
   }
 
+  if (!CONDITION_PHOTO_CATEGORIES.has(String(photo.category ?? ""))) {
+    throw new WarehouseIntakeDeleteError("Only vehicle-condition photos can be deleted from this workflow.", 400, "protected_photo");
+  }
+
   const storagePath = normalizeIntakeStoragePath(photo.storagePath, intakeId);
   if (!storagePath) {
     throw new WarehouseIntakeDeleteError("Stored photo path is invalid for this contract.", 400, "invalid_storage_path");
   }
+  if (!storagePath.startsWith(`warehouse-intakes/${intakeId}/photos/`)) {
+    throw new WarehouseIntakeDeleteError("Only vehicle-condition photos can be deleted from this workflow.", 400, "protected_photo");
+  }
 
+  const pdfExisted = isPdfAvailable(data);
+  const pdfRegenerationRequiredAt = pdfExisted ? Timestamp.now() : null;
+  const deletionReason = sanitizeDeletionReason(input.deletionReason);
+  const linkedListingState = isWarehouseIntakeLinkedToListing(data) ? "linked" : "unlinked";
   const storageResult = await deleteStorageObject(storagePath);
   const nextPhotos = photos.filter((entry) => entry.id !== photoId);
   const nextDamageRecords = removePhotoIdFromDamageRecords(data, photoId);
@@ -192,10 +255,38 @@ export async function deleteWarehouseIntakePhoto(input: {
       photos: nextPhotos,
       photoCount: nextPhotos.length,
       "vehicleReport.damageRecords": nextDamageRecords,
+      ...(pdfRegenerationRequiredAt
+        ? {
+            pdfRegenerationRequiredAt,
+            pdfRegenerationReason: "condition_photo_deleted",
+            pdfRegenerationRequiredByUid: input.actorUid,
+            pdfRegenerationRequiredByName: input.actorEmail || "CarNest Admin",
+          }
+        : {}),
       lastEditedByUid: input.actorUid,
       lastEditedByName: input.actorEmail || "CarNest Admin",
       lastEditedAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
+    });
+
+    await writePhotoDeletionAuditEvent({
+      intakeId,
+      photoId,
+      storagePath,
+      actorUid: input.actorUid,
+      actorEmail: input.actorEmail,
+      pdfExisted,
+      deletionReason,
+      linkedListingState,
+      vehicleId: getStringField(data, "vehicleId").trim(),
+      customerProfileId: getStringField(data, "customerProfileId").trim(),
+      vehicleRecordId: getStringField(data, "vehicleRecordId").trim(),
+    }).catch((error) => {
+      console.error("[warehouse-intake-delete] Photo deletion audit log failed.", {
+        intakeId,
+        photoId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
   } catch (error) {
     console.error("[warehouse-intake-delete] Firestore metadata update failed after Storage photo delete.", {
@@ -212,6 +303,8 @@ export async function deleteWarehouseIntakePhoto(input: {
     alreadyRemoved: false,
     storageDeleted: storageResult.deleted,
     storageMissing: storageResult.missing,
+    pdfRegenerationRequired: pdfExisted,
+    pdfRegenerationRequiredAt: pdfRegenerationRequiredAt?.toDate().toISOString() ?? "",
   };
 }
 

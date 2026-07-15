@@ -420,7 +420,7 @@ async function readAdminWarehouseIntakeMutationResponse(response: Response, fall
   return payload;
 }
 
-export async function deleteAdminWarehouseIntakePhoto(intakeId: string, photoId: string, idToken: string) {
+export async function deleteAdminWarehouseIntakePhoto(intakeId: string, photoId: string, idToken: string, deletionReason = "") {
   if (!intakeId || !photoId) {
     throw new Error("Photo deletion requires a storage contract and photo reference.");
   }
@@ -434,8 +434,10 @@ export async function deleteAdminWarehouseIntakePhoto(intakeId: string, photoId:
     {
       method: "DELETE",
       headers: {
+        "Content-Type": "application/json",
         Authorization: `Bearer ${idToken}`
       },
+      body: JSON.stringify({ deletionReason }),
       cache: "no-store"
     }
   );

@@ -13,11 +13,14 @@ export async function DELETE(
 
   try {
     const admin = await requireVerifiedAdminApiAccess(request, "manageVehicles");
+    const body = await request.json().catch(() => null) as { deletionReason?: unknown } | null;
+    const deletionReason = typeof body?.deletionReason === "string" ? body.deletionReason : undefined;
     const result = await deleteWarehouseIntakePhoto({
       intakeId: id,
       photoId,
       actorUid: admin.uid,
       actorEmail: admin.email,
+      deletionReason,
     });
 
     return NextResponse.json({
@@ -40,7 +43,7 @@ export async function DELETE(
       return NextResponse.json(
         {
           success: false,
-          error: error.code === "evidence_locked"
+          error: error.code === "listing_linked" || error.code === "protected_photo"
             ? error.message
             : "Unable to delete this photo right now. Please try again.",
         },

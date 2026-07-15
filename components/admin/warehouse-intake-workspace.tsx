@@ -57,7 +57,7 @@ import {
 import { generateWarehouseIntakePdf } from "@/lib/warehouse-intake-pdf";
 import {
   canDeleteWarehouseIntakePhotos,
-  isWarehouseIntakeEvidenceLocked,
+  isWarehouseIntakeLinkedToListing,
 } from "@/lib/warehouse-intake-evidence";
 import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
@@ -105,6 +105,13 @@ const VEHICLE_SERVICE_HISTORY_YEAR_OPTIONS = Array.from({ length: 60 }, (_, inde
 const SCORED_CONDITION_CATEGORY_KEYS = [...VEHICLE_CONDITION_SCORED_CATEGORY_KEYS];
 const NOTES_ONLY_CONDITION_CATEGORY_KEYS = new Set<VehicleConditionCategoryKey>(VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS);
 const NON_DAMAGE_WAREHOUSE_PHOTO_SECTIONS = WAREHOUSE_PHOTO_SECTIONS.filter((section) => section.key !== "damagePhotos");
+const PHOTO_DELETION_REASON_OPTIONS = [
+  "Vehicle repaired",
+  "Incorrect photo",
+  "Duplicate photo",
+  "No longer relevant",
+  "Other",
+] as const;
 
 function createWarehouseDamageRecord(gridCellId: string, panelKey: VehicleBodyPanelKey, damageType: VehicleDamageType): WarehouseVehicleDamageRecord {
   return {
@@ -415,14 +422,14 @@ function WarehouseIntakePhotoCard({
   photo,
   alt,
   canDelete,
-  evidenceLocked,
+  listingLinked,
   deleting,
   onRequestDelete,
 }: {
   photo: WarehouseIntakePhotoRecord;
   alt: string;
   canDelete: boolean;
-  evidenceLocked: boolean;
+  listingLinked: boolean;
   deleting: boolean;
   onRequestDelete: (photo: WarehouseIntakePhotoRecord) => void;
 }) {
@@ -433,9 +440,9 @@ function WarehouseIntakePhotoCard({
         fileName={photo.name}
         alt={alt}
       />
-      {evidenceLocked ? (
+      {listingLinked ? (
         <p className="rounded-2xl border border-black/6 bg-white px-3 py-2 text-xs leading-5 text-ink/52">
-          Finalised contract photos cannot be deleted.
+          Photos cannot be deleted after this contract is linked to a listing.
         </p>
       ) : canDelete ? (
         <button
@@ -462,26 +469,39 @@ function WarehouseIntakePhotoCard({
 
 function PhotoDeleteDialog({
   photo,
+  reason,
   deleting,
   onCancel,
+  onReasonChange,
   onConfirm,
 }: {
   photo: WarehouseIntakePhotoRecord;
+  reason: string;
   deleting: boolean;
   onCancel: () => void;
+  onReasonChange: (reason: string) => void;
   onConfirm: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 px-4 py-4 sm:items-center">
       <div className="w-full max-w-md rounded-[28px] border border-black/8 bg-white p-5 shadow-[0_28px_70px_rgba(24,18,12,0.28)] sm:p-6">
-        <p className="text-xs uppercase tracking-[0.24em] text-bronze">Delete photo</p>
-        <h3 className="mt-2 font-display text-2xl text-ink">Delete this photo?</h3>
+        <p className="text-xs uppercase tracking-[0.24em] text-bronze">Condition record</p>
+        <h3 className="mt-2 font-display text-2xl text-ink">Delete this condition photo?</h3>
         <p className="mt-3 text-sm leading-6 text-ink/64">
-          This will permanently remove the photo from this storage contract.
+          This contract is not linked to a listing. The photo will be permanently removed from the current vehicle-condition record.
         </p>
         <p className="mt-3 rounded-2xl bg-shell px-3 py-2 text-xs text-ink/58">
           {photo.name || photo.label || "Storage contract photo"}
         </p>
+        <div className="mt-4 space-y-2">
+          <FieldLabel>Reason for deletion</FieldLabel>
+          <SelectInput value={reason} onChange={(event) => onReasonChange(event.target.value)}>
+            <option value="">Optional reason</option>
+            {PHOTO_DELETION_REASON_OPTIONS.map((option) => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </SelectInput>
+        </div>
         <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
@@ -531,6 +551,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [selectedDamageGridCellId, setSelectedDamageGridCellId] = useState<string>(VEHICLE_BODY_DAMAGE_GRID_CELLS[0]?.id || "");
   const [selectedDamageRecordId, setSelectedDamageRecordId] = useState<string>("");
   const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
+  const [photoDeletionReason, setPhotoDeletionReason] = useState("");
   const [deletingPhotoId, setDeletingPhotoId] = useState("");
 
   const customerVehicleRecords = useMemo(
@@ -626,8 +647,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     };
   }, [actor, draft.activeEditorAt, draft.activeEditorName, draft.activeEditorUid]);
   const categoryScores = draft.vehicleReport.conditionCategories;
-  const evidenceLocked = isWarehouseIntakeEvidenceLocked(draft);
+  const listingLinked = isWarehouseIntakeLinkedToListing(draft);
   const canDeletePhotos = Boolean(recordId && canDeleteWarehouseIntakePhotos(draft));
+  const pdfRegenerationRequired = Boolean(draft.pdfRegenerationRequiredAt);
   const conditionOverviewReady = Boolean(
     draft.vehicleId
     && SCORED_CONDITION_CATEGORY_KEYS.every((key) => categoryScores[key].score)
@@ -1307,7 +1329,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       setErrorMessage("");
       setNotice("");
       const idToken = await getAdminIdToken();
-      await deleteAdminWarehouseIntakePhoto(recordId, photoPendingDelete.id, idToken);
+      const result = await deleteAdminWarehouseIntakePhoto(recordId, photoPendingDelete.id, idToken, photoDeletionReason);
+      const deleteResult = result as {
+        result?: {
+          pdfRegenerationRequired?: boolean;
+          pdfRegenerationRequiredAt?: string;
+        };
+      };
+      const pdfChanged = deleteResult.result?.pdfRegenerationRequired === true;
+      const pdfRegenerationRequiredAt = deleteResult.result?.pdfRegenerationRequiredAt || (pdfChanged ? new Date().toISOString() : "");
       setDraft((current) => ({
         ...current,
         photos: current.photos.filter((photo) => photo.id !== photoPendingDelete.id),
@@ -1318,9 +1348,18 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
             photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
           })),
         },
+        ...(pdfChanged
+          ? {
+              pdfRegenerationRequiredAt,
+              pdfRegenerationReason: "condition_photo_deleted",
+              pdfRegenerationRequiredByUid: actor?.id || "",
+              pdfRegenerationRequiredByName: actor?.displayName || actor?.name || actor?.email || "CarNest Admin",
+            }
+          : {}),
       }));
-      setNotice("Photo deleted.");
+      setNotice(pdfChanged ? "Photo deleted. This contract has changed. Please regenerate the PDF." : "Photo deleted.");
       setPhotoPendingDelete(null);
+      setPhotoDeletionReason("");
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Unable to delete this photo right now. Please try again.");
     } finally {
@@ -1423,7 +1462,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           signatureStoragePath
         },
         completedAt: signedAt,
-        adminStaffName: draft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin"
+        adminStaffName: draft.adminStaffName || actor.displayName || actor.name || actor.email || "CarNest Admin",
+        pdfRegenerationRequiredAt: "",
+        pdfRegenerationReason: "",
+        pdfRegenerationRequiredByUid: "",
+        pdfRegenerationRequiredByName: ""
       };
 
       const previewRecord = {
@@ -1550,12 +1593,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       {photoPendingDelete ? (
         <PhotoDeleteDialog
           photo={photoPendingDelete}
+          reason={photoDeletionReason}
           deleting={deletingPhotoId === photoPendingDelete.id}
           onCancel={() => {
             if (!deletingPhotoId) {
               setPhotoPendingDelete(null);
+              setPhotoDeletionReason("");
             }
           }}
+          onReasonChange={setPhotoDeletionReason}
           onConfirm={() => void handleConfirmPhotoDelete()}
         />
       ) : null}
@@ -1570,7 +1616,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusPill label={draft.status === "signed" ? "Signed agreement" : draft.status === "review_ready" ? "Ready for signature" : "Draft in progress"} tone={draft.status === "signed" ? "success" : "warning"} />
-          {draft.signedPdfStoragePath ? <StatusPill label="PDF available" tone="success" /> : <StatusPill label="PDF pending" />}
+          {pdfRegenerationRequired ? (
+            <StatusPill label="PDF regeneration required" tone="warning" />
+          ) : draft.signedPdfStoragePath ? (
+            <StatusPill label="PDF available" tone="success" />
+          ) : (
+            <StatusPill label="PDF pending" />
+          )}
           {draft.signature.signedAt && draft.signature.signatureStoragePath ? <StatusPill label="Signature captured" tone="success" /> : <StatusPill label="Signature pending" tone="warning" />}
           {conditionOverviewReady ? <StatusPill label="Condition Summary ready" tone="success" /> : <StatusPill label="Condition Summary pending" />}
         </div>
@@ -1585,6 +1637,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       {activeEditorConflict ? (
         <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           {activeEditorConflict.name} last updated this intake at {formatAdminDateTime(activeEditorConflict.activeAt)}. Please double-check before making overlapping changes.
+        </div>
+      ) : null}
+      {pdfRegenerationRequired ? (
+        <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This contract has changed. Please regenerate the PDF.
         </div>
       ) : null}
       <div className="rounded-[22px] border border-black/8 bg-shell px-4 py-3 text-sm text-ink/68">
@@ -2241,7 +2298,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                                       photo={photo}
                                       alt={photo.label || getDamagePhotoLabel(record.panelKey, record.damageType)}
                                       canDelete={canDeletePhotos}
-                                      evidenceLocked={evidenceLocked}
+                                      listingLinked={listingLinked}
                                       deleting={deletingPhotoId === photo.id}
                                       onRequestDelete={setPhotoPendingDelete}
                                     />
@@ -2308,7 +2365,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           photo={photo}
                           alt={photo.label}
                           canDelete={canDeletePhotos}
-                          evidenceLocked={evidenceLocked}
+                          listingLinked={listingLinked}
                           deleting={deletingPhotoId === photo.id}
                           onRequestDelete={setPhotoPendingDelete}
                         />
@@ -2350,7 +2407,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                               photo={photo}
                               alt={photo.label}
                               canDelete={canDeletePhotos}
-                              evidenceLocked={evidenceLocked}
+                              listingLinked={listingLinked}
                               deleting={deletingPhotoId === photo.id}
                               onRequestDelete={setPhotoPendingDelete}
                             />
@@ -2566,7 +2623,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">PDF</p>
-                  <p className="mt-2 text-sm text-ink/72">{draft.signedPdfStoragePath ? "Generated and stored" : "Generate on final sign-off"}</p>
+                  <p className="mt-2 text-sm text-ink/72">
+                    {pdfRegenerationRequired
+                      ? "Regenerate after condition photo change"
+                      : draft.signedPdfStoragePath
+                        ? "Generated and stored"
+                        : "Generate on final sign-off"}
+                  </p>
                 </div>
                 <div className="rounded-[22px] border border-black/6 bg-shell p-4">
                   <p className="text-xs uppercase tracking-[0.22em] text-bronze">Condition Summary</p>
@@ -2670,7 +2733,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
               <p><span className="font-semibold text-ink">Mechanical &amp; Function notes:</span> {categoryScores.mechanicalFunction.notes.trim() ? "Added" : "None"}</p>
               <p><span className="font-semibold text-ink">RWC cooperation:</span> {draft.vehicleReport.rwcCooperation ? draft.vehicleReport.rwcCooperation.replace(/_/g, " ") : "Pending"}</p>
               <p><span className="font-semibold text-ink">Finance declaration:</span> {draft.declarations.financeOwing}</p>
-              <p><span className="font-semibold text-ink">PDF:</span> {draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
+              <p><span className="font-semibold text-ink">PDF:</span> {pdfRegenerationRequired ? "Regeneration required" : draft.signedPdfStoragePath ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Condition Summary:</span> {conditionOverviewReady ? "Available" : "Pending"}</p>
               <p><span className="font-semibold text-ink">Admin staff:</span> {draft.signature.adminStaffName || draft.adminStaffName || appUser?.displayName || "Pending"}</p>
             </div>
