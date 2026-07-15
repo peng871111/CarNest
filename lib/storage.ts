@@ -410,6 +410,65 @@ export async function fetchAdminWarehouseIntakeFileBytes(storagePath: string, id
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+async function readAdminWarehouseIntakeMutationResponse(response: Response, fallbackMessage: string) {
+  const payload = await response.json().catch(() => null) as { error?: string; message?: string } | null;
+
+  if (!response.ok || !payload) {
+    throw new Error(payload?.error || fallbackMessage);
+  }
+
+  return payload;
+}
+
+export async function deleteAdminWarehouseIntakePhoto(intakeId: string, photoId: string, idToken: string) {
+  if (!intakeId || !photoId) {
+    throw new Error("Photo deletion requires a storage contract and photo reference.");
+  }
+
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
+  }
+
+  const response = await fetch(
+    `/api/admin/warehouse-intake/${encodeURIComponent(intakeId)}/photos/${encodeURIComponent(photoId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      },
+      cache: "no-store"
+    }
+  );
+
+  return await readAdminWarehouseIntakeMutationResponse(response, "Unable to delete this photo right now. Please try again.");
+}
+
+export async function deleteAdminWarehouseIntakeDraft(intakeId: string, idToken: string) {
+  if (!intakeId) {
+    throw new Error("Draft deletion requires a storage contract reference.");
+  }
+
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
+  }
+
+  const response = await fetch(
+    `/api/admin/warehouse-intake/${encodeURIComponent(intakeId)}/draft`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${idToken}`
+      },
+      cache: "no-store"
+    }
+  );
+
+  return await readAdminWarehouseIntakeMutationResponse(
+    response,
+    "Unable to delete this draft completely. No vehicle or customer record was removed. Please try again or check the admin logs."
+  );
+}
+
 export async function fetchVehicleReportBlob(storagePath: string) {
   if (!storagePath) {
     throw new Error("Vehicle report is not available yet.");

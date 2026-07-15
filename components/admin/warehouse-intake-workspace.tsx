@@ -46,6 +46,7 @@ import {
 } from "@/lib/vehicle-service-history";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import {
+  deleteAdminWarehouseIntakePhoto,
   fetchAdminWarehouseIntakeFileBytes,
   fetchAdminWarehouseIntakeFileBlob,
   uploadWarehouseIntakePdf,
@@ -54,6 +55,10 @@ import {
   uploadWarehouseIntakeSupportingFile
 } from "@/lib/storage";
 import { generateWarehouseIntakePdf } from "@/lib/warehouse-intake-pdf";
+import {
+  canDeleteWarehouseIntakePhotos,
+  isWarehouseIntakeEvidenceLocked,
+} from "@/lib/warehouse-intake-evidence";
 import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
@@ -406,6 +411,100 @@ function WarehouseIntakeSecureImage({
   );
 }
 
+function WarehouseIntakePhotoCard({
+  photo,
+  alt,
+  canDelete,
+  evidenceLocked,
+  deleting,
+  onRequestDelete,
+}: {
+  photo: WarehouseIntakePhotoRecord;
+  alt: string;
+  canDelete: boolean;
+  evidenceLocked: boolean;
+  deleting: boolean;
+  onRequestDelete: (photo: WarehouseIntakePhotoRecord) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <WarehouseIntakeSecureImage
+        storagePath={photo.storagePath}
+        fileName={photo.name}
+        alt={alt}
+      />
+      {evidenceLocked ? (
+        <p className="rounded-2xl border border-black/6 bg-white px-3 py-2 text-xs leading-5 text-ink/52">
+          Finalised contract photos cannot be deleted.
+        </p>
+      ) : canDelete ? (
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={(event) => {
+            event.stopPropagation();
+            onRequestDelete(photo);
+          }}
+          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-55"
+          aria-label={`Delete ${photo.name || alt}`}
+        >
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-4 w-4" aria-hidden="true">
+            <path d="M4.5 6h11" strokeLinecap="round" />
+            <path d="M8 6V4.8c0-.7.6-1.3 1.3-1.3h1.4c.7 0 1.3.6 1.3 1.3V6" strokeLinecap="round" />
+            <path d="m7 8 .3 7M13 8l-.3 7M5.8 6l.6 10.2c0 .8.7 1.3 1.5 1.3h4.2c.8 0 1.4-.6 1.5-1.3L14.2 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          {deleting ? "Deleting..." : "Delete photo"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function PhotoDeleteDialog({
+  photo,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  photo: WarehouseIntakePhotoRecord;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 px-4 py-4 sm:items-center">
+      <div className="w-full max-w-md rounded-[28px] border border-black/8 bg-white p-5 shadow-[0_28px_70px_rgba(24,18,12,0.28)] sm:p-6">
+        <p className="text-xs uppercase tracking-[0.24em] text-bronze">Delete photo</p>
+        <h3 className="mt-2 font-display text-2xl text-ink">Delete this photo?</h3>
+        <p className="mt-3 text-sm leading-6 text-ink/64">
+          This will permanently remove the photo from this storage contract.
+        </p>
+        <p className="mt-3 rounded-2xl bg-shell px-3 py-2 text-xs text-ink/58">
+          {photo.name || photo.label || "Storage contract photo"}
+        </p>
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onCancel}
+            className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onConfirm}
+            className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {deleting ? "Deleting..." : "Delete photo"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -431,6 +530,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
   const [selectedDamageGridCellId, setSelectedDamageGridCellId] = useState<string>(VEHICLE_BODY_DAMAGE_GRID_CELLS[0]?.id || "");
   const [selectedDamageRecordId, setSelectedDamageRecordId] = useState<string>("");
+  const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
+  const [deletingPhotoId, setDeletingPhotoId] = useState("");
 
   const customerVehicleRecords = useMemo(
     () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
@@ -525,6 +626,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     };
   }, [actor, draft.activeEditorAt, draft.activeEditorName, draft.activeEditorUid]);
   const categoryScores = draft.vehicleReport.conditionCategories;
+  const evidenceLocked = isWarehouseIntakeEvidenceLocked(draft);
+  const canDeletePhotos = Boolean(recordId && canDeleteWarehouseIntakePhotos(draft));
   const conditionOverviewReady = Boolean(
     draft.vehicleId
     && SCORED_CONDITION_CATEGORY_KEYS.every((key) => categoryScores[key].score)
@@ -1196,6 +1299,35 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }));
   }
 
+  async function handleConfirmPhotoDelete() {
+    if (!photoPendingDelete || !recordId || deletingPhotoId) return;
+
+    try {
+      setDeletingPhotoId(photoPendingDelete.id);
+      setErrorMessage("");
+      setNotice("");
+      const idToken = await getAdminIdToken();
+      await deleteAdminWarehouseIntakePhoto(recordId, photoPendingDelete.id, idToken);
+      setDraft((current) => ({
+        ...current,
+        photos: current.photos.filter((photo) => photo.id !== photoPendingDelete.id),
+        vehicleReport: {
+          ...current.vehicleReport,
+          damageRecords: (current.vehicleReport.damageRecords ?? []).map((record) => ({
+            ...record,
+            photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
+          })),
+        },
+      }));
+      setNotice("Photo deleted.");
+      setPhotoPendingDelete(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to delete this photo right now. Please try again.");
+    } finally {
+      setDeletingPhotoId("");
+    }
+  }
+
   function validateFinalDraft() {
     const issues: string[] = [];
     if (
@@ -1415,6 +1547,19 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
   return (
     <div className="space-y-6">
+      {photoPendingDelete ? (
+        <PhotoDeleteDialog
+          photo={photoPendingDelete}
+          deleting={deletingPhotoId === photoPendingDelete.id}
+          onCancel={() => {
+            if (!deletingPhotoId) {
+              setPhotoPendingDelete(null);
+            }
+          }}
+          onConfirm={() => void handleConfirmPhotoDelete()}
+        />
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
         <div>
           <p className="text-xs uppercase tracking-[0.28em] text-bronze">CarNest storage contract</p>
@@ -2091,11 +2236,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                                 {recordPhotos.length ? (
                                   recordPhotos.map((photo) => (
-                                    <WarehouseIntakeSecureImage
+                                    <WarehouseIntakePhotoCard
                                       key={photo.id}
-                                      storagePath={photo.storagePath}
-                                      fileName={photo.name}
+                                      photo={photo}
                                       alt={photo.label || getDamagePhotoLabel(record.panelKey, record.damageType)}
+                                      canDelete={canDeletePhotos}
+                                      evidenceLocked={evidenceLocked}
+                                      deleting={deletingPhotoId === photo.id}
+                                      onRequestDelete={setPhotoPendingDelete}
                                     />
                                   ))
                                 ) : (
@@ -2156,10 +2304,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {additionalDamagePhotos.length ? additionalDamagePhotos.map((photo) => (
                       <div key={photo.id} className="space-y-2">
-                        <WarehouseIntakeSecureImage
-                          storagePath={photo.storagePath}
-                          fileName={photo.name}
+                        <WarehouseIntakePhotoCard
+                          photo={photo}
                           alt={photo.label}
+                          canDelete={canDeletePhotos}
+                          evidenceLocked={evidenceLocked}
+                          deleting={deletingPhotoId === photo.id}
+                          onRequestDelete={setPhotoPendingDelete}
                         />
                         <TextAreaInput
                           className="min-h-[84px]"
@@ -2195,10 +2346,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {sectionPhotos.map((photo) => (
                           <div key={photo.id} className="space-y-2">
-                            <WarehouseIntakeSecureImage
-                              storagePath={photo.storagePath}
-                              fileName={photo.name}
+                            <WarehouseIntakePhotoCard
+                              photo={photo}
                               alt={photo.label}
+                              canDelete={canDeletePhotos}
+                              evidenceLocked={evidenceLocked}
+                              deleting={deletingPhotoId === photo.id}
+                              onRequestDelete={setPhotoPendingDelete}
                             />
                           </div>
                         ))}

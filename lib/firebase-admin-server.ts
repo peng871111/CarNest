@@ -3,6 +3,7 @@ import "server-only";
 import { AppOptions, applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 
 function normalizePrivateKey(value?: string) {
   return value?.replace(/\\n/g, "\n").trim() ?? "";
@@ -96,4 +97,8 @@ export function getAdminDb() {
 
 export function getAdminAuth() {
   return getAuth(getFirebaseAdminApp());
+}
+
+export function getAdminStorageBucket() {
+  return getStorage(getFirebaseAdminApp()).bucket();
 }

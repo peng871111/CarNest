@@ -4,8 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { getVehiclesData, getWarehouseIntakesData, saveWarehouseIntake } from "@/lib/data";
+import { deleteAdminWarehouseIntakeDraft } from "@/lib/storage";
+import { canDeleteWarehouseIntakeDraftRecord } from "@/lib/warehouse-intake-evidence";
 import { hasAdminPermission } from "@/lib/permissions";
-import { formatCurrency, formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
+import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import { Vehicle, VehicleActor, WarehouseIntakeRecord } from "@/types";
 
@@ -56,17 +58,80 @@ function SectionCard({
   );
 }
 
+function getDraftDeleteVehicleLabel(intake: WarehouseIntakeRecord) {
+  return (
+    intake.vehicleTitle
+    || [intake.vehicleDetails.year, intake.vehicleDetails.make, intake.vehicleDetails.model, intake.vehicleDetails.variant]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+    || intake.vehicleDetails.registrationPlate
+    || "Vehicle pending"
+  );
+}
+
+function DraftDeleteDialog({
+  intake,
+  deleting,
+  onCancel,
+  onConfirm,
+}: {
+  intake: WarehouseIntakeRecord;
+  deleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 px-4 py-4 sm:items-center">
+      <div className="max-h-[calc(100dvh-32px)] w-full max-w-lg overflow-y-auto rounded-[28px] border border-black/8 bg-white p-5 shadow-[0_28px_70px_rgba(24,18,12,0.28)] sm:p-6">
+        <p className="text-xs uppercase tracking-[0.24em] text-rose-700">Delete draft</p>
+        <h3 className="mt-2 font-display text-2xl text-ink">Delete this storage contract draft?</h3>
+        <p className="mt-3 text-sm leading-6 text-ink/64">
+          This will permanently delete the unfinished draft and its uploaded draft files. The vehicle, listing, and customer records will not be deleted.
+        </p>
+        <div className="mt-4 space-y-2 rounded-[22px] bg-shell px-4 py-4 text-sm text-ink/68">
+          <p><span className="font-semibold text-ink">Warehouse intake reference:</span> {intake.vehicleReference || intake.id}</p>
+          <p><span className="font-semibold text-ink">Vehicle:</span> {getDraftDeleteVehicleLabel(intake)}</p>
+          <p><span className="font-semibold text-ink">Customer:</span> {intake.ownerDetails.fullName || intake.ownerDetails.email || "Customer pending"}</p>
+          <p><span className="font-semibold text-ink">Created:</span> {formatAdminDateTime(intake.createdAt || intake.updatedAt)}</p>
+        </div>
+        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onCancel}
+            className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={onConfirm}
+            className="rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {deleting ? "Deleting..." : "Permanently delete draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WarehouseIntakeDashboard() {
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [intakes, setIntakes] = useState<WarehouseIntakeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [notice, setNotice] = useState("");
   const [sectionState, setSectionState] = useState({
     recent: true
   });
   const [intakeSearch, setIntakeSearch] = useState("");
   const [assigningIntakeId, setAssigningIntakeId] = useState("");
+  const [draftPendingDelete, setDraftPendingDelete] = useState<WarehouseIntakeRecord | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState("");
   const [listingSelectionByIntakeId, setListingSelectionByIntakeId] = useState<Record<string, string>>({});
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
 
@@ -205,8 +270,48 @@ export function WarehouseIntakeDashboard() {
     }
   }
 
+  async function handleConfirmDeleteDraft() {
+    if (!draftPendingDelete || deletingDraftId) return;
+
+    try {
+      if (!firebaseUser) {
+        throw new Error("Admin authentication is still loading. Please refresh and try again.");
+      }
+      setDeletingDraftId(draftPendingDelete.id);
+      setErrorMessage("");
+      setNotice("");
+      const idToken = await firebaseUser.getIdToken();
+      await deleteAdminWarehouseIntakeDraft(draftPendingDelete.id, idToken);
+      setIntakes((current) => current.filter((item) => item.id !== draftPendingDelete.id));
+      setListingSelectionByIntakeId((current) => {
+        const next = { ...current };
+        delete next[draftPendingDelete.id];
+        return next;
+      });
+      setNotice("Storage contract draft deleted.");
+      setDraftPendingDelete(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to delete this draft completely. No vehicle or customer record was removed. Please try again or check the admin logs.");
+    } finally {
+      setDeletingDraftId("");
+    }
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
+      {draftPendingDelete ? (
+        <DraftDeleteDialog
+          intake={draftPendingDelete}
+          deleting={deletingDraftId === draftPendingDelete.id}
+          onCancel={() => {
+            if (!deletingDraftId) {
+              setDraftPendingDelete(null);
+            }
+          }}
+          onConfirm={() => void handleConfirmDeleteDraft()}
+        />
+      ) : null}
+
       <div className="rounded-[24px] border border-black/5 bg-white p-4 shadow-panel md:rounded-[28px] md:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -237,6 +342,9 @@ export function WarehouseIntakeDashboard() {
       {errorMessage ? (
         <div className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{errorMessage}</div>
       ) : null}
+      {notice ? (
+        <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>
+      ) : null}
 
       <div className="grid gap-6">
         <SectionCard
@@ -258,6 +366,7 @@ export function WarehouseIntakeDashboard() {
               const signatureReady = Boolean(intake.signature.signatureStoragePath && intake.signature.signedAt);
               const pdfReady = Boolean(intake.signedPdfStoragePath);
               const selectedListingId = listingSelectionByIntakeId[intake.id] ?? intake.vehicleId ?? "";
+              const canDeleteDraft = canDeleteWarehouseIntakeDraftRecord(intake);
 
               return (
                 <div
@@ -328,6 +437,16 @@ export function WarehouseIntakeDashboard() {
                       >
                         {assigningIntakeId === intake.id ? "Saving..." : linkedListing ? "Change listing" : "Assign listing"}
                       </button>
+                      {canDeleteDraft ? (
+                        <button
+                          type="button"
+                          disabled={deletingDraftId === intake.id}
+                          onClick={() => setDraftPendingDelete(intake)}
+                          className="rounded-full border border-rose-300 bg-white px-4 py-3 text-sm font-semibold text-rose-700 transition hover:border-rose-400 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-55"
+                        >
+                          {deletingDraftId === intake.id ? "Deleting..." : "Delete draft"}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>
