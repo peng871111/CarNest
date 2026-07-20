@@ -27,6 +27,13 @@ import {
   sortVehicleServiceHistoryRecords,
 } from "@/lib/vehicle-service-history";
 import {
+  VEHICLE_WHEEL_POSITIONS,
+  VEHICLE_WHEEL_ZONES,
+  isVehicleWheelPosition,
+  isVehicleWheelZone,
+  normalizeVehicleWheelDamageType,
+} from "@/lib/vehicle-wheel-condition";
+import {
   AccountType,
   AdminAccountingEntry,
   AdminAppointment,
@@ -94,6 +101,7 @@ import {
   VehicleConditionScore,
   VehicleDamageType,
   VehiclePublicDamageRecordSummary,
+  VehiclePublicWheelDamageRecordSummary,
   VehicleStatus,
   VehicleServiceHistoryRecord,
   VehicleViewEvent,
@@ -121,6 +129,7 @@ import {
   WarehouseIntakeStatus,
   WarehouseIntakeVehicleDetails,
   WarehouseVehicleDamageRecord,
+  WarehouseVehicleWheelDamageRecord,
 } from "@/types";
 
 type CollectionName =
@@ -899,6 +908,7 @@ export function serializeVehicleDoc(id: string, data: Record<string, unknown>): 
                 : "",
             damageConditionNotes: typeof vehicleReportSummaryInput.damageConditionNotes === "string" ? vehicleReportSummaryInput.damageConditionNotes as string : "",
             damageRecords: serializeVehiclePublicDamageRecordSummaries(vehicleReportSummaryInput.damageRecords),
+            wheelDamageRecords: serializeVehiclePublicWheelDamageRecordSummaries(vehicleReportSummaryInput.wheelDamageRecords),
             damageImages: Array.isArray(vehicleReportSummaryInput.damageImages)
               ? (vehicleReportSummaryInput.damageImages as Array<Record<string, unknown>>)
                   .filter((item) => typeof item?.url === "string" && item.url)
@@ -1279,6 +1289,69 @@ function serializeVehiclePublicDamageRecordSummaries(input: unknown): VehiclePub
     .filter((item): item is VehiclePublicDamageRecordSummary => Boolean(item));
 }
 
+function serializeWarehouseVehicleWheelDamageRecord(input: unknown): WarehouseVehicleWheelDamageRecord | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+  if (!isVehicleWheelPosition(value.wheelPosition) || !isVehicleWheelZone(value.wheelZone)) return null;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim()
+      ? value.id
+      : `wheel-damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    wheelPosition: value.wheelPosition,
+    wheelZone: value.wheelZone,
+    damageType: normalizeVehicleWheelDamageType(value.damageType),
+    notes: typeof value.notes === "string" ? value.notes : "",
+    photoIds: Array.isArray(value.photoIds)
+      ? value.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
+      : [],
+  };
+}
+
+function serializeWarehouseVehicleWheelDamageRecords(input: unknown): WarehouseVehicleWheelDamageRecord[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => serializeWarehouseVehicleWheelDamageRecord(item))
+    .filter((item): item is WarehouseVehicleWheelDamageRecord => Boolean(item))
+    .sort((left, right) => {
+      const positionOrder = VEHICLE_WHEEL_POSITIONS.indexOf(left.wheelPosition) - VEHICLE_WHEEL_POSITIONS.indexOf(right.wheelPosition);
+      if (positionOrder !== 0) return positionOrder;
+      return VEHICLE_WHEEL_ZONES.indexOf(left.wheelZone) - VEHICLE_WHEEL_ZONES.indexOf(right.wheelZone);
+    });
+}
+
+function serializeVehiclePublicWheelDamageRecordSummary(input: unknown): VehiclePublicWheelDamageRecordSummary | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+  if (!isVehicleWheelPosition(value.wheelPosition) || !isVehicleWheelZone(value.wheelZone)) return null;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim()
+      ? value.id
+      : `wheel-damage-record-${value.wheelPosition}-${value.wheelZone}`,
+    wheelPosition: value.wheelPosition,
+    wheelZone: value.wheelZone,
+    damageType: normalizeVehicleWheelDamageType(value.damageType),
+    notes: typeof value.notes === "string" ? value.notes : "",
+    images: Array.isArray(value.images)
+      ? (value.images as Array<Record<string, unknown>>)
+          .filter((item) => typeof item?.url === "string" && item.url)
+          .map((item) => ({
+            url: item.url as string,
+            label: typeof item.label === "string" ? item.label : "Wheel damage image",
+            note: typeof item.note === "string" ? item.note : "",
+          }))
+      : [],
+  };
+}
+
+function serializeVehiclePublicWheelDamageRecordSummaries(input: unknown): VehiclePublicWheelDamageRecordSummary[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => serializeVehiclePublicWheelDamageRecordSummary(item))
+    .filter((item): item is VehiclePublicWheelDamageRecordSummary => Boolean(item));
+}
+
 function createEmptyWarehouseVehicleReport() {
   return {
     conditionRating: "",
@@ -1295,6 +1368,7 @@ function createEmptyWarehouseVehicleReport() {
     rwcCooperation: "",
     damageConditionNotes: "",
     damageRecords: [],
+    wheelDamageRecords: [],
   } as WarehouseIntakeRecord["vehicleReport"];
 }
 
@@ -1824,6 +1898,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
           : "",
       damageConditionNotes: typeof vehicleReportInput.damageConditionNotes === "string" ? vehicleReportInput.damageConditionNotes : "",
       damageRecords: serializeWarehouseVehicleDamageRecords(vehicleReportInput.damageRecords),
+      wheelDamageRecords: serializeWarehouseVehicleWheelDamageRecords(vehicleReportInput.wheelDamageRecords),
     },
     photos,
     serviceItems,
@@ -5778,6 +5853,7 @@ function buildWarehouseIntakeWritePayload(
             ? record.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
             : [],
         })),
+      wheelDamageRecords: serializeWarehouseVehicleWheelDamageRecords(input.vehicleReport?.wheelDamageRecords),
     } satisfies WarehouseIntakeRecord["vehicleReport"],
     photos,
     serviceItems,
@@ -5899,13 +5975,64 @@ async function resolveVehicleReportDamageRecordSummaries(
   return resolved;
 }
 
+async function resolveVehicleReportWheelDamageRecordSummaries(
+  input: Pick<WarehouseIntakeRecord, "photos" | "vehicleReport">
+) {
+  if (!isFirebaseStorageConfigured) return [];
+
+  const damagePhotosById = new Map(
+    input.photos
+      .filter((photo) => photo.category === "damagePhotos" && photo.storagePath)
+      .map((photo) => [photo.id, photo] as const)
+  );
+
+  const resolved = await Promise.all(
+    (input.vehicleReport.wheelDamageRecords ?? [])
+      .filter((record) => isVehicleWheelPosition(record.wheelPosition) && isVehicleWheelZone(record.wheelZone))
+      .map(async (record) => {
+        const images = await Promise.all(
+          record.photoIds.map(async (photoId) => {
+            const photo = damagePhotosById.get(photoId);
+            if (!photo) return null;
+            try {
+              const url = await getDownloadURL(ref(storage, photo.storagePath));
+              return {
+                url,
+                label: photo.label || "Wheel damage image",
+                note: typeof photo.note === "string" ? photo.note : "",
+              };
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        return {
+          id: record.id,
+          wheelPosition: record.wheelPosition,
+          wheelZone: record.wheelZone,
+          damageType: normalizeVehicleWheelDamageType(record.damageType),
+          notes: record.notes || "",
+          images: images.filter((item): item is { url: string; label: string; note: string } => Boolean(item)),
+        } satisfies VehiclePublicWheelDamageRecordSummary;
+      })
+  );
+
+  return resolved;
+}
+
 function getAdditionalDamagePhotos(
   input: Pick<WarehouseIntakeRecord, "photos" | "vehicleReport">
 ) {
   const linkedPhotoIds = new Set(
-    (input.vehicleReport.damageRecords ?? [])
-      .filter((record) => Boolean(record.gridCellId?.trim()))
-      .flatMap((record) => record.photoIds)
+    [
+      ...(input.vehicleReport.damageRecords ?? [])
+        .filter((record) => Boolean(record.gridCellId?.trim()))
+        .flatMap((record) => record.photoIds),
+      ...(input.vehicleReport.wheelDamageRecords ?? [])
+        .filter((record) => isVehicleWheelPosition(record.wheelPosition) && isVehicleWheelZone(record.wheelZone))
+        .flatMap((record) => record.photoIds),
+    ]
   );
   const legacyRecordNoteByPhotoId = new Map<string, string>();
 
@@ -5946,6 +6073,7 @@ async function syncVehicleReportMetadataToPublicListing(
 
   const hasReport = hasVehicleReportSummary(input);
   const damageRecords = hasReport ? await resolveVehicleReportDamageRecordSummaries(input) : [];
+  const wheelDamageRecords = hasReport ? await resolveVehicleReportWheelDamageRecordSummaries(input) : [];
   const damageImages = hasReport ? await resolveVehicleReportDamageImages({ photos: getAdditionalDamagePhotos(input) }) : [];
 
   await setDoc(
@@ -6002,6 +6130,7 @@ async function syncVehicleReportMetadataToPublicListing(
             legacyServiceHistoryText: sanitizeMultilineText(input.vehicleDetails.serviceHistory || ""),
             damageConditionNotes: input.vehicleReport.damageConditionNotes || "",
             damageRecords,
+            wheelDamageRecords,
             damageImages
           }
         : deleteField(),

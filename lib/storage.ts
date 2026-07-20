@@ -233,7 +233,10 @@ export async function uploadWarehouseIntakePhotos(
   files: File[],
   intakeId: string,
   category: string,
-  label: string
+  label: string,
+  options?: {
+    maxFiles?: number;
+  }
 ) {
   if (!files.length) return [];
   if (!intakeId) {
@@ -245,7 +248,9 @@ export async function uploadWarehouseIntakePhotos(
 
   const uploaded = [];
 
-  for (const [index, file] of files.slice(0, 5).entries()) {
+  const uploadLimit = Math.max(1, Math.min(options?.maxFiles ?? 5, 20));
+
+  for (const [index, file] of files.slice(0, uploadLimit).entries()) {
     const optimizedFile = await compressVehicleImage(file, {
       maxWidth: 1200,
       quality: 0.72,

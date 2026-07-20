@@ -4,6 +4,21 @@ import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage } from "pdf-lib";
 import { createPdfImageAssetLoader, type PdfEmbeddedImage } from "@/lib/pdf-image-loader";
 import { CARNEST_CONCIERGE_AGREEMENT_COPY } from "@/lib/warehouse-intake-config";
+import {
+  formatVehicleBodyDamageGridCellLabel,
+  getVehicleBodyDamageGridCell,
+  VEHICLE_BODY_DAMAGE_GRID_CELLS,
+} from "@/lib/vehicle-body-damage-grid";
+import {
+  VEHICLE_BODY_PANEL_LABELS,
+  VEHICLE_DAMAGE_TYPE_LABELS,
+} from "@/lib/vehicle-condition-config";
+import {
+  formatVehicleWheelDamageLocation,
+  VEHICLE_WHEEL_DAMAGE_TYPE_LABELS,
+  VEHICLE_WHEEL_POSITIONS,
+  VEHICLE_WHEEL_ZONES,
+} from "@/lib/vehicle-wheel-condition";
 import { WarehouseIntakeRecord } from "@/types";
 
 const PAGE_WIDTH = 595.28;
@@ -28,6 +43,90 @@ const PDF_FALLBACK_REPLACEMENTS: Array<[RegExp, string]> = [
 function isWheelPhoto(label: string, category: string) {
   const haystack = `${label} ${category}`.toLowerCase();
   return haystack.includes("wheel") || haystack.includes("tyre") || haystack.includes("tire");
+}
+
+function collectConditionEvidence(record: WarehouseIntakeRecord) {
+  const damagePhotosById = new Map(
+    record.photos
+      .filter((photo) => photo.category === "damagePhotos")
+      .map((photo) => [photo.id, photo] as const)
+  );
+  const linkedPhotoIds = new Set<string>();
+  const bodyGridOrder = new Map(
+    VEHICLE_BODY_DAMAGE_GRID_CELLS.map((cell, index) => [cell.id, index] as const)
+  );
+
+  const bodyDamageRecords = (record.vehicleReport.damageRecords ?? [])
+    .filter((damageRecord) => Boolean(damageRecord.gridCellId?.trim()))
+    .map((damageRecord) => {
+      const cell = getVehicleBodyDamageGridCell(damageRecord.gridCellId);
+      const linkedPhotos = damageRecord.photoIds
+        .map((photoId) => {
+          linkedPhotoIds.add(photoId);
+          return damagePhotosById.get(photoId) ?? null;
+        })
+        .filter((photo): photo is WarehouseIntakeRecord["photos"][number] => Boolean(photo));
+
+      return {
+        ...damageRecord,
+        locationLabel: cell
+          ? formatVehicleBodyDamageGridCellLabel(cell.id)
+          : `${VEHICLE_BODY_PANEL_LABELS[damageRecord.panelKey]} · ${damageRecord.gridCellId}`,
+        sortOrder: bodyGridOrder.get(damageRecord.gridCellId) ?? Number.MAX_SAFE_INTEGER,
+        linkedPhotos,
+      };
+    })
+    .sort((left, right) => {
+      if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+      return left.locationLabel.localeCompare(right.locationLabel);
+    });
+
+  const wheelDamageRecords = (record.vehicleReport.wheelDamageRecords ?? [])
+    .map((damageRecord) => {
+      const linkedPhotos = damageRecord.photoIds
+        .map((photoId) => {
+          linkedPhotoIds.add(photoId);
+          return damagePhotosById.get(photoId) ?? null;
+        })
+        .filter((photo): photo is WarehouseIntakeRecord["photos"][number] => Boolean(photo));
+
+      return {
+        ...damageRecord,
+        locationLabel: formatVehicleWheelDamageLocation(damageRecord.wheelPosition, damageRecord.wheelZone),
+        sortOrder:
+          (VEHICLE_WHEEL_POSITIONS.indexOf(damageRecord.wheelPosition) * 100)
+          + VEHICLE_WHEEL_ZONES.indexOf(damageRecord.wheelZone),
+        linkedPhotos,
+      };
+    })
+    .sort((left, right) => {
+      if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder;
+      return left.locationLabel.localeCompare(right.locationLabel);
+    });
+
+  const legacyRecordNoteByPhotoId = new Map<string, string>();
+  for (const damageRecord of record.vehicleReport.damageRecords ?? []) {
+    if (damageRecord.gridCellId?.trim()) continue;
+    const note = damageRecord.notes?.trim();
+    if (!note) continue;
+    for (const photoId of damageRecord.photoIds) {
+      if (!legacyRecordNoteByPhotoId.has(photoId)) {
+        legacyRecordNoteByPhotoId.set(photoId, note);
+      }
+    }
+  }
+
+  return {
+    bodyDamageRecords,
+    wheelDamageRecords,
+    additionalDamagePhotos: record.photos
+      .filter((photo) => photo.category === "damagePhotos" && !linkedPhotoIds.has(photo.id))
+      .map((photo) => (
+        !photo.note?.trim() && legacyRecordNoteByPhotoId.has(photo.id)
+          ? { ...photo, note: legacyRecordNoteByPhotoId.get(photo.id) }
+          : photo
+      )),
+  };
 }
 
 function getContainedImageRect(
@@ -162,6 +261,7 @@ export async function generateWarehouseIntakePdf(
     pdfDoc,
     resolveStorageBytes: options?.resolveStorageBytes,
   });
+  const conditionEvidence = collectConditionEvidence(record);
   const photoStoragePaths = record.photos.map((photo) => photo.storagePath).filter(Boolean);
   if (photoStoragePaths.length) {
     options?.onProgress?.("Preparing signed PDF images...");
@@ -429,6 +529,48 @@ export async function generateWarehouseIntakePdf(
     }
   };
 
+  const drawBodyDamageRecordsSection = async () => {
+    if (!conditionEvidence.bodyDamageRecords.length) return;
+
+    drawSectionTitle("Body damage records");
+    for (const [index, damageRecord] of conditionEvidence.bodyDamageRecords.entries()) {
+      drawField(
+        `Damage record ${index + 1}`,
+        sanitizeText(
+          `${damageRecord.locationLabel} · ${VEHICLE_DAMAGE_TYPE_LABELS[damageRecord.damageType]}${damageRecord.notes ? ` · ${damageRecord.notes}` : ""}`,
+          "Damage record",
+          supportsUnicode
+        )
+      );
+      if (damageRecord.linkedPhotos.length) {
+        await drawPhotoSection(`${damageRecord.locationLabel} photos`, damageRecord.linkedPhotos, { includeMeta: true });
+      } else {
+        drawField("Linked photos", "No photos linked to this damage record.");
+      }
+    }
+  };
+
+  const drawWheelRimConditionSection = async () => {
+    if (!conditionEvidence.wheelDamageRecords.length) return;
+
+    drawSectionTitle("Wheel & Rim Condition");
+    for (const [index, damageRecord] of conditionEvidence.wheelDamageRecords.entries()) {
+      drawField(
+        `Wheel record ${index + 1}`,
+        sanitizeText(
+          `${damageRecord.locationLabel} · ${VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[damageRecord.damageType]}${damageRecord.notes ? ` · ${damageRecord.notes}` : ""}`,
+          "Wheel/rim record",
+          supportsUnicode
+        )
+      );
+      if (damageRecord.linkedPhotos.length) {
+        await drawPhotoSection(`${damageRecord.locationLabel} photos`, damageRecord.linkedPhotos, { includeMeta: true });
+      } else {
+        drawField("Linked photos", "No photos linked to this wheel/rim record.");
+      }
+    }
+  };
+
   drawHeading(
     "CarNest Warehouse Intake",
     record.vehicleTitle || "Warehouse Intake Record",
@@ -509,6 +651,9 @@ export async function generateWarehouseIntakePdf(
     "Visible defects / condition comments",
     sanitizeText(record.conditionReport.exterior.visibleDefects?.notes, "No additional visible defect notes recorded", supportsUnicode)
   );
+  await drawBodyDamageRecordsSection();
+  await drawWheelRimConditionSection();
+  await drawPhotoSection("Additional damage photos", conditionEvidence.additionalDamagePhotos, { includeMeta: true });
 
   if (record.serviceItems.length) {
     drawSectionTitle("Service fee items");
@@ -582,13 +727,9 @@ export async function generateWarehouseIntakePdf(
     }
   }
 
-  if (record.photos.length) {
-    await drawPhotoSection("Vehicle documentation photos", record.photos.slice(0, 12));
-  }
-
-  const damagePhotos = record.photos.filter((photo) => photo.category === "damagePhotos");
-  if (damagePhotos.length) {
-    await drawPhotoSection("Damage / condition notes", damagePhotos, { includeMeta: true });
+  const documentationPhotos = record.photos.filter((photo) => photo.category !== "damagePhotos").slice(0, 12);
+  if (documentationPhotos.length) {
+    await drawPhotoSection("Vehicle documentation photos", documentationPhotos);
   }
 
   const pages = pdfDoc.getPages();

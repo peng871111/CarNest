@@ -38,6 +38,15 @@ import {
   VEHICLE_BODY_DAMAGE_GRID_CELLS,
 } from "@/lib/vehicle-body-damage-grid";
 import {
+  formatVehicleWheelDamageLocation,
+  VEHICLE_WHEEL_DAMAGE_TYPE_LABELS,
+  VEHICLE_WHEEL_DAMAGE_TYPES,
+  VEHICLE_WHEEL_POSITION_LABELS,
+  VEHICLE_WHEEL_POSITIONS,
+  VEHICLE_WHEEL_ZONE_LABELS,
+  VEHICLE_WHEEL_ZONES,
+} from "@/lib/vehicle-wheel-condition";
+import {
   createEmptyVehicleServiceHistoryRecord,
   formatVehicleServiceHistoryDate,
   sortVehicleServiceHistoryRecords,
@@ -63,6 +72,7 @@ import { hasAdminPermission } from "@/lib/permissions";
 import { useAuth } from "@/lib/auth";
 import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-pad";
 import { VehicleConditionBodyMap } from "@/components/vehicles/vehicle-condition-body-map";
+import { WheelRimConditionMap } from "@/components/vehicles/wheel-rim-condition-map";
 import {
   CustomerProfile,
   Vehicle,
@@ -78,9 +88,13 @@ import {
   VehicleConditionCategoryKey,
   VehicleConditionScore,
   VehicleDamageType,
+  VehicleWheelDamageType,
+  VehicleWheelPosition,
+  VehicleWheelZone,
   VehicleReportRwcCooperation,
   WarehouseServiceFeeItem,
   WarehouseVehicleDamageRecord,
+  WarehouseVehicleWheelDamageRecord,
 } from "@/types";
 
 const WAREHOUSE_SERVICE_FEE_OPTIONS: Array<{ value: WarehouseServiceFeeItem["category"]; label: string }> = [
@@ -105,6 +119,10 @@ const VEHICLE_SERVICE_HISTORY_YEAR_OPTIONS = Array.from({ length: 60 }, (_, inde
 const SCORED_CONDITION_CATEGORY_KEYS = [...VEHICLE_CONDITION_SCORED_CATEGORY_KEYS];
 const NOTES_ONLY_CONDITION_CATEGORY_KEYS = new Set<VehicleConditionCategoryKey>(VEHICLE_CONDITION_NOTES_ONLY_CATEGORY_KEYS);
 const NON_DAMAGE_WAREHOUSE_PHOTO_SECTIONS = WAREHOUSE_PHOTO_SECTIONS.filter((section) => section.key !== "damagePhotos");
+const ADDITIONAL_DAMAGE_PHOTO_LIMIT = 20;
+const DEFAULT_SELECTED_WHEEL_ZONES = Object.fromEntries(
+  VEHICLE_WHEEL_POSITIONS.map((position) => [position, "outer_rim_top"])
+) as Record<VehicleWheelPosition, VehicleWheelZone>;
 const PHOTO_DELETION_REASON_OPTIONS = [
   "Vehicle repaired",
   "Incorrect photo",
@@ -126,6 +144,25 @@ function createWarehouseDamageRecord(gridCellId: string, panelKey: VehicleBodyPa
 
 function getDamagePhotoLabel(panelKey: VehicleBodyPanelKey, damageType: VehicleDamageType) {
   return `${VEHICLE_BODY_PANEL_LABELS[panelKey]} · ${VEHICLE_DAMAGE_TYPE_LABELS[damageType]}`;
+}
+
+function createWarehouseWheelDamageRecord(
+  wheelPosition: VehicleWheelPosition,
+  wheelZone: VehicleWheelZone,
+  damageType: VehicleWheelDamageType
+): WarehouseVehicleWheelDamageRecord {
+  return {
+    id: `wheel-damage-record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    wheelPosition,
+    wheelZone,
+    damageType,
+    notes: "",
+    photoIds: [],
+  };
+}
+
+function getWheelDamagePhotoLabel(record: WarehouseVehicleWheelDamageRecord) {
+  return `${formatVehicleWheelDamageLocation(record.wheelPosition, record.wheelZone)} · ${VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[record.damageType]}`;
 }
 
 function toDraft(record: WarehouseIntakeRecord): Omit<WarehouseIntakeRecord, "id"> {
@@ -525,6 +562,125 @@ function PhotoDeleteDialog({
   );
 }
 
+function ConditionEvidenceReviewSection({
+  additionalDamagePhotos,
+  wheelDamageRecords,
+  photos,
+}: {
+  additionalDamagePhotos: WarehouseIntakePhotoRecord[];
+  wheelDamageRecords: WarehouseVehicleWheelDamageRecord[];
+  photos: WarehouseIntakePhotoRecord[];
+}) {
+  const photosById = new Map(photos.map((photo) => [photo.id, photo] as const));
+  const sortedWheelRecords = [...wheelDamageRecords]
+    .filter((record) => Boolean(record.wheelPosition && record.wheelZone))
+    .sort((left, right) => {
+      const positionOrder = VEHICLE_WHEEL_POSITIONS.indexOf(left.wheelPosition) - VEHICLE_WHEEL_POSITIONS.indexOf(right.wheelPosition);
+      if (positionOrder !== 0) return positionOrder;
+      return VEHICLE_WHEEL_ZONES.indexOf(left.wheelZone) - VEHICLE_WHEEL_ZONES.indexOf(right.wheelZone);
+    });
+
+  return (
+    <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-panel">
+      <p className="text-xs uppercase tracking-[0.24em] text-bronze">Vehicle condition evidence</p>
+      <h4 className="mt-2 text-xl font-semibold text-ink">Review before signing</h4>
+      <p className="mt-2 text-sm leading-6 text-ink/60">
+        These condition photos and notes form part of the current storage contract record.
+      </p>
+
+      <div className="mt-5 rounded-[24px] border border-black/6 bg-shell p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-semibold text-ink">Additional damage photos</p>
+            <p className="mt-1 text-xs leading-5 text-ink/55">Legacy or unlinked condition evidence for customer review.</p>
+          </div>
+          <span className="rounded-full border border-black/8 bg-white px-3 py-1 text-xs font-semibold text-ink/58">
+            {additionalDamagePhotos.length}/{ADDITIONAL_DAMAGE_PHOTO_LIMIT}
+          </span>
+        </div>
+        {additionalDamagePhotos.length ? (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {additionalDamagePhotos.map((photo) => (
+              <div key={photo.id} className="rounded-[22px] border border-black/6 bg-white p-3">
+                <WarehouseIntakeSecureImage storagePath={photo.storagePath} fileName={photo.name} alt={photo.label || "Additional damage photo"} />
+                <p className="mt-3 text-sm font-semibold text-ink">{photo.label || "Additional damage photo"}</p>
+                <p className="mt-1 text-xs leading-5 text-ink/55">
+                  {photo.note?.trim() || "No additional damage note recorded."}
+                </p>
+                {photo.uploadedAt ? (
+                  <p className="mt-2 text-[11px] uppercase tracking-[0.16em] text-ink/40">
+                    Recorded {formatAdminDateTime(photo.uploadedAt)}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[18px] border border-dashed border-black/10 bg-white px-4 py-5 text-sm text-ink/55">
+            No additional damage photos recorded.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 rounded-[24px] border border-black/6 bg-shell p-4">
+        <p className="text-sm font-semibold text-ink">Wheel & Rim Condition</p>
+        <p className="mt-1 text-xs leading-5 text-ink/55">Wheel-zone condition records and associated photo evidence.</p>
+        {sortedWheelRecords.length ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-4 lg:grid-cols-2">
+              {VEHICLE_WHEEL_POSITIONS.map((position) => {
+                const positionRecords = sortedWheelRecords.filter((record) => record.wheelPosition === position);
+                return positionRecords.length ? (
+                  <WheelRimConditionMap
+                    key={position}
+                    position={position}
+                    records={positionRecords}
+                  />
+                ) : null;
+              })}
+            </div>
+            {sortedWheelRecords.map((record) => {
+              const recordPhotos = record.photoIds
+                .map((photoId) => photosById.get(photoId) ?? null)
+                .filter((photo): photo is WarehouseIntakePhotoRecord => Boolean(photo));
+
+              return (
+                <div key={record.id} className="rounded-[22px] border border-black/6 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">{VEHICLE_WHEEL_POSITION_LABELS[record.wheelPosition]}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.16em] text-ink/45">{VEHICLE_WHEEL_ZONE_LABELS[record.wheelZone]}</p>
+                    </div>
+                    <span className="rounded-full border border-black/8 bg-shell px-3 py-1 text-xs font-semibold text-ink/70">
+                      {VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[record.damageType]}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-ink/58">{record.notes.trim() || "No wheel/rim note recorded."}</p>
+                  {recordPhotos.length ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {recordPhotos.map((photo) => (
+                        <WarehouseIntakeSecureImage key={photo.id} storagePath={photo.storagePath} fileName={photo.name} alt={photo.label || getWheelDamagePhotoLabel(record)} />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-[18px] border border-dashed border-black/10 bg-shell px-4 py-4 text-sm text-ink/55">
+                      No photos linked to this wheel/rim record.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-[18px] border border-dashed border-black/10 bg-white px-4 py-5 text-sm text-ink/55">
+            No wheel/rim zone records added.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -550,6 +706,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
   const [selectedDamageGridCellId, setSelectedDamageGridCellId] = useState<string>(VEHICLE_BODY_DAMAGE_GRID_CELLS[0]?.id || "");
   const [selectedDamageRecordId, setSelectedDamageRecordId] = useState<string>("");
+  const [selectedWheelZones, setSelectedWheelZones] = useState<Record<VehicleWheelPosition, VehicleWheelZone>>(DEFAULT_SELECTED_WHEEL_ZONES);
   const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
   const [photoDeletionReason, setPhotoDeletionReason] = useState("");
   const [deletingPhotoId, setDeletingPhotoId] = useState("");
@@ -571,6 +728,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     () => draft.vehicleReport.damageRecords ?? [],
     [draft.vehicleReport.damageRecords]
   );
+  const wheelDamageRecords = useMemo(
+    () => draft.vehicleReport.wheelDamageRecords ?? [],
+    [draft.vehicleReport.wheelDamageRecords]
+  );
   const serviceHistoryRecords = useMemo(
     () => sortVehicleServiceHistoryRecords(draft.vehicleDetails.serviceHistoryRecords),
     [draft.vehicleDetails.serviceHistoryRecords]
@@ -582,6 +743,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         .flatMap((record) => record.photoIds)
     ),
     [damageRecords]
+  );
+  const linkedWheelDamagePhotoIds = useMemo(
+    () => new Set(
+      wheelDamageRecords
+        .filter((record) => Boolean(record.wheelPosition && record.wheelZone))
+        .flatMap((record) => record.photoIds)
+    ),
+    [wheelDamageRecords]
   );
   const selectedGridCellDamageRecords = useMemo(
     () => damageRecords.filter((record) => record.gridCellId === selectedDamageGridCellId),
@@ -606,14 +775,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       }
 
       return draft.photos
-        .filter((photo) => photo.category === "damagePhotos" && !linkedDamagePhotoIds.has(photo.id))
+        .filter((photo) => photo.category === "damagePhotos" && !linkedDamagePhotoIds.has(photo.id) && !linkedWheelDamagePhotoIds.has(photo.id))
         .map((photo) => (
           !photo.note?.trim() && legacyRecordNoteByPhotoId.has(photo.id)
             ? { ...photo, note: legacyRecordNoteByPhotoId.get(photo.id) }
             : photo
         ));
     },
-    [damageRecords, draft.photos, linkedDamagePhotoIds]
+    [damageRecords, draft.photos, linkedDamagePhotoIds, linkedWheelDamagePhotoIds]
   );
   const serviceFeeTotals = useMemo(() => {
     const subtotal = draft.serviceItems.reduce((sum, item) => sum + (Number.isFinite(item.amount) ? item.amount : 0), 0);
@@ -1097,6 +1266,68 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     setSelectedDamageRecordId(nextRecord.id);
   }
 
+  function handleWheelZoneSelect(wheelPosition: VehicleWheelPosition, wheelZone: VehicleWheelZone) {
+    setSelectedWheelZones((current) => ({
+      ...current,
+      [wheelPosition]: wheelZone,
+    }));
+  }
+
+  function updateWheelZoneRecord(
+    wheelPosition: VehicleWheelPosition,
+    wheelZone: VehicleWheelZone,
+    updates: Partial<Pick<WarehouseVehicleWheelDamageRecord, "damageType" | "notes">>
+  ) {
+    setSelectedWheelZones((current) => ({
+      ...current,
+      [wheelPosition]: wheelZone,
+    }));
+
+    setDraft((current) => {
+      const records = current.vehicleReport.wheelDamageRecords ?? [];
+      const existingRecord = records.find((record) => record.wheelPosition === wheelPosition && record.wheelZone === wheelZone);
+      const nextDamageType = updates.damageType ?? existingRecord?.damageType ?? "original";
+      const nextNotes = updates.notes ?? existingRecord?.notes ?? "";
+
+      if (!existingRecord && nextDamageType === "original" && !nextNotes.trim()) {
+        return current;
+      }
+
+      const nextRecord = existingRecord
+        ? {
+            ...existingRecord,
+            ...updates,
+            damageType: nextDamageType,
+            notes: nextNotes,
+          }
+        : createWarehouseWheelDamageRecord(wheelPosition, wheelZone, nextDamageType);
+
+      if (!existingRecord) {
+        nextRecord.notes = nextNotes;
+      }
+
+      if (nextRecord.damageType === "original" && !nextRecord.notes.trim() && !nextRecord.photoIds.length) {
+        return {
+          ...current,
+          vehicleReport: {
+            ...current.vehicleReport,
+            wheelDamageRecords: records.filter((record) => record.id !== nextRecord.id),
+          }
+        };
+      }
+
+      return {
+        ...current,
+        vehicleReport: {
+          ...current.vehicleReport,
+          wheelDamageRecords: existingRecord
+            ? records.map((record) => record.id === existingRecord.id ? nextRecord : record)
+            : records.concat(nextRecord),
+        }
+      };
+    });
+  }
+
   function addServiceItem() {
     setDraft((current) => ({
       ...current,
@@ -1252,7 +1483,26 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
 
     try {
       setUploadingLabel(`Uploading ${label.toLowerCase()}...`);
-      const uploadedPhotos = await uploadWarehouseIntakePhotos(Array.from(files), recordId, category, label);
+      const selectedFiles = Array.from(files);
+      const isAdditionalDamageUpload = category === "damagePhotos" && multiple;
+      const remainingAdditionalDamageSlots = Math.max(ADDITIONAL_DAMAGE_PHOTO_LIMIT - additionalDamagePhotos.length, 0);
+
+      if (isAdditionalDamageUpload && remainingAdditionalDamageSlots <= 0) {
+        setErrorMessage(`Additional damage photos are limited to ${ADDITIONAL_DAMAGE_PHOTO_LIMIT} per storage contract.`);
+        setUploadingLabel("");
+        return;
+      }
+
+      const uploadFiles = isAdditionalDamageUpload
+        ? selectedFiles.slice(0, remainingAdditionalDamageSlots)
+        : selectedFiles;
+      const uploadedPhotos = await uploadWarehouseIntakePhotos(
+        uploadFiles,
+        recordId,
+        category,
+        label,
+        isAdditionalDamageUpload ? { maxFiles: remainingAdditionalDamageSlots } : undefined
+      );
       const retained = multiple
         ? draft.photos.concat(uploadedPhotos)
         : draft.photos.filter((photo) => photo.category !== category).concat(uploadedPhotos.slice(0, 1));
@@ -1261,7 +1511,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         photos: retained
       };
       setDraft(nextDraft);
-      await persistDraft(nextDraft, "Condition photos uploaded.");
+      const truncatedMessage = isAdditionalDamageUpload && selectedFiles.length > uploadFiles.length
+        ? `Condition photos uploaded. Additional damage photos are limited to ${ADDITIONAL_DAMAGE_PHOTO_LIMIT}; ${uploadFiles.length} new photo${uploadFiles.length === 1 ? "" : "s"} were added.`
+        : "Condition photos uploaded.";
+      await persistDraft(nextDraft, truncatedMessage);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "We couldn't upload those photos.");
     } finally {
@@ -1307,6 +1560,44 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }
   }
 
+  async function handleWheelDamageRecordPhotoUpload(wheelDamageRecordId: string, files: FileList | null) {
+    if (!files?.length || !recordId) return;
+
+    const wheelDamageRecord = (draft.vehicleReport.wheelDamageRecords ?? []).find((record) => record.id === wheelDamageRecordId);
+    if (!wheelDamageRecord) return;
+
+    try {
+      setUploadingLabel(`Uploading ${VEHICLE_WHEEL_POSITION_LABELS[wheelDamageRecord.wheelPosition].toLowerCase()} photos...`);
+      const uploadedPhotos = await uploadWarehouseIntakePhotos(
+        Array.from(files),
+        recordId,
+        "damagePhotos",
+        getWheelDamagePhotoLabel(wheelDamageRecord)
+      );
+      const nextDraft = {
+        ...draft,
+        photos: draft.photos.concat(uploadedPhotos),
+        vehicleReport: {
+          ...draft.vehicleReport,
+          wheelDamageRecords: (draft.vehicleReport.wheelDamageRecords ?? []).map((record) => (
+            record.id === wheelDamageRecordId
+              ? {
+                  ...record,
+                  photoIds: [...record.photoIds, ...uploadedPhotos.map((photo) => photo.id)],
+                }
+              : record
+          )),
+        }
+      };
+      setDraft(nextDraft);
+      await persistDraft(nextDraft, "Wheel/rim damage photos uploaded.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't upload those wheel/rim photos.");
+    } finally {
+      setUploadingLabel("");
+    }
+  }
+
   function updatePhotoNote(photoId: string, note: string) {
     setDraft((current) => ({
       ...current,
@@ -1344,6 +1635,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         vehicleReport: {
           ...current.vehicleReport,
           damageRecords: (current.vehicleReport.damageRecords ?? []).map((record) => ({
+            ...record,
+            photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
+          })),
+          wheelDamageRecords: (current.vehicleReport.wheelDamageRecords ?? []).map((record) => ({
             ...record,
             photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
           })),
@@ -2183,6 +2478,116 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <div className="rounded-[24px] border border-black/6 bg-white p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
+                      <p className="text-sm font-semibold text-ink">Wheel & Rim Condition</p>
+                      <FieldNote>
+                        Use the enlarged wheel diagrams to record precise wheel or rim damage independently from the overall exterior body map.
+                      </FieldNote>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                    {VEHICLE_WHEEL_POSITIONS.map((wheelPosition) => {
+                      const selectedWheelZone = selectedWheelZones[wheelPosition] ?? "outer_rim_top";
+                      const wheelRecordsForPosition = wheelDamageRecords.filter((record) => record.wheelPosition === wheelPosition);
+                      const activeWheelRecord = wheelRecordsForPosition.find((record) => record.wheelZone === selectedWheelZone) ?? null;
+                      const activeWheelPhotos = activeWheelRecord
+                        ? draft.photos.filter((photo) => activeWheelRecord.photoIds.includes(photo.id))
+                        : [];
+
+                      return (
+                        <div key={wheelPosition} className="rounded-[26px] border border-black/6 bg-shell p-4">
+                          <WheelRimConditionMap
+                            position={wheelPosition}
+                            records={wheelRecordsForPosition}
+                            selectedZone={selectedWheelZone}
+                            editable
+                            onZoneSelect={handleWheelZoneSelect}
+                          />
+
+                          <div className="mt-4 rounded-[22px] border border-black/6 bg-white p-4">
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="space-y-2">
+                                <FieldLabel>Selected wheel area</FieldLabel>
+                                <SelectInput
+                                  value={selectedWheelZone}
+                                  onChange={(event) => handleWheelZoneSelect(wheelPosition, event.target.value as VehicleWheelZone)}
+                                >
+                                  {VEHICLE_WHEEL_ZONES.map((zone) => (
+                                    <option key={zone} value={zone}>{VEHICLE_WHEEL_ZONE_LABELS[zone]}</option>
+                                  ))}
+                                </SelectInput>
+                              </div>
+                              <div className="space-y-2">
+                                <FieldLabel>Condition type</FieldLabel>
+                                <SelectInput
+                                  value={activeWheelRecord?.damageType ?? "original"}
+                                  onChange={(event) => updateWheelZoneRecord(wheelPosition, selectedWheelZone, {
+                                    damageType: event.target.value as VehicleWheelDamageType
+                                  })}
+                                >
+                                  {VEHICLE_WHEEL_DAMAGE_TYPES.map((damageType) => (
+                                    <option key={damageType} value={damageType}>{VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[damageType]}</option>
+                                  ))}
+                                </SelectInput>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 space-y-2">
+                              <FieldLabel>Wheel / rim note</FieldLabel>
+                              <TextAreaInput
+                                className="min-h-[84px]"
+                                value={activeWheelRecord?.notes ?? ""}
+                                onChange={(event) => updateWheelZoneRecord(wheelPosition, selectedWheelZone, { notes: event.target.value })}
+                                placeholder="Optional note for this exact wheel area."
+                              />
+                            </div>
+
+                            <div className="mt-4 space-y-2">
+                              <FieldLabel>Linked wheel photos</FieldLabel>
+                              <TextInput
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                multiple
+                                disabled={!recordId || !activeWheelRecord}
+                                onChange={(event) => activeWheelRecord ? void handleWheelDamageRecordPhotoUpload(activeWheelRecord.id, event.target.files) : undefined}
+                              />
+                              <FieldNote>
+                                {activeWheelRecord
+                                  ? "Take or upload photos for this exact wheel/rim zone."
+                                  : "Choose a condition type or add a note first, then upload photos for this wheel/rim zone."}
+                              </FieldNote>
+                            </div>
+
+                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                              {activeWheelRecord && activeWheelPhotos.length ? (
+                                activeWheelPhotos.map((photo) => (
+                                  <WarehouseIntakePhotoCard
+                                    key={photo.id}
+                                    photo={photo}
+                                    alt={photo.label || getWheelDamagePhotoLabel(activeWheelRecord)}
+                                    canDelete={canDeletePhotos}
+                                    listingLinked={listingLinked}
+                                    deleting={deletingPhotoId === photo.id}
+                                    onRequestDelete={setPhotoPendingDelete}
+                                  />
+                                ))
+                              ) : (
+                                <div className="rounded-[18px] border border-dashed border-black/10 bg-shell px-4 py-5 text-sm text-ink/55">
+                                  No photos linked to this wheel/rim area yet.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-black/6 bg-white p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
                       <p className="text-sm font-semibold text-ink">Selected damage grid area</p>
                       <FieldNote>
                         After you select a damage type on the floating picker, add optional notes and linked photos for that exact grid location here.
@@ -2345,7 +2750,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     <div>
                       <FieldLabel>Additional damage photos</FieldLabel>
                       <FieldNote>
-                        Legacy or unlinked damage photos stay here for internal reference and buyer fallback when they are not attached to a specific grid location.
+                        Legacy or unlinked damage photos stay here as condition evidence when they are not attached to a body grid or wheel zone. Maximum {ADDITIONAL_DAMAGE_PHOTO_LIMIT} photos.
                       </FieldNote>
                     </div>
                     <div className="w-full max-w-sm">
@@ -2563,6 +2968,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           {currentStep === 4 ? (
             <div className="rounded-[28px] border border-black/5 bg-white p-6 shadow-panel">
               <h3 className="text-xl font-semibold text-ink">5. Signature</h3>
+              <div className="mt-5">
+                <ConditionEvidenceReviewSection
+                  additionalDamagePhotos={additionalDamagePhotos}
+                  wheelDamageRecords={wheelDamageRecords}
+                  photos={draft.photos}
+                />
+              </div>
               <div className="mt-5 grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <FieldLabel>Signer name</FieldLabel>
@@ -2641,6 +3053,13 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                   {listingEligibilityWarning}
                 </div>
               ) : null}
+              <div className="mt-6">
+                <ConditionEvidenceReviewSection
+                  additionalDamagePhotos={additionalDamagePhotos}
+                  wheelDamageRecords={wheelDamageRecords}
+                  photos={draft.photos}
+                />
+              </div>
               <div className="mt-6 flex flex-wrap gap-3">
                 <button
                   type="button"

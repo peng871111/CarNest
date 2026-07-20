@@ -452,6 +452,12 @@ function collectVehicleReportDamageData(record: WarehouseIntakeRecord) {
     });
   }
 
+  for (const wheelDamageRecord of record.vehicleReport.wheelDamageRecords ?? []) {
+    for (const photoId of wheelDamageRecord.photoIds) {
+      linkedPhotoIds.add(photoId);
+    }
+  }
+
   const legacyRecordNoteByPhotoId = new Map<string, string>();
   for (const damageRecord of record.vehicleReport.damageRecords ?? []) {
     if (damageRecord.gridCellId?.trim()) continue;

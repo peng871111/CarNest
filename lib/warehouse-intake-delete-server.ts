@@ -74,6 +74,22 @@ function removePhotoIdFromDamageRecords(data: WarehouseIntakeRawData, photoId: s
   }));
 }
 
+function removePhotoIdFromWheelDamageRecords(data: WarehouseIntakeRawData, photoId: string) {
+  const vehicleReport = data.vehicleReport && typeof data.vehicleReport === "object"
+    ? data.vehicleReport as Record<string, unknown>
+    : {};
+  const wheelDamageRecords = Array.isArray(vehicleReport.wheelDamageRecords)
+    ? vehicleReport.wheelDamageRecords as Array<Record<string, unknown>>
+    : [];
+
+  return wheelDamageRecords.map((record) => ({
+    ...record,
+    photoIds: Array.isArray(record.photoIds)
+      ? record.photoIds.filter((entry) => entry !== photoId)
+      : [],
+  }));
+}
+
 function hasBuyerFacingReport(data: WarehouseIntakeRawData) {
   const vehicleReport = data.vehicleReport && typeof data.vehicleReport === "object"
     ? data.vehicleReport as Record<string, unknown>
@@ -249,12 +265,14 @@ export async function deleteWarehouseIntakePhoto(input: {
   const storageResult = await deleteStorageObject(storagePath);
   const nextPhotos = photos.filter((entry) => entry.id !== photoId);
   const nextDamageRecords = removePhotoIdFromDamageRecords(data, photoId);
+  const nextWheelDamageRecords = removePhotoIdFromWheelDamageRecords(data, photoId);
 
   try {
     await ref.update({
       photos: nextPhotos,
       photoCount: nextPhotos.length,
       "vehicleReport.damageRecords": nextDamageRecords,
+      "vehicleReport.wheelDamageRecords": nextWheelDamageRecords,
       ...(pdfRegenerationRequiredAt
         ? {
             pdfRegenerationRequiredAt,

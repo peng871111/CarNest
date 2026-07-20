@@ -100,6 +100,25 @@ export type VehicleDamageType =
   | "loose"
   | "missing"
   | "other";
+export type VehicleWheelPosition = "front-left" | "front-right" | "rear-left" | "rear-right";
+export type VehicleWheelZone =
+  | "tyre_sidewall"
+  | "outer_rim_top"
+  | "outer_rim_right"
+  | "outer_rim_bottom"
+  | "outer_rim_left"
+  | "inner_rim_top"
+  | "inner_rim_right"
+  | "inner_rim_bottom"
+  | "inner_rim_left"
+  | "centre";
+export type VehicleWheelDamageType =
+  | "original"
+  | "scratch"
+  | "curb_rash"
+  | "dent_bend"
+  | "crack"
+  | "repaired_damage";
 export type VehicleReportRwcCooperation =
   | "seller_includes_rwc"
   | "seller_repairs_for_rwc"
@@ -311,11 +330,29 @@ export interface WarehouseVehicleDamageRecord {
   photoIds: string[];
 }
 
+export interface WarehouseVehicleWheelDamageRecord {
+  id: string;
+  wheelPosition: VehicleWheelPosition;
+  wheelZone: VehicleWheelZone;
+  damageType: VehicleWheelDamageType;
+  notes: string;
+  photoIds: string[];
+}
+
 export interface VehiclePublicDamageRecordSummary {
   id: string;
   gridCellId: string;
   panelKey: VehicleBodyPanelKey;
   damageType: VehicleDamageType;
+  notes: string;
+  images: VehicleReportImageSummary[];
+}
+
+export interface VehiclePublicWheelDamageRecordSummary {
+  id: string;
+  wheelPosition: VehicleWheelPosition;
+  wheelZone: VehicleWheelZone;
+  damageType: VehicleWheelDamageType;
   notes: string;
   images: VehicleReportImageSummary[];
 }
@@ -358,6 +395,7 @@ export interface VehiclePublicReportSummary {
   legacyServiceHistoryText?: string;
   damageConditionNotes?: string;
   damageRecords?: VehiclePublicDamageRecordSummary[];
+  wheelDamageRecords?: VehiclePublicWheelDamageRecordSummary[];
   damageImages?: VehicleReportImageSummary[];
 }
 
@@ -443,6 +481,7 @@ export interface WarehouseVehicleReportDetails {
   rwcCooperation: VehicleReportRwcCooperation | "";
   damageConditionNotes: string;
   damageRecords: WarehouseVehicleDamageRecord[];
+  wheelDamageRecords: WarehouseVehicleWheelDamageRecord[];
 }
 
 export interface WarehouseIntakeDeclarations {
