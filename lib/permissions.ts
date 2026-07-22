@@ -114,7 +114,6 @@ export function resolveManagedUserAccess(input: {
 }): { role: UserRole; adminPermissions?: AdminPermissions } {
   const email = normalizeEmailAddress(input.email);
   const storedRole = resolveStoredUserRole(input.storedRole);
-  const hasStoredPermissions = Boolean(input.storedPermissions);
 
   if (isCraigSuperAdminEmail(email)) {
     return {
@@ -123,7 +122,7 @@ export function resolveManagedUserAccess(input: {
     };
   }
 
-  if (storedRole === "admin" || storedRole === "super_admin" || hasStoredPermissions) {
+  if (storedRole === "admin" || storedRole === "super_admin") {
     const normalizedRole = storedRole === "super_admin" ? "super_admin" : storedRole;
     return {
       role: normalizedRole,

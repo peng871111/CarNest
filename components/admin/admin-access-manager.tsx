@@ -1,23 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { startTransition, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppUser, ComplianceAlert, ComplianceVehicleActivity, UserRole } from "@/types";
-import { updateUserAccess } from "@/lib/data";
 import { ADMIN_PERMISSION_KEYS, createAdminPermissions } from "@/lib/permissions";
 import { formatMonthYear, getAccountDisplayReference } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 
 function normalizePermissions(user: AppUser) {
+  if (user.role !== "admin" && user.role !== "super_admin") {
+    return createAdminPermissions({
+      manageVehicles: false,
+      deleteListings: false,
+      manageOffers: false,
+      manageEnquiries: false,
+      manageInspections: false,
+      managePricing: false,
+      manageQuotes: false,
+      manageUsers: false,
+      manageAdmins: false
+    });
+  }
   return createAdminPermissions(user.adminPermissions ?? {});
 }
 
 function createDraft(user: AppUser) {
   return {
     role: user.role,
-    adminPermissions: normalizePermissions(user)
+    adminPermissions: normalizePermissions(user),
+    roleTouched: false
   };
 }
 
@@ -38,9 +50,16 @@ function formatComplianceDate(value?: string) {
   }).format(date);
 }
 
-export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser[]; complianceAlerts: ComplianceAlert[] }) {
-  const router = useRouter();
-  const { appUser } = useAuth();
+export function AdminAccessManager({
+  users,
+  complianceAlerts,
+  onUserAccessUpdated,
+}: {
+  users: AppUser[];
+  complianceAlerts: ComplianceAlert[];
+  onUserAccessUpdated?: (user: AppUser) => void;
+}) {
+  const { appUser, firebaseUser } = useAuth();
   const [drafts, setDrafts] = useState<Record<string, ReturnType<typeof createDraft>>>(
     Object.fromEntries(users.map((user) => [user.id, createDraft(user)]))
   );
@@ -49,6 +68,10 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
   const [success, setSuccess] = useState("");
   const [expandedAlerts, setExpandedAlerts] = useState<Record<string, boolean>>({});
   const [showAllActivities, setShowAllActivities] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setDrafts(Object.fromEntries(users.map((user) => [user.id, createDraft(user)])));
+  }, [users]);
 
   const orderedUsers = useMemo(() => {
     const complianceAlertsByUserId = new Map(complianceAlerts.map((alert) => [alert.userId, alert]));
@@ -112,30 +135,81 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
     setSuccess("");
 
     try {
-      const nextRole = draft.role as UserRole;
+      const nextRole = (draft.roleTouched ? draft.role : user.role) as UserRole;
       const nextPermissions = nextRole === "admin" || nextRole === "super_admin" ? draft.adminPermissions : undefined;
+      const idToken = await firebaseUser?.getIdToken(true);
 
-      await updateUserAccess(
-        user.id,
-        {
+      if (!idToken) {
+        throw new Error("Admin authentication has expired. Please sign in again.");
+      }
+
+      const response = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/access`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
           role: nextRole,
           adminPermissions: nextPermissions
-        },
-        {
-          id: appUser.id,
-          role: appUser.role,
-          email: appUser.email,
-          adminPermissions: appUser.adminPermissions
-        },
-        user
-      );
-
-      setSuccess(`Access updated for ${user.displayName || user.email}.`);
-      startTransition(() => {
-        router.refresh();
+        })
       });
+
+      const result = await response.json().catch(() => null) as { success?: boolean; error?: string; message?: string; user?: AppUser } | null;
+      if (!response.ok || !result?.success || !result.user) {
+        throw new Error(result?.error || "Unable to update admin access.");
+      }
+
+      setDrafts((current) => ({
+        ...current,
+        [user.id]: createDraft(result.user as AppUser)
+      }));
+      onUserAccessUpdated?.(result.user);
+      if (result.user.id === appUser.id) {
+        await firebaseUser?.getIdToken(true).catch(() => undefined);
+      }
+      setSuccess(result.message || "Admin access updated successfully.");
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Something went wrong. Please try again.");
+    } finally {
+      setSavingUserId(null);
+    }
+  }
+
+  async function repairKnownAdmins() {
+    if (!appUser) {
+      setError("You need to be signed in to manage admin access.");
+      return;
+    }
+
+    setSavingUserId("repair-known-admins");
+    setError("");
+    setSuccess("");
+
+    try {
+      const idToken = await firebaseUser?.getIdToken(true);
+      if (!idToken) {
+        throw new Error("Admin authentication has expired. Please sign in again.");
+      }
+
+      const response = await fetch("/api/admin/users/repair-known-admins", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${idToken}`
+        }
+      });
+
+      const result = await response.json().catch(() => null) as { success?: boolean; error?: string; message?: string; results?: Array<{ user: AppUser }> } | null;
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || "Unable to repair known admin access.");
+      }
+
+      for (const item of result.results ?? []) {
+        onUserAccessUpdated?.(item.user);
+      }
+      setSuccess(result.message || "Known admin access repaired successfully.");
+    } catch (repairError) {
+      setError(repairError instanceof Error ? repairError.message : "Unable to repair known admin access.");
     } finally {
       setSavingUserId(null);
     }
@@ -144,12 +218,24 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
   return (
     <section className="rounded-[32px] border border-black/5 bg-white shadow-panel">
       <div className="border-b border-black/5 px-6 py-5">
-        <p className="text-xs uppercase tracking-[0.24em] text-bronze">Internal access</p>
-        <h2 className="mt-2 text-2xl font-semibold text-ink">User roles and admin permissions</h2>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
-          This screen is focused on internal admin accounts, promotion and revocation of admin access,
-          and the working permission set stored in Firestore.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-bronze">Internal access</p>
+            <h2 className="mt-2 text-2xl font-semibold text-ink">User roles and admin permissions</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-ink/65">
+              This screen is focused on internal admin accounts, promotion and revocation of admin access,
+              and the working permission set stored in Firestore.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => repairKnownAdmins()}
+            disabled={savingUserId === "repair-known-admins"}
+            className="border border-black/10 bg-white text-ink hover:bg-shell"
+          >
+            {savingUserId === "repair-known-admins" ? "Repairing..." : "Repair Guanchao & Kevin"}
+          </Button>
+        </div>
         {success ? <p className="mt-4 text-sm text-emerald-700">{success}</p> : null}
         {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
       </div>
@@ -283,6 +369,7 @@ export function AdminAccessManager({ users, complianceAlerts }: { users: AppUser
                         onChange={(event) =>
                           updateDraft(user.id, {
                             role: event.target.value as UserRole,
+                            roleTouched: true,
                             adminPermissions:
                               event.target.value === "admin"
                                 ? draft.adminPermissions

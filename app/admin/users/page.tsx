@@ -40,6 +40,14 @@ export default function AdminUsersPage() {
     [complianceAlerts]
   );
 
+  function handleUserAccessUpdated(updatedUser: AppUser) {
+    setUsers((currentUsers) => {
+      const exists = currentUsers.some((user) => user.id === updatedUser.id);
+      if (!exists) return [updatedUser, ...currentUsers];
+      return currentUsers.map((user) => (user.id === updatedUser.id ? updatedUser : user));
+    });
+  }
+
   return (
     <AdminShell
       title="Admin Access"
@@ -60,7 +68,11 @@ export default function AdminUsersPage() {
           Open compliance alerts: {openComplianceAlerts.length}
         </div>
       </div>
-      <AdminAccessManager users={adminUsers} complianceAlerts={complianceAlerts} />
+      <AdminAccessManager
+        users={adminUsers}
+        complianceAlerts={complianceAlerts}
+        onUserAccessUpdated={handleUserAccessUpdated}
+      />
     </AdminShell>
   );
 }
