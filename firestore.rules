@@ -27,6 +27,14 @@ service cloud.firestore {
         );
     }
 
+    function hasAdminPermission(permission) {
+      return isSuperAdmin()
+        || (
+          isAdmin()
+          && userDoc().data.adminPermissions[permission] == true
+        );
+    }
+
     function isSeller() {
       return signedIn() && (userDoc().data.role == "seller" || userDoc().data.role == "private");
     }
@@ -1640,12 +1648,12 @@ service cloud.firestore {
         && request.resource.data.notes is string
         && isValidQuoteStatus(request.resource.data.status)
         && request.resource.data.status == "NEW";
-      allow read: if isAdmin()
+      allow read: if hasAdminPermission("manageQuotes")
         || (isSellerWorkspaceUser() && resource.data.ownerId == request.auth.uid);
-      allow update: if isAdmin()
+      allow update: if hasAdminPermission("manageQuotes")
         && isValidQuoteStatus(request.resource.data.status)
         && quoteFieldsUnchanged();
-      allow delete: if isAdmin();
+      allow delete: if hasAdminPermission("manageQuotes");
     }
 
     match /contact_messages/{id} {
