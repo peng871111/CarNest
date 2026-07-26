@@ -42,6 +42,10 @@ service firebase.storage {
       allow read, write: if isAdmin();
     }
 
+    match /activity-updates/{vehicleId}/{activityId}/{allPaths=**} {
+      allow read, write: if isAdmin();
+    }
+
     match /vehicle-reports/{vehicleId}/{allPaths=**} {
       allow read: if signedIn();
       allow write: if isAdmin();

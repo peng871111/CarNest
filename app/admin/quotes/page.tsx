@@ -1,45 +1,127 @@
+"use client";
+
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { QuoteStatusActions } from "@/components/quotes/quote-status-actions";
 import { QuoteStatusBadge } from "@/components/quotes/quote-status-badge";
-import { getQuotesData } from "@/lib/data";
-import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
+import { getQuotesData, getVehicleById } from "@/lib/data";
+import { useAuth } from "@/lib/auth";
+import { hasAdminPermission } from "@/lib/permissions";
 import { getVehicleDisplayReference } from "@/lib/utils";
+import type { Quote, Vehicle } from "@/types";
 
-export const dynamic = "force-dynamic";
+const QUOTES_PAGE_TITLE = "Quotes";
+const QUOTES_PAGE_DESCRIPTION = "Track seller service quote requests and move each one through the CarNest response pipeline.";
 
-export default async function AdminQuotesPage({
-  searchParams
-}: {
-  searchParams?: Promise<{ write?: string; status?: string; quoteId?: string }>;
-}) {
-  const { items: quotes, error } = await getQuotesData();
-  const vehiclesByQuote = await Promise.all(
-    quotes.map(async (quote) => ({
-      quoteId: quote.id,
-      vehicle: quote.vehicleId ? await getAdminVehicleById(quote.vehicleId) : null
-    }))
-  );
-  const vehicleMap = new Map(vehiclesByQuote.map((entry) => [entry.quoteId, entry.vehicle]));
-  const params = searchParams ? await searchParams : undefined;
+function AdminQuotesContent() {
+  const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const { appUser, loading: authLoading } = useAuth();
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [vehicleLookup, setVehicleLookup] = useState<Record<string, Vehicle | null>>({});
+  const [loadingQuotes, setLoadingQuotes] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const canManageQuotes = hasAdminPermission(appUser, "manageQuotes");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadQuotes() {
+      if (authLoading) return;
+      if (!canManageQuotes) {
+        setQuotes([]);
+        setVehicleLookup({});
+        setLoadError("");
+        setLoadingQuotes(false);
+        return;
+      }
+
+      setLoadingQuotes(true);
+      setLoadError("");
+
+      try {
+        const result = await getQuotesData();
+        if (cancelled) return;
+
+        if (result.error) {
+          console.error("[admin-quotes] Quote request read failed.", {
+            error: result.error
+          });
+          setQuotes([]);
+          setVehicleLookup({});
+          setLoadError("Quote requests could not be loaded right now. Please try again.");
+          return;
+        }
+
+        setQuotes(result.items);
+        const vehiclesByQuote = await Promise.all(
+          result.items.map(async (quote) => {
+            if (!quote.vehicleId) return [quote.id, null] as const;
+            const vehicle = await getVehicleById(quote.vehicleId).catch((error) => {
+              console.warn("[admin-quotes] Linked vehicle lookup failed.", {
+                quoteId: quote.id,
+                vehicleId: quote.vehicleId,
+                error: error instanceof Error ? error.message : String(error)
+              });
+              return null;
+            });
+            return [quote.id, vehicle] as const;
+          })
+        );
+
+        if (!cancelled) {
+          setVehicleLookup(Object.fromEntries(vehiclesByQuote));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("[admin-quotes] Quote page load failed.", {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          setQuotes([]);
+          setVehicleLookup({});
+          setLoadError("Quote requests could not be loaded right now. Please try again.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingQuotes(false);
+        }
+      }
+    }
+
+    void loadQuotes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authLoading, canManageQuotes, searchParamsKey]);
+
+  const vehicleMap = useMemo(() => new Map(Object.entries(vehicleLookup)), [vehicleLookup]);
   const writeStatus =
-    params?.write === "success"
-      ? `Quote status updated to ${params.status ?? "saved"}`
-      : params?.write === "mock"
+    searchParams.get("write") === "success"
+      ? `Quote status updated to ${searchParams.get("status") ?? "saved"}`
+      : searchParams.get("write") === "mock"
         ? "Quote update recorded"
         : "No recent updates";
 
   return (
-    <AdminShell title="Quotes" description="Track seller service quote requests and move each one through the CarNest response pipeline.">
+    <AdminShell
+      title={QUOTES_PAGE_TITLE}
+      description={QUOTES_PAGE_DESCRIPTION}
+      requiredPermission="manageQuotes"
+    >
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Quotes loaded: {quotes.length}</div>
+        <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+          Quotes loaded: {loadingQuotes ? "Loading..." : quotes.length}
+        </div>
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
           Recent activity: {writeStatus}
         </div>
       </div>
 
-      {error ? (
+      {loadError ? (
         <div className="rounded-[24px] border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-800">
-          Something went wrong. Please try again.
+          {loadError}
         </div>
       ) : null}
 
@@ -53,7 +135,11 @@ export default async function AdminQuotesPage({
           <span>Actions</span>
         </div>
         <div>
-          {quotes.length ? (
+          {loadingQuotes ? (
+            <div className="px-6 py-12 text-sm text-ink/60">Loading quote requests...</div>
+          ) : loadError ? (
+            <div className="px-6 py-12 text-sm text-ink/60">Quote requests could not be displayed.</div>
+          ) : quotes.length ? (
             quotes.map((quote) => {
               const vehicle = vehicleMap.get(quote.id);
               const vehicleReference = quote.vehicleId
@@ -95,5 +181,25 @@ export default async function AdminQuotesPage({
         </div>
       </section>
     </AdminShell>
+  );
+}
+
+export default function AdminQuotesPage() {
+  return (
+    <Suspense
+      fallback={
+        <AdminShell
+          title={QUOTES_PAGE_TITLE}
+          description={QUOTES_PAGE_DESCRIPTION}
+          requiredPermission="manageQuotes"
+        >
+          <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">
+            Loading quote requests...
+          </div>
+        </AdminShell>
+      }
+    >
+      <AdminQuotesContent />
+    </Suspense>
   );
 }

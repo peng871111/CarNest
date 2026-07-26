@@ -24,6 +24,12 @@ function getFirebaseStorageErrorCode(error: unknown) {
     : "";
 }
 
+function isFirebaseStorageUnauthorizedError(error: unknown) {
+  const code = getFirebaseStorageErrorCode(error);
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error ?? "").toLowerCase();
+  return code === "storage/unauthorized" || message.includes("storage/unauthorized");
+}
+
 export async function uploadVehicleImageAssets(images: PreparedVehicleImageUpload[], ownerUid: string): Promise<VehicleImageAsset[]> {
   if (!images.length) return [];
 
@@ -193,10 +199,19 @@ export async function uploadVehicleActivityImages(files: File[], vehicleId: stri
     });
 
     const storageRef = ref(storage, `activity-updates/${vehicleId}/${activityId}/carnest-update-${index + 1}.jpg`);
-    await uploadBytes(storageRef, optimizedFile, {
-      contentType: optimizedFile.type || "image/jpeg"
-    });
-    uploadedUrls.push(await getDownloadURL(storageRef));
+    try {
+      await uploadBytes(storageRef, optimizedFile, {
+        contentType: optimizedFile.type || "image/jpeg"
+      });
+      uploadedUrls.push(await getDownloadURL(storageRef));
+    } catch (error) {
+      if (isFirebaseStorageUnauthorizedError(error)) {
+        throw new Error(
+          "Your account does not currently have permission to access this update image. Please sign out and sign in again or contact a CarNest administrator."
+        );
+      }
+      throw error;
+    }
   }
 
   return uploadedUrls;

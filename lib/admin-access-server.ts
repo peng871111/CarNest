@@ -1,6 +1,6 @@
 import "server-only";
 
-import { FieldValue, Timestamp, type DocumentData, type QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentData, type DocumentSnapshot } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin-server";
 import {
   ADMIN_PERMISSION_KEYS,
@@ -242,7 +242,7 @@ async function findExistingUserDocForRepair(target: typeof KNOWN_ADMIN_REPAIR_TA
   const db = getAdminDb();
   const normalizedEmail = normalizeEmailAddress(target.email);
   const authUser = await getAdminAuth().getUserByEmail(normalizedEmail).catch(() => null);
-  const matches = new Map<string, QueryDocumentSnapshot>();
+  const matches = new Map<string, DocumentSnapshot>();
 
   const emailSnapshot = await db.collection("users").where("email", "==", normalizedEmail).get();
   emailSnapshot.docs.forEach((doc) => matches.set(doc.id, doc));
@@ -257,6 +257,14 @@ async function findExistingUserDocForRepair(target: typeof KNOWN_ADMIN_REPAIR_TA
         authUid: authUser.uid,
         doc: authUidSnapshot,
         duplicateDocIds: Array.from(matches.keys()).filter((id) => id !== authUser.uid),
+      };
+    }
+
+    if (!matches.size) {
+      return {
+        authUid: authUser.uid,
+        doc: authUidSnapshot,
+        duplicateDocIds: [],
       };
     }
   }
@@ -277,11 +285,15 @@ export async function repairKnownAdminAccess(input: {
 
   for (const target of KNOWN_ADMIN_REPAIR_TARGETS) {
     const match = await findExistingUserDocForRepair(target);
-    if (!match.doc?.exists) {
+    if (!match.doc && !match.authUid) {
       throw new Error(`Existing user record not found for ${target.email}. No duplicate account was created.`);
     }
 
-    const data = match.doc.data() ?? {};
+    if (!match.doc) {
+      throw new Error(`Existing user record not found for ${target.email}. No duplicate account was created.`);
+    }
+
+    const data = match.doc.exists ? match.doc.data() ?? {} : {};
     const existingPermissions = normalizeStoredPermissions(data.adminPermissions) ?? buildZeroAdminPermissions();
     const finalPermissions: AdminPermissions = {
       ...REQUIRED_REPAIRED_ADMIN_PERMISSIONS,
@@ -294,8 +306,11 @@ export async function repairKnownAdminAccess(input: {
       );
     }
 
+    const previousRole = typeof data.role === "string" ? data.role : "";
+
     await match.doc.ref.set(
       {
+        uid: match.doc.id,
         email: normalizeEmailAddress(String(data.email || target.email)),
         displayName: typeof data.displayName === "string" && data.displayName.trim() ? data.displayName : target.name,
         name: typeof data.name === "string" && data.name.trim() ? data.name : target.name,
@@ -323,9 +338,11 @@ export async function repairKnownAdminAccess(input: {
       staffEmail: input.actor.email || "",
       targetUid: match.doc.id,
       targetEmail: target.email,
-      previousRole: typeof data.role === "string" ? data.role : "",
+      previousRole,
       newRole: "admin",
-      summary: `Repaired admin access for ${target.name} (${target.accountReference}).`,
+      summary: previousRole
+        ? `Repaired admin access for ${target.name} (${target.accountReference}).`
+        : `Created missing admin profile and repaired access for ${target.name} (${target.accountReference}).`,
       duplicateDocIds: match.duplicateDocIds,
       createdAt: FieldValue.serverTimestamp(),
     }).catch((error) => {
