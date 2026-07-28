@@ -115,6 +115,11 @@ service cloud.firestore {
         || status == "CLOSED";
     }
 
+    function isPublishedCommunityMoment() {
+      return resource.data.status == "published"
+        && resource.data.published == true;
+    }
+
     function isValidInspectionRequestStatus(status) {
       return status == "NEW"
         || status == "CONTACTED"
@@ -1654,6 +1659,11 @@ service cloud.firestore {
         && isValidQuoteStatus(request.resource.data.status)
         && quoteFieldsUnchanged();
       allow delete: if hasAdminPermission("manageQuotes");
+    }
+
+    match /communityMoments/{id} {
+      allow read: if isPublishedCommunityMoment() || hasAdminPermission("manageVehicles");
+      allow create, update, delete: if hasAdminPermission("manageVehicles");
     }
 
     match /contact_messages/{id} {

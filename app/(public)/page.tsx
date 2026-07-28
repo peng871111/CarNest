@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Metadata } from "next";
+import { CommunityHomepageSection } from "@/components/community/community-homepage-section";
 import { SoldHeroCollage } from "@/components/marketing/sold-hero-collage";
 import { ImageWatermark } from "@/components/vehicles/image-watermark";
 import { PublicVehicleImage } from "@/components/vehicles/public-vehicle-image";
@@ -262,6 +263,8 @@ export default async function HomePage() {
               ))}
             </div>
           </section>
+
+          <CommunityHomepageSection />
 
           <section className="mt-12 overflow-hidden rounded-[36px] border border-white/8 bg-[linear-gradient(90deg,rgba(14,14,14,0.98)_0%,rgba(14,14,14,0.95)_58%,rgba(10,10,10,0.72)_100%)] shadow-[0_28px_70px_rgba(0,0,0,0.34)]">
             <div className="grid gap-8 px-6 py-8 md:grid-cols-[minmax(0,1.1fr)_auto] md:items-center md:px-10 md:py-12">

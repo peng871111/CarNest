@@ -29,6 +29,27 @@ service firebase.storage {
         );
     }
 
+    function isSuperAdmin() {
+      return signedIn()
+        && (
+          userDoc().data.role == "super_admin"
+          || isCraigEmail(request.auth.token.email)
+        );
+    }
+
+    function hasAdminPermission(permission) {
+      return isSuperAdmin()
+        || (
+          isAdmin()
+          && userDoc().data.adminPermissions[permission] == true
+        );
+    }
+
+    function isPublishedCommunityMoment(momentId) {
+      return firestore.get(/databases/(default)/documents/communityMoments/$(momentId)).data.status == "published"
+        && firestore.get(/databases/(default)/documents/communityMoments/$(momentId)).data.published == true;
+    }
+
     match /vehicle-images/{ownerUid}/{allPaths=**} {
       allow read: if true;
       allow write: if signedIn() && (request.auth.uid == ownerUid || isAdmin());
@@ -49,6 +70,20 @@ service firebase.storage {
     match /vehicle-reports/{vehicleId}/{allPaths=**} {
       allow read: if signedIn();
       allow write: if isAdmin();
+    }
+
+    match /community/{momentId}/original/{allPaths=**} {
+      allow read, write: if hasAdminPermission("manageVehicles");
+    }
+
+    match /community/{momentId}/display/{allPaths=**} {
+      allow read: if hasAdminPermission("manageVehicles") || isPublishedCommunityMoment(momentId);
+      allow write: if hasAdminPermission("manageVehicles");
+    }
+
+    match /community/{momentId}/thumbnail/{allPaths=**} {
+      allow read: if hasAdminPermission("manageVehicles") || isPublishedCommunityMoment(momentId);
+      allow write: if hasAdminPermission("manageVehicles");
     }
   }
 }

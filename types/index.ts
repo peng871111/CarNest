@@ -40,6 +40,13 @@ export type InspectionRequestStatus = "NEW" | "CONTACTED" | "BOOKED" | "CLOSED";
 export type QuoteStatus = "NEW" | "CONTACTED" | "QUOTED" | "CLOSED";
 export type QuoteType = "SERVICE_SUPPORT" | "WAREHOUSE_UPGRADE";
 export type QuoteSource = "sell_flow" | "seller_edit";
+export type CommunityMomentCategoryId =
+  | "car-meets-events"
+  | "on-the-road"
+  | "featured-cars"
+  | "deliveries-owners"
+  | "behind-the-scenes";
+export type CommunityMomentStatus = "draft" | "published";
 export type ContactMessageCategory = "SELLING MY CAR" | "BUYING A CAR" | "SECURE WAREHOUSE STORAGE" | "GENERAL ENQUIRY";
 export type ContactMessageStatus = "NEW" | "CONTACTED" | "CLOSED";
 export type PricingRequestTimeline = "ASAP (within 2 weeks)" | "2–4 weeks" | "1–2 months" | "Just exploring";
@@ -1149,6 +1156,43 @@ export interface SellerTrustInfo {
   sellerType: "Private Seller";
   memberSince?: string;
   vehiclesSoldCount: number;
+}
+
+export interface CommunityMomentImage {
+  originalPath: string;
+  displayPath: string;
+  thumbnailPath: string;
+  displayUrl: string;
+  thumbnailUrl: string;
+  originalFileName: string;
+  contentType: string;
+  displayWidth: number;
+  displayHeight: number;
+  thumbnailWidth: number;
+  thumbnailHeight: number;
+  uploadedAt: string;
+}
+
+export interface CommunityMoment {
+  id: string;
+  category: CommunityMomentCategoryId;
+  status: CommunityMomentStatus;
+  published: boolean;
+  featured: boolean;
+  title?: string;
+  caption?: string;
+  momentDate?: string;
+  location?: string;
+  linkedListingId?: string;
+  image: CommunityMomentImage;
+  collectionType?: "moment";
+  albumId?: string;
+  eventId?: string;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  publishedAt?: string;
 }
 
 export interface Quote {
