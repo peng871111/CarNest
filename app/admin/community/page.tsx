@@ -7,13 +7,17 @@ import { useAuth } from "@/lib/auth";
 import {
   COMMUNITY_CATEGORIES,
   COMMUNITY_CATEGORY_LABELS,
+  COMMUNITY_MAX_IMAGES,
   createCommunityMoment,
   createCommunityMomentId,
+  getCommunityMomentCoverImage,
+  getCommunityMomentImageCount,
+  getCommunityMomentImages,
   listCommunityMomentsForAdmin,
   updateCommunityMoment,
 } from "@/lib/community";
-import { uploadCommunityMomentImage } from "@/lib/community-storage";
-import type { CommunityMoment, CommunityMomentCategoryId, CommunityMomentStatus } from "@/types";
+import { createCommunityImageId, uploadCommunityMomentImage, validateCommunityImageFile } from "@/lib/community-storage";
+import type { CommunityMoment, CommunityMomentCategoryId, CommunityMomentImage, CommunityMomentStatus } from "@/types";
 
 type StatusFilter = "all" | "draft" | "published" | "featured";
 
@@ -27,6 +31,10 @@ interface CommunityMomentFormState {
   location: string;
   linkedListingId: string;
 }
+
+type CommunityPhotoItem =
+  | { kind: "saved"; id: string; image: CommunityMomentImage }
+  | { kind: "pending"; id: string; file: File; previewUrl: string };
 
 const EMPTY_FORM: CommunityMomentFormState = {
   category: "on-the-road",
@@ -63,6 +71,26 @@ function getFormStateFromMoment(moment: CommunityMoment): CommunityMomentFormSta
   };
 }
 
+function getPhotoItemPreview(item: CommunityPhotoItem) {
+  return item.kind === "saved" ? item.image.thumbnailUrl : item.previewUrl;
+}
+
+function getPhotoItemFileName(item: CommunityPhotoItem) {
+  return item.kind === "saved" ? item.image.originalFileName : item.file.name;
+}
+
+function getDefaultCoverId(items: CommunityPhotoItem[]) {
+  return items[0]?.id ?? "";
+}
+
+function buildSavedPhotoItems(moment: CommunityMoment): CommunityPhotoItem[] {
+  return getCommunityMomentImages(moment).map((image) => ({
+    kind: "saved" as const,
+    id: image.id,
+    image,
+  }));
+}
+
 export default function AdminCommunityPage() {
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const [moments, setMoments] = useState<CommunityMoment[]>([]);
@@ -72,9 +100,11 @@ export default function AdminCommunityPage() {
   const [editingMoment, setEditingMoment] = useState<CommunityMoment | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [form, setForm] = useState<CommunityMomentFormState>(EMPTY_FORM);
-  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [photoItems, setPhotoItems] = useState<CommunityPhotoItem[]>([]);
+  const [coverImageId, setCoverImageId] = useState("");
   const [saving, setSaving] = useState(false);
   const [deletingMomentId, setDeletingMomentId] = useState("");
+  const [deletingImageId, setDeletingImageId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -114,38 +144,120 @@ export default function AdminCommunityPage() {
     [categoryFilter, moments, statusFilter]
   );
 
+  function revokePendingPreviews(items: CommunityPhotoItem[]) {
+    items.forEach((item) => {
+      if (item.kind === "pending") URL.revokeObjectURL(item.previewUrl);
+    });
+  }
+
   function openCreateForm() {
+    revokePendingPreviews(photoItems);
     setEditingMoment(null);
     setForm(EMPTY_FORM);
-    setImageFile(null);
+    setPhotoItems([]);
+    setCoverImageId("");
     setNotice("");
     setError("");
     setFormOpen(true);
   }
 
   function openEditForm(moment: CommunityMoment) {
+    revokePendingPreviews(photoItems);
+    const savedItems = buildSavedPhotoItems(moment);
     setEditingMoment(moment);
     setForm(getFormStateFromMoment(moment));
-    setImageFile(null);
+    setPhotoItems(savedItems);
+    setCoverImageId(moment.coverImageId || getDefaultCoverId(savedItems));
     setNotice("");
     setError("");
     setFormOpen(true);
   }
 
   function closeForm() {
+    revokePendingPreviews(photoItems);
     setFormOpen(false);
     setEditingMoment(null);
     setForm(EMPTY_FORM);
-    setImageFile(null);
+    setPhotoItems([]);
+    setCoverImageId("");
   }
 
-  function handleImageChange(event: ChangeEvent<HTMLInputElement>) {
-    setImageFile(event.target.files?.[0] ?? null);
+  function handlePhotoSelection(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+
+    const remainingSlots = COMMUNITY_MAX_IMAGES - photoItems.length;
+    if (remainingSlots <= 0) {
+      setError(`Maximum ${COMMUNITY_MAX_IMAGES} photos per Moment.`);
+      return;
+    }
+
+    const selectedFiles = files.slice(0, remainingSlots);
+    const rejectedFiles: string[] = [];
+    const pendingItems = selectedFiles.flatMap((file) => {
+      try {
+        validateCommunityImageFile(file);
+        return [{
+          kind: "pending" as const,
+          id: createCommunityImageId(),
+          file,
+          previewUrl: URL.createObjectURL(file),
+        }];
+      } catch {
+        rejectedFiles.push(file.name);
+        return [];
+      }
+    });
+
+    if (files.length > remainingSlots) {
+      setError(`Only ${remainingSlots} more photo${remainingSlots === 1 ? "" : "s"} can be added. Maximum ${COMMUNITY_MAX_IMAGES} photos per Moment.`);
+    } else if (rejectedFiles.length) {
+      setError(`${rejectedFiles.length} photo${rejectedFiles.length === 1 ? "" : "s"} could not be added. Please use JPG, PNG or WebP.`);
+    } else {
+      setError("");
+    }
+
+    if (!pendingItems.length) return;
+
+    setPhotoItems((current) => {
+      const next = [...current, ...pendingItems];
+      if (!coverImageId) setCoverImageId(getDefaultCoverId(next));
+      return next;
+    });
+  }
+
+  function movePhoto(itemId: string, direction: -1 | 1) {
+    setPhotoItems((current) => {
+      const index = current.findIndex((item) => item.id === itemId);
+      const targetIndex = index + direction;
+      if (index < 0 || targetIndex < 0 || targetIndex >= current.length) return current;
+
+      const next = [...current];
+      const [item] = next.splice(index, 1);
+      next.splice(targetIndex, 0, item);
+      return next;
+    });
+  }
+
+  function removePendingPhoto(itemId: string) {
+    setPhotoItems((current) => {
+      const item = current.find((entry) => entry.id === itemId);
+      if (item?.kind === "pending") URL.revokeObjectURL(item.previewUrl);
+      const next = current.filter((entry) => entry.id !== itemId);
+      if (coverImageId === itemId) setCoverImageId(getDefaultCoverId(next));
+      return next;
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!appUser) return;
+
+    if (!photoItems.length) {
+      setError("Upload at least one photo before saving this Community moment.");
+      return;
+    }
 
     setSaving(true);
     setNotice("");
@@ -153,31 +265,81 @@ export default function AdminCommunityPage() {
 
     try {
       const momentId = editingMoment?.id ?? createCommunityMomentId();
-      const image = imageFile ? await uploadCommunityMomentImage(imageFile, momentId) : undefined;
+      const nextItems: CommunityPhotoItem[] = [];
+      const failedItems: CommunityPhotoItem[] = [];
+
+      for (const item of photoItems) {
+        if (item.kind === "saved") {
+          nextItems.push(item);
+          continue;
+        }
+
+        try {
+          const uploadedImage = await uploadCommunityMomentImage(item.file, momentId, item.id);
+          nextItems.push({
+            kind: "saved",
+            id: uploadedImage.id,
+            image: uploadedImage,
+          });
+          URL.revokeObjectURL(item.previewUrl);
+        } catch (uploadError) {
+          console.error("[community-admin] Community image upload failed.", {
+            momentId,
+            fileName: item.file.name,
+            error: uploadError instanceof Error ? uploadError.message : String(uploadError),
+          });
+          failedItems.push(item);
+        }
+      }
+
+      const images = nextItems.flatMap((item) => item.kind === "saved" ? [item.image] : []);
+      if (!images.length) {
+        throw new Error("Upload at least one photo before saving this Community moment.");
+      }
+
+      if (images.length > COMMUNITY_MAX_IMAGES) {
+        throw new Error(`Maximum ${COMMUNITY_MAX_IMAGES} photos per Moment.`);
+      }
+
+      const nextCoverImageId = images.some((image) => image.id === coverImageId)
+        ? coverImageId
+        : images[0].id;
 
       if (editingMoment) {
-        await updateCommunityMoment(
+        const updatedMoment = await updateCommunityMoment(
           editingMoment,
           {
             ...form,
-            image,
+            images,
+            coverImageId: nextCoverImageId,
           },
           appUser
         );
+        setEditingMoment(updatedMoment);
+        setMoments((current) => current.map((item) => item.id === updatedMoment.id ? updatedMoment : item));
         setNotice("Community moment updated.");
       } else {
-        if (!image) {
-          throw new Error("Upload a primary image before saving this Community moment.");
-        }
-        await createCommunityMoment(
+        const createdMoment = await createCommunityMoment(
           momentId,
           {
             ...form,
-            image,
+            images,
+            coverImageId: nextCoverImageId,
           },
           appUser
         );
+        setEditingMoment(createdMoment);
+        setMoments((current) => [createdMoment, ...current]);
         setNotice("Community moment created.");
+      }
+
+      setPhotoItems([...nextItems, ...failedItems]);
+      setCoverImageId(nextCoverImageId);
+
+      if (failedItems.length) {
+        setError(`${failedItems.length} photo${failedItems.length === 1 ? "" : "s"} could not be uploaded. Saved the other photos; please retry the failed upload.`);
+        await loadMoments();
+        return;
       }
 
       closeForm();
@@ -192,9 +354,91 @@ export default function AdminCommunityPage() {
     }
   }
 
+  async function deletePhoto(item: CommunityPhotoItem) {
+    if (item.kind === "pending") {
+      removePendingPhoto(item.id);
+      setNotice("Photo removed.");
+      return;
+    }
+
+    if (!editingMoment) return;
+
+    if ((editingMoment.published || form.status === "published") && photoItems.length <= 1) {
+      setError("Unpublish or delete this Moment before removing its final photo.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "Delete this photo?\n\nThis photo will be permanently removed from this Community Moment."
+    );
+    if (!confirmed) return;
+
+    setDeletingImageId(item.id);
+    setNotice("");
+    setError("");
+
+    try {
+      const idToken = await firebaseUser?.getIdToken(true);
+      if (!idToken) {
+        throw new Error("Admin authentication has expired. Please sign in again.");
+      }
+
+      const response = await fetch(
+        `/api/admin/community/moments/${encodeURIComponent(editingMoment.id)}/images/${encodeURIComponent(item.id)}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+          },
+        }
+      );
+      const result = await response.json().catch(() => null) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+        images?: CommunityMomentImage[];
+        coverImageId?: string;
+        image?: CommunityMomentImage;
+      } | null;
+
+      if (!response.ok || !result?.success || !result.images?.length || !result.coverImageId || !result.image) {
+        throw new Error(result?.error || "Unable to delete this photo right now.");
+      }
+
+      const savedItems = result.images.map((image) => ({
+        kind: "saved" as const,
+        id: image.id,
+        image,
+      }));
+      const pendingItems = photoItems.filter((entry): entry is Extract<CommunityPhotoItem, { kind: "pending" }> => entry.kind === "pending");
+      const nextItems = [...savedItems, ...pendingItems];
+      const nextMoment = {
+        ...editingMoment,
+        image: result.image,
+        images: result.images,
+        coverImageId: result.coverImageId,
+      };
+
+      setPhotoItems(nextItems);
+      setCoverImageId(result.coverImageId || getDefaultCoverId(nextItems));
+      setEditingMoment(nextMoment);
+      setMoments((current) => current.map((entry) => entry.id === nextMoment.id ? nextMoment : entry));
+      setNotice(result.message || "Photo deleted.");
+    } catch (deleteError) {
+      console.error("[community-admin] Failed to delete Community photo.", {
+        momentId: editingMoment.id,
+        imageId: item.id,
+        error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+      });
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete this photo right now.");
+    } finally {
+      setDeletingImageId("");
+    }
+  }
+
   async function deleteMoment(moment: CommunityMoment) {
     const confirmed = window.confirm(
-      "Delete this Community moment?\n\nThis will remove the photo from the public Community page."
+      "Delete this Community moment?\n\nThis will remove the photo story from the public Community page."
     );
     if (!confirmed) return;
 
@@ -242,7 +486,7 @@ export default function AdminCommunityPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm text-ink/60">
-            Add editorial one-photo moments without changing listing, storage contract, or customer workflows.
+            Add editorial Community moments without changing listing, storage contract, or customer workflows.
           </p>
         </div>
         <Button type="button" onClick={openCreateForm}>
@@ -270,17 +514,110 @@ export default function AdminCommunityPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="mt-6 grid gap-5">
+            <section className="rounded-[26px] border border-black/5 bg-shell p-4 md:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.24em] text-bronze">Photos</p>
+                  <p className="mt-1 text-sm text-ink/60">
+                    {photoItems.length} / {COMMUNITY_MAX_IMAGES}
+                  </p>
+                </div>
+                <label
+                  className={`inline-flex cursor-pointer items-center justify-center rounded-full border px-5 py-3 text-sm font-semibold transition ${
+                    photoItems.length >= COMMUNITY_MAX_IMAGES
+                      ? "cursor-not-allowed border-black/10 bg-white text-ink/35"
+                      : "border-black/10 bg-white text-ink hover:bg-white/70"
+                  }`}
+                >
+                  + Add photos
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                    multiple
+                    disabled={photoItems.length >= COMMUNITY_MAX_IMAGES}
+                    onChange={handlePhotoSelection}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+
+              {photoItems.length >= COMMUNITY_MAX_IMAGES ? (
+                <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Maximum {COMMUNITY_MAX_IMAGES} photos per Moment.
+                </p>
+              ) : null}
+
+              {photoItems.length ? (
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {photoItems.map((item, index) => {
+                    const isCover = item.id === coverImageId || (!coverImageId && index === 0);
+                    return (
+                      <div key={item.id} className="overflow-hidden rounded-[24px] border border-black/5 bg-white shadow-sm">
+                        <div className="relative aspect-[4/3] overflow-hidden bg-black/10">
+                          <img
+                            src={getPhotoItemPreview(item)}
+                            alt={getPhotoItemFileName(item)}
+                            className="h-full w-full object-cover"
+                          />
+                          {isCover ? (
+                            <span className="absolute left-3 top-3 rounded-full bg-bronze px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
+                              Cover
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="space-y-3 p-4">
+                          <p className="truncate text-xs text-ink/55" title={getPhotoItemFileName(item)}>
+                            {getPhotoItemFileName(item)}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => movePhoto(item.id, -1)}
+                              disabled={index === 0 || saving}
+                              className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:bg-shell disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Move left
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => movePhoto(item.id, 1)}
+                              disabled={index === photoItems.length - 1 || saving}
+                              className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:bg-shell disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Move right
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setCoverImageId(item.id)}
+                              disabled={isCover || saving}
+                              className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold text-ink transition hover:bg-shell disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              Set as cover
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deletePhoto(item)}
+                              disabled={saving || deletingImageId === item.id}
+                              className="rounded-full border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingImageId === item.id ? "Deleting..." : "Delete"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-5 rounded-[24px] border border-dashed border-black/12 bg-white px-5 py-10 text-center text-sm text-ink/55">
+                  Add at least one JPG, PNG or WebP photo to create this Moment.
+                </div>
+              )}
+            </section>
+
             <div className="grid gap-5 md:grid-cols-2">
-              <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-ink/50">Primary image {editingMoment ? "(optional replacement)" : "*"}</span>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  onChange={handleImageChange}
-                  required={!editingMoment}
-                  className="w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-ink"
-                />
-              </label>
               <label className="space-y-2">
                 <span className="text-xs uppercase tracking-[0.18em] text-ink/50">Category *</span>
                 <select
@@ -430,62 +767,73 @@ export default function AdminCommunityPage() {
           {loadingMoments ? (
             <div className="col-span-full py-12 text-sm text-ink/60">Loading Community moments...</div>
           ) : filteredMoments.length ? (
-            filteredMoments.map((moment) => (
-              <article key={moment.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-shell">
-                <div className="relative aspect-[4/3] overflow-hidden bg-black/10">
-                  <img
-                    src={moment.image.thumbnailUrl}
-                    alt={moment.title || `CarNest ${COMMUNITY_CATEGORY_LABELS[moment.category]} moment`}
-                    loading="lazy"
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <div className="space-y-4 p-5">
-                  <div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/60">
-                        {COMMUNITY_CATEGORY_LABELS[moment.category]}
+            filteredMoments.map((moment) => {
+              const coverImage = getCommunityMomentCoverImage(moment);
+              const imageCount = getCommunityMomentImageCount(moment);
+              return (
+                <article key={moment.id} className="overflow-hidden rounded-[28px] border border-black/5 bg-shell">
+                  <div className="relative aspect-[4/3] overflow-hidden bg-black/10">
+                    {coverImage ? (
+                      <img
+                        src={coverImage.thumbnailUrl}
+                        alt={moment.title || `CarNest ${COMMUNITY_CATEGORY_LABELS[moment.category]} moment`}
+                        loading="lazy"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : null}
+                    {imageCount > 1 ? (
+                      <span className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur">
+                        {imageCount} photos
                       </span>
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
-                        moment.published ? "bg-emerald-100 text-emerald-800" : "bg-white text-ink/60"
-                      }`}>
-                        {moment.published ? "Published" : "Draft"}
-                      </span>
-                      {moment.featured ? (
-                        <span className="rounded-full bg-bronze/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-bronze">
-                          Featured
-                        </span>
-                      ) : null}
-                    </div>
-                    <h3 className="mt-4 text-lg font-semibold text-ink">{moment.title || "Untitled moment"}</h3>
-                    <p className="mt-2 text-sm text-ink/60">{formatMomentDate(moment.momentDate || moment.createdAt)}</p>
-                    {moment.location ? <p className="mt-1 text-sm text-ink/60">{moment.location}</p> : null}
-                    {moment.linkedListingId ? (
-                      <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-ink/45">
-                        Linked listing: {moment.linkedListingId}
-                      </p>
                     ) : null}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => openEditForm(moment)}
-                      className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-white/70"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void deleteMoment(moment)}
-                      disabled={deletingMomentId === moment.id}
-                      className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {deletingMomentId === moment.id ? "Deleting..." : "Delete"}
-                    </button>
+                  <div className="space-y-4 p-5">
+                    <div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-ink/60">
+                          {COMMUNITY_CATEGORY_LABELS[moment.category]}
+                        </span>
+                        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
+                          moment.published ? "bg-emerald-100 text-emerald-800" : "bg-white text-ink/60"
+                        }`}>
+                          {moment.published ? "Published" : "Draft"}
+                        </span>
+                        {moment.featured ? (
+                          <span className="rounded-full bg-bronze/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-bronze">
+                            Featured
+                          </span>
+                        ) : null}
+                      </div>
+                      <h3 className="mt-4 text-lg font-semibold text-ink">{moment.title || "Untitled moment"}</h3>
+                      <p className="mt-2 text-sm text-ink/60">{formatMomentDate(moment.momentDate || moment.createdAt)}</p>
+                      {moment.location ? <p className="mt-1 text-sm text-ink/60">{moment.location}</p> : null}
+                      {moment.linkedListingId ? (
+                        <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-ink/45">
+                          Linked listing: {moment.linkedListingId}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openEditForm(moment)}
+                        className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:bg-white/70"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteMoment(moment)}
+                        disabled={deletingMomentId === moment.id}
+                        className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {deletingMomentId === moment.id ? "Deleting..." : "Delete"}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))
+                </article>
+              );
+            })
           ) : (
             <div className="col-span-full py-12 text-sm text-ink/60">
               No Community moments match the current filters.

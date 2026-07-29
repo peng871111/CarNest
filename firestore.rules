@@ -120,6 +120,14 @@ service cloud.firestore {
         && resource.data.published == true;
     }
 
+    function hasValidCommunityMomentImages() {
+      return !request.resource.data.keys().hasAny(["images"])
+        || (
+          request.resource.data.images is list
+          && request.resource.data.images.size() <= 12
+        );
+    }
+
     function isValidInspectionRequestStatus(status) {
       return status == "NEW"
         || status == "CONTACTED"
@@ -1663,7 +1671,8 @@ service cloud.firestore {
 
     match /communityMoments/{id} {
       allow read: if isPublishedCommunityMoment() || hasAdminPermission("manageVehicles");
-      allow create, update, delete: if hasAdminPermission("manageVehicles");
+      allow create, update: if hasAdminPermission("manageVehicles") && hasValidCommunityMomentImages();
+      allow delete: if hasAdminPermission("manageVehicles");
     }
 
     match /contact_messages/{id} {

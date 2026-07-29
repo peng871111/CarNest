@@ -5,6 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import {
   COMMUNITY_CATEGORIES,
   COMMUNITY_CATEGORY_LABELS,
+  getCommunityMomentCoverImage,
+  getCommunityMomentImageCount,
+  getCommunityMomentImages,
   isPublicActiveLinkedVehicle,
   listPublishedCommunityMoments,
 } from "@/lib/community";
@@ -31,6 +34,8 @@ export function CommunityGallery() {
   const [moments, setMoments] = useState<CommunityMoment[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"all" | CommunityMomentCategoryId>("all");
   const [selectedMoment, setSelectedMoment] = useState<CommunityMoment | null>(null);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
   const [linkedVehicle, setLinkedVehicle] = useState<Vehicle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -84,6 +89,61 @@ export function CommunityGallery() {
       cancelled = true;
     };
   }, [selectedMoment?.id, selectedMoment?.linkedListingId]);
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+  }, [selectedMoment?.id]);
+
+  const selectedImages = useMemo(
+    () => getCommunityMomentImages(selectedMoment),
+    [selectedMoment]
+  );
+
+  const selectedImage = selectedImages[activeImageIndex] ?? getCommunityMomentCoverImage(selectedMoment);
+  const hasMultipleSelectedImages = selectedImages.length > 1;
+
+  function openMoment(moment: CommunityMoment) {
+    setActiveImageIndex(0);
+    setSelectedMoment(moment);
+  }
+
+  function showRelativeImage(offset: -1 | 1) {
+    if (!selectedImages.length) return;
+    setActiveImageIndex((current) => (current + offset + selectedImages.length) % selectedImages.length);
+  }
+
+  useEffect(() => {
+    if (!selectedMoment || !hasMultipleSelectedImages) return;
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        showRelativeImage(-1);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        showRelativeImage(1);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hasMultipleSelectedImages, selectedImages.length, selectedMoment?.id]);
+
+  useEffect(() => {
+    if (!hasMultipleSelectedImages) return;
+    const neighbourIndexes = [
+      (activeImageIndex + 1) % selectedImages.length,
+      (activeImageIndex - 1 + selectedImages.length) % selectedImages.length,
+    ];
+
+    neighbourIndexes.forEach((index) => {
+      const image = selectedImages[index];
+      if (!image?.displayUrl) return;
+      const preloadImage = new Image();
+      preloadImage.src = image.displayUrl;
+    });
+  }, [activeImageIndex, hasMultipleSelectedImages, selectedImages]);
 
   const visibleCategories = useMemo(() => {
     const categoryIds = new Set(moments.map((moment) => moment.category));
@@ -142,17 +202,22 @@ export function CommunityGallery() {
               <button
                 key={moment.id}
                 type="button"
-                onClick={() => setSelectedMoment(moment)}
+                onClick={() => openMoment(moment)}
                 className="group mb-5 block w-full break-inside-avoid overflow-hidden rounded-[30px] border border-white/10 bg-white/[0.04] text-left shadow-[0_26px_70px_rgba(0,0,0,0.24)] transition hover:-translate-y-1 hover:border-[#D9B36A]/35"
               >
+                {(() => {
+                  const coverImage = getCommunityMomentCoverImage(moment);
+                  const imageCount = getCommunityMomentImageCount(moment);
+                  if (!coverImage) return null;
+                  return (
                 <div
                   className="relative overflow-hidden bg-black/40"
                   style={{
-                    aspectRatio: `${moment.image.thumbnailWidth || 4} / ${moment.image.thumbnailHeight || 3}`,
+                    aspectRatio: `${coverImage.thumbnailWidth || 4} / ${coverImage.thumbnailHeight || 3}`,
                   }}
                 >
                   <img
-                    src={moment.image.thumbnailUrl}
+                    src={coverImage.thumbnailUrl}
                     alt={getMomentLabel(moment)}
                     loading="lazy"
                     className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
@@ -161,7 +226,14 @@ export function CommunityGallery() {
                   <span className="absolute bottom-4 left-4 rounded-full bg-black/55 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#F0D296] backdrop-blur">
                     {COMMUNITY_CATEGORY_LABELS[moment.category]}
                   </span>
+                  {imageCount > 1 ? (
+                    <span className="absolute right-4 top-4 rounded-full bg-black/55 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white backdrop-blur">
+                      {imageCount} photos
+                    </span>
+                  ) : null}
                 </div>
+                  );
+                })()}
                 {(moment.title || moment.caption || moment.location || moment.momentDate) ? (
                   <div className="space-y-2 p-5">
                     {moment.title ? <h2 className="text-xl font-semibold text-white">{moment.title}</h2> : null}
@@ -182,7 +254,7 @@ export function CommunityGallery() {
         </div>
       )}
 
-      {selectedMoment ? (
+      {selectedMoment && selectedImage ? (
         <div
           role="dialog"
           aria-modal="true"
@@ -207,12 +279,71 @@ export function CommunityGallery() {
               </button>
             </div>
             <div className="grid gap-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
-              <div className="bg-black">
+              <div
+                className="bg-black"
+                onTouchStart={(event) => setTouchStartX(event.changedTouches[0]?.clientX ?? null)}
+                onTouchEnd={(event) => {
+                  if (touchStartX === null || !hasMultipleSelectedImages) return;
+                  const endX = event.changedTouches[0]?.clientX ?? touchStartX;
+                  const distance = endX - touchStartX;
+                  setTouchStartX(null);
+                  if (Math.abs(distance) < 42) return;
+                  showRelativeImage(distance < 0 ? 1 : -1);
+                }}
+              >
+                <div className="relative flex min-h-[320px] items-center justify-center">
                 <img
-                  src={selectedMoment.image.displayUrl}
-                  alt={getMomentLabel(selectedMoment)}
+                  src={selectedImage.displayUrl}
+                  alt={`${getMomentLabel(selectedMoment)}${hasMultipleSelectedImages ? ` - photo ${activeImageIndex + 1} of ${selectedImages.length}` : ""}`}
+                  aria-label={hasMultipleSelectedImages ? `Photo ${activeImageIndex + 1} of ${selectedImages.length}` : undefined}
                   className="max-h-[82vh] w-full object-contain"
                 />
+                  {hasMultipleSelectedImages ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => showRelativeImage(-1)}
+                        className="absolute left-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
+                        aria-label="Previous Community photo"
+                      >
+                        ‹
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => showRelativeImage(1)}
+                        className="absolute right-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
+                        aria-label="Next Community photo"
+                      >
+                        ›
+                      </button>
+                      <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white/86 backdrop-blur">
+                        {activeImageIndex + 1} / {selectedImages.length}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+                {hasMultipleSelectedImages ? (
+                  <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-[#080808] px-4 py-3">
+                    {selectedImages.map((image, index) => (
+                      <button
+                        key={image.id}
+                        type="button"
+                        onClick={() => setActiveImageIndex(index)}
+                        aria-label={`Show photo ${index + 1} of ${selectedImages.length}`}
+                        className={`h-16 w-20 shrink-0 overflow-hidden rounded-2xl border transition ${
+                          index === activeImageIndex ? "border-[#D9B36A]" : "border-white/12 opacity-65 hover:opacity-100"
+                        }`}
+                      >
+                        <img
+                          src={image.thumbnailUrl}
+                          alt=""
+                          loading="lazy"
+                          className="h-full w-full object-cover"
+                        />
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <aside className="space-y-5 p-6 md:p-8">
                 {selectedMoment.title ? <h2 className="text-3xl font-semibold text-white">{selectedMoment.title}</h2> : null}

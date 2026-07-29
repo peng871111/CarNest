@@ -8,8 +8,20 @@ import type { CommunityMomentImage } from "@/types";
 const ALLOWED_COMMUNITY_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_COMMUNITY_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
 
+export function createCommunityImageId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `community-image-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function sanitizeStorageName(fileName: string) {
   return fileName.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "").toLowerCase();
+}
+
+function sanitizeStorageSegment(value: string) {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 function getFileExtension(fileName: string) {
@@ -68,12 +80,18 @@ export function validateCommunityImageFile(file?: File | null) {
   }
 }
 
-export async function uploadCommunityMomentImage(file: File, momentId: string): Promise<CommunityMomentImage> {
+export async function uploadCommunityMomentImage(
+  file: File,
+  momentId: string,
+  imageId = createCommunityImageId()
+): Promise<CommunityMomentImage> {
   validateCommunityImageFile(file);
 
   if (!momentId) {
     throw new Error("Create the Community moment before uploading a photo.");
   }
+
+  const safeImageId = sanitizeStorageSegment(imageId) || createCommunityImageId();
 
   if (!isFirebaseStorageConfigured) {
     throw new Error("Community image upload is temporarily unavailable. Please try again later.");
@@ -82,7 +100,8 @@ export async function uploadCommunityMomentImage(file: File, momentId: string): 
   const timestamp = Date.now();
   const baseName = sanitizeStorageName(file.name.replace(/\.[^.]+$/, "")) || "community-photo";
   const originalExtension = getStorageExtension(file);
-  const originalPath = `community/${momentId}/original/${timestamp}-${baseName}.${originalExtension}`;
+  const imagePrefix = `community/${momentId}/images/${safeImageId}`;
+  const originalPath = `${imagePrefix}/original/${timestamp}-${baseName}.${originalExtension}`;
 
   const displayFile = await compressVehicleImage(file, {
     maxWidth: 2400,
@@ -106,8 +125,8 @@ export async function uploadCommunityMomentImage(file: File, momentId: string): 
 
   const displayExtension = displayFile.type === "image/webp" ? "webp" : "jpg";
   const thumbnailExtension = thumbnailFile.type === "image/webp" ? "webp" : "jpg";
-  const displayPath = `community/${momentId}/display/${timestamp}-display.${displayExtension}`;
-  const thumbnailPath = `community/${momentId}/thumbnail/${timestamp}-thumbnail.${thumbnailExtension}`;
+  const displayPath = `${imagePrefix}/display/${timestamp}-display.${displayExtension}`;
+  const thumbnailPath = `${imagePrefix}/thumbnail/${timestamp}-thumbnail.${thumbnailExtension}`;
 
   const originalRef = ref(storage, originalPath);
   const displayRef = ref(storage, displayPath);
@@ -131,6 +150,7 @@ export async function uploadCommunityMomentImage(file: File, momentId: string): 
   ]);
 
   return {
+    id: safeImageId,
     originalPath,
     displayPath,
     thumbnailPath,

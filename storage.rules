@@ -85,5 +85,19 @@ service firebase.storage {
       allow read: if hasAdminPermission("manageVehicles") || isPublishedCommunityMoment(momentId);
       allow write: if hasAdminPermission("manageVehicles");
     }
+
+    match /community/{momentId}/images/{imageId}/original/{allPaths=**} {
+      allow read, write: if hasAdminPermission("manageVehicles");
+    }
+
+    match /community/{momentId}/images/{imageId}/display/{allPaths=**} {
+      allow read: if hasAdminPermission("manageVehicles") || isPublishedCommunityMoment(momentId);
+      allow write: if hasAdminPermission("manageVehicles");
+    }
+
+    match /community/{momentId}/images/{imageId}/thumbnail/{allPaths=**} {
+      allow read: if hasAdminPermission("manageVehicles") || isPublishedCommunityMoment(momentId);
+      allow write: if hasAdminPermission("manageVehicles");
+    }
   }
 }

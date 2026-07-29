@@ -1159,6 +1159,7 @@ export interface SellerTrustInfo {
 }
 
 export interface CommunityMomentImage {
+  id: string;
   originalPath: string;
   displayPath: string;
   thumbnailPath: string;
@@ -1185,6 +1186,8 @@ export interface CommunityMoment {
   location?: string;
   linkedListingId?: string;
   image: CommunityMomentImage;
+  images: CommunityMomentImage[];
+  coverImageId: string;
   collectionType?: "moment";
   albumId?: string;
   eventId?: string;

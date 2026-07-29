@@ -23,6 +23,8 @@ import type {
 } from "@/types";
 
 export const COMMUNITY_COLLECTION = "communityMoments";
+export const COMMUNITY_MAX_IMAGES = 12;
+export const COMMUNITY_LEGACY_PRIMARY_IMAGE_ID = "legacy-primary";
 
 export const COMMUNITY_CATEGORIES: Array<{
   id: CommunityMomentCategoryId;
@@ -67,6 +69,8 @@ export interface CommunityMomentWriteInput {
   status: CommunityMomentStatus;
   featured: boolean;
   image?: CommunityMomentImage;
+  images?: CommunityMomentImage[];
+  coverImageId?: string;
   title?: string;
   caption?: string;
   momentDate?: string;
@@ -88,6 +92,11 @@ function normalizeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeImageId(value: unknown, fallback: string) {
+  const candidate = normalizeString(value);
+  return /^[A-Za-z0-9_-]{3,120}$/.test(candidate) ? candidate : fallback;
+}
+
 function normalizeCategory(value: unknown): CommunityMomentCategoryId {
   return typeof value === "string" && COMMUNITY_CATEGORY_IDS.has(value as CommunityMomentCategoryId)
     ? value as CommunityMomentCategoryId
@@ -98,7 +107,7 @@ function normalizeStatus(value: unknown): CommunityMomentStatus {
   return value === "published" ? "published" : "draft";
 }
 
-function serializeImage(value: unknown): CommunityMomentImage | null {
+function serializeImage(value: unknown, fallbackId = COMMUNITY_LEGACY_PRIMARY_IMAGE_ID): CommunityMomentImage | null {
   if (!value || typeof value !== "object") return null;
   const data = value as Record<string, unknown>;
   const originalPath = normalizeString(data.originalPath);
@@ -112,6 +121,7 @@ function serializeImage(value: unknown): CommunityMomentImage | null {
   }
 
   return {
+    id: normalizeImageId(data.id, fallbackId),
     originalPath,
     displayPath,
     thumbnailPath,
@@ -127,9 +137,52 @@ function serializeImage(value: unknown): CommunityMomentImage | null {
   };
 }
 
+function serializeImages(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set<string>();
+  return value
+    .map((item, index) => serializeImage(item, `community-image-${index + 1}`))
+    .filter((item): item is CommunityMomentImage => Boolean(item))
+    .filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+}
+
+export function getCommunityMomentImages(moment?: Pick<CommunityMoment, "image" | "images"> | null) {
+  if (!moment) return [] as CommunityMomentImage[];
+  return Array.isArray(moment.images) && moment.images.length ? moment.images : [moment.image].filter(Boolean);
+}
+
+export function getCommunityMomentCoverImage(
+  moment?: Pick<CommunityMoment, "image" | "images" | "coverImageId"> | null
+) {
+  if (!moment) return null;
+  const images = getCommunityMomentImages(moment);
+  return images.find((image) => image.id === moment.coverImageId)
+    ?? images.find((image) => image.displayPath === moment.image?.displayPath)
+    ?? moment.image
+    ?? images[0]
+    ?? null;
+}
+
+export function getCommunityMomentImageCount(moment?: Pick<CommunityMoment, "image" | "images"> | null) {
+  return getCommunityMomentImages(moment).length;
+}
+
 export function serializeCommunityMomentDoc(id: string, data: Record<string, unknown>): CommunityMoment | null {
-  const image = serializeImage(data.image);
-  if (!image) return null;
+  const legacyImage = serializeImage(data.image);
+  const storedImages = serializeImages(data.images).slice(0, COMMUNITY_MAX_IMAGES);
+  const images = storedImages.length ? storedImages : legacyImage ? [legacyImage] : [];
+  if (!images.length) return null;
+
+  const requestedCoverImageId = normalizeString(data.coverImageId);
+  const image =
+    images.find((item) => item.id === requestedCoverImageId)
+    ?? (legacyImage ? images.find((item) => item.displayPath === legacyImage.displayPath) : null)
+    ?? images[0];
 
   const status = normalizeStatus(data.status);
   const published = status === "published" && data.published === true;
@@ -146,6 +199,8 @@ export function serializeCommunityMomentDoc(id: string, data: Record<string, unk
     location: normalizeString(data.location) || undefined,
     linkedListingId: normalizeString(data.linkedListingId) || undefined,
     image,
+    images,
+    coverImageId: image.id,
     collectionType: data.collectionType === "moment" ? "moment" : "moment",
     albumId: normalizeString(data.albumId) || undefined,
     eventId: normalizeString(data.eventId) || undefined,
@@ -169,29 +224,66 @@ function assertCanManageCommunity(actor?: AppUser | null) {
   }
 }
 
-function cleanMomentInput(input: CommunityMomentWriteInput) {
+function cleanMomentImages(
+  input: CommunityMomentWriteInput,
+  fallbackImages: CommunityMomentImage[] = [],
+  fallbackCoverImageId = ""
+) {
+  const submittedImages = Array.isArray(input.images) && input.images.length
+    ? input.images
+    : input.image
+      ? [input.image]
+      : fallbackImages;
+  const images = serializeImages(submittedImages);
+
+  if (images.length > COMMUNITY_MAX_IMAGES) {
+    throw new Error(`Maximum ${COMMUNITY_MAX_IMAGES} photos per Moment.`);
+  }
+
+  const coverImageId = normalizeImageId(input.coverImageId || fallbackCoverImageId, images[0]?.id ?? "");
+  const image = images.find((item) => item.id === coverImageId) ?? images[0] ?? null;
+
+  return {
+    image,
+    images,
+    coverImageId: image?.id ?? "",
+  };
+}
+
+function cleanMomentInput(
+  input: CommunityMomentWriteInput,
+  fallbackImages: CommunityMomentImage[] = [],
+  fallbackCoverImageId = ""
+) {
   if (!COMMUNITY_CATEGORY_IDS.has(input.category)) {
     throw new Error("Select a valid Community category.");
   }
 
   const status = normalizeStatus(input.status);
+  const imageState = cleanMomentImages(input, fallbackImages, fallbackCoverImageId);
   const title = normalizeString(input.title);
   const caption = normalizeString(input.caption);
   const momentDate = normalizeString(input.momentDate);
   const location = normalizeString(input.location);
   const linkedListingId = normalizeString(input.linkedListingId);
 
+  if (!imageState.image || !imageState.images.length) {
+    throw new Error("Upload at least one photo before saving this Community moment.");
+  }
+
   return {
     category: input.category,
     status,
     published: status === "published",
     featured: Boolean(input.featured),
+    image: imageState.image,
+    images: imageState.images,
+    coverImageId: imageState.coverImageId,
     ...(title ? { title } : {}),
     ...(caption ? { caption } : {}),
     ...(momentDate ? { momentDate } : {}),
     ...(location ? { location } : {}),
     ...(linkedListingId ? { linkedListingId } : {}),
-    ...(input.image ? { image: input.image } : {}),
   };
 }
 
@@ -248,9 +340,6 @@ export function isPublicActiveLinkedVehicle(vehicle: Vehicle | null | undefined)
 
 export async function createCommunityMoment(momentId: string, input: CommunityMomentWriteInput, actor?: AppUser | null) {
   assertCanManageCommunity(actor);
-  if (!input.image) {
-    throw new Error("Upload a primary image before saving this Community moment.");
-  }
 
   const now = new Date().toISOString();
   const cleanedInput = cleanMomentInput(input);
@@ -279,7 +368,6 @@ export async function createCommunityMoment(momentId: string, input: CommunityMo
   return {
     id: momentId,
     ...cleanedInput,
-    image: input.image,
     collectionType: "moment" as const,
     createdBy: actor?.id,
     updatedBy: actor?.id,
@@ -292,7 +380,7 @@ export async function createCommunityMoment(momentId: string, input: CommunityMo
 export async function updateCommunityMoment(moment: CommunityMoment, input: CommunityMomentWriteInput, actor?: AppUser | null) {
   assertCanManageCommunity(actor);
 
-  const cleanedInput = cleanMomentInput(input);
+  const cleanedInput = cleanMomentInput(input, getCommunityMomentImages(moment), moment.coverImageId);
   const wasPublished = moment.published;
   const shouldPublishNow = cleanedInput.published && !wasPublished;
   const now = new Date().toISOString();
@@ -301,7 +389,6 @@ export async function updateCommunityMoment(moment: CommunityMoment, input: Comm
     return {
       ...moment,
       ...cleanedInput,
-      image: cleanedInput.image ?? moment.image,
       updatedBy: actor?.id,
       updatedAt: now,
       publishedAt: shouldPublishNow ? now : moment.publishedAt,
@@ -318,7 +405,9 @@ export async function updateCommunityMoment(moment: CommunityMoment, input: Comm
     momentDate: cleanedInput.momentDate ?? deleteField(),
     location: cleanedInput.location ?? deleteField(),
     linkedListingId: cleanedInput.linkedListingId ?? deleteField(),
-    ...(cleanedInput.image ? { image: cleanedInput.image } : {}),
+    image: cleanedInput.image,
+    images: cleanedInput.images,
+    coverImageId: cleanedInput.coverImageId,
     updatedBy: actor?.id ?? "",
     updatedAt: serverTimestamp(),
     ...(shouldPublishNow ? { publishedAt: serverTimestamp() } : {}),
@@ -327,7 +416,6 @@ export async function updateCommunityMoment(moment: CommunityMoment, input: Comm
   return {
     ...moment,
     ...cleanedInput,
-    image: cleanedInput.image ?? moment.image,
     updatedBy: actor?.id,
     updatedAt: now,
     publishedAt: shouldPublishNow ? now : moment.publishedAt,
