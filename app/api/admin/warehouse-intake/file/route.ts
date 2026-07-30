@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   AdminApiAuthError,
-  getBearerToken,
-  hasAdminApiAccess,
   requireVerifiedAdminApiAccess
 } from "@/lib/admin-api-auth";
 import { getAdminStorageBucket } from "@/lib/firebase-admin-server";
@@ -37,24 +35,7 @@ function isSafeWarehouseIntakeStoragePath(storagePath: string) {
 }
 
 async function requireWarehouseFileAccess(request: NextRequest) {
-  const idToken = getBearerToken(request);
-
-  if (idToken) {
-    try {
-      await requireVerifiedAdminApiAccess(request, "manageVehicles");
-      return;
-    } catch (error) {
-      if (!hasAdminApiAccess(request, "manageVehicles")) {
-        throw error;
-      }
-    }
-  }
-
-  if (hasAdminApiAccess(request, "manageVehicles")) {
-    return;
-  }
-
-  throw new AdminApiAuthError(PROTECTED_FILE_ACCESS_ERROR, idToken ? 403 : 401);
+  await requireVerifiedAdminApiAccess(request, "manageVehicles");
 }
 
 export async function GET(request: NextRequest) {

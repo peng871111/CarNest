@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { getVehiclesData, getWarehouseIntakesData, saveWarehouseIntake } from "@/lib/data";
-import { deleteAdminWarehouseIntakeDraft } from "@/lib/storage";
+import { deleteAdminWarehouseIntakeDraft, fetchAdminWarehouseIntakeFileBlob } from "@/lib/storage";
 import { canDeleteWarehouseIntakeDraftRecord } from "@/lib/warehouse-intake-evidence";
 import { hasAdminPermission } from "@/lib/permissions";
 import { formatAdminDateTime, getVehicleDisplayReference } from "@/lib/utils";
@@ -22,14 +22,6 @@ function isWarehouseIntakePermissionError(message?: string) {
   return normalized.includes("missing or insufficient permissions")
     || normalized.includes("permission-denied")
     || normalized.includes("unauthenticated");
-}
-
-function getWarehouseIntakeFileUrl(storagePath: string, fileName?: string) {
-  const params = new URLSearchParams({ path: storagePath });
-  if (fileName?.trim()) {
-    params.set("name", fileName.trim());
-  }
-  return `/api/admin/warehouse-intake/file?${params.toString()}`;
 }
 
 function SectionCard({
@@ -140,6 +132,7 @@ export function WarehouseIntakeDashboard() {
   const [assigningIntakeId, setAssigningIntakeId] = useState("");
   const [draftPendingDelete, setDraftPendingDelete] = useState<WarehouseIntakeRecord | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState("");
+  const [openingPdfIntakeId, setOpeningPdfIntakeId] = useState("");
   const [listingSelectionByIntakeId, setListingSelectionByIntakeId] = useState<Record<string, string>>({});
   const canManageVehicles = hasAdminPermission(appUser, "manageVehicles");
 
@@ -305,6 +298,27 @@ export function WarehouseIntakeDashboard() {
     }
   }
 
+  async function handleViewPdf(intake: WarehouseIntakeRecord) {
+    if (!intake.signedPdfStoragePath || openingPdfIntakeId) return;
+
+    try {
+      if (!firebaseUser) {
+        throw new Error("Admin authentication is still loading. Please refresh and try again.");
+      }
+      setOpeningPdfIntakeId(intake.id);
+      setErrorMessage("");
+      const idToken = await firebaseUser.getIdToken();
+      const blob = await fetchAdminWarehouseIntakeFileBlob(intake.signedPdfStoragePath, idToken);
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "This protected contract file could not be opened with your current access. Please refresh your session or contact a CarNest administrator.");
+    } finally {
+      setOpeningPdfIntakeId("");
+    }
+  }
+
   return (
     <div className="space-y-4 md:space-y-6">
       {draftPendingDelete ? (
@@ -432,14 +446,14 @@ export function WarehouseIntakeDashboard() {
                         Open storage contract
                       </Link>
                       {pdfReady && intake.signedPdfStoragePath ? (
-                        <a
-                          href={getWarehouseIntakeFileUrl(intake.signedPdfStoragePath, intake.signedPdfFileName || "carnest-warehouse-intake.pdf")}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          disabled={openingPdfIntakeId === intake.id}
+                          onClick={() => void handleViewPdf(intake)}
                           className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                         >
-                          View PDF
-                        </a>
+                          {openingPdfIntakeId === intake.id ? "Opening..." : "View PDF"}
+                        </button>
                       ) : (
                         <Link
                           href={`/admin/warehouse-intake/${intake.id}`}
