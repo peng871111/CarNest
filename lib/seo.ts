@@ -1,19 +1,46 @@
-import { MetadataRoute } from "next";
-import { Vehicle } from "@/types";
+import type { MetadataRoute } from "next";
+import type { Vehicle } from "@/types";
+
+export const PUBLIC_SITE_ORIGIN = "https://www.carnest.au";
+const LOCAL_SITE_ORIGIN = "http://localhost:3000";
+
+function normalizeOrigin(value?: string) {
+  const rawUrl = value?.trim() ?? "";
+  if (!rawUrl) return "";
+
+  const urlWithProtocol = rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
+    ? rawUrl
+    : `https://${rawUrl}`;
+
+  try {
+    return new URL(urlWithProtocol).origin;
+  } catch {
+    return "";
+  }
+}
+
+function isLocalDevelopmentOrigin(origin: string) {
+  try {
+    const { hostname } = new URL(origin);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
 
 export function getSiteUrl() {
-  const rawUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
-    process.env.VERCEL_URL ||
-    "http://localhost:3000";
+  const configuredOrigin = normalizeOrigin(
+    process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL
+  );
 
-  if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-    return rawUrl;
+  if (process.env.NODE_ENV !== "production") {
+    if (configuredOrigin && isLocalDevelopmentOrigin(configuredOrigin)) {
+      return configuredOrigin;
+    }
+    return LOCAL_SITE_ORIGIN;
   }
 
-  return rawUrl.includes("localhost") ? `http://${rawUrl}` : `https://${rawUrl}`;
+  return PUBLIC_SITE_ORIGIN;
 }
 
 export function buildAbsoluteUrl(pathname: string) {

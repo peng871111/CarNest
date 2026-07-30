@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { CommunityGallery } from "@/components/community/community-gallery";
+import { buildAbsoluteUrl } from "@/lib/seo";
 
 export const metadata: Metadata = {
   title: {
@@ -7,7 +8,19 @@ export const metadata: Metadata = {
   },
   description: "Explore CarNest Community photos, featured vehicles, owner moments and automotive stories.",
   alternates: {
-    canonical: "/community"
+    canonical: buildAbsoluteUrl("/community")
+  },
+  openGraph: {
+    title: "CarNest Community | Shared automotive moments",
+    description: "Explore CarNest Community photos, featured vehicles, owner moments and automotive stories.",
+    url: buildAbsoluteUrl("/community"),
+    siteName: "CarNest",
+    type: "website"
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CarNest Community | Shared automotive moments",
+    description: "Explore CarNest Community photos, featured vehicles, owner moments and automotive stories."
   }
 };
 

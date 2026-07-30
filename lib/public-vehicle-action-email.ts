@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { Vehicle } from "@/types";
 import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/public-vehicle-action-validation";
+import { buildAbsoluteUrl } from "@/lib/seo";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
 const DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM = "CarNest <verification@mail.carnest.au>";
@@ -70,20 +71,7 @@ function createResendClient(from: string) {
 }
 
 function getStableAdminUrl(pathname: string) {
-  const rawUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim()
-    || process.env.NEXT_PUBLIC_APP_URL?.trim()
-    || process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim()
-    || "";
-
-  if (!rawUrl) return "";
-  if (rawUrl.includes("vercel.app") || rawUrl.includes("localhost")) return "";
-
-  const baseUrl = rawUrl.startsWith("http://") || rawUrl.startsWith("https://")
-    ? rawUrl
-    : `https://${rawUrl}`;
-
-  return new URL(pathname, baseUrl).toString();
+  return buildAbsoluteUrl(pathname);
 }
 
 function formatMelbourneDateTime(value: Date | string) {

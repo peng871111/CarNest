@@ -44,7 +44,6 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 const AUTH_UNAVAILABLE_MESSAGE = "Account signup is temporarily unavailable because authentication is not configured for this deployment.";
 const LIVE_DATA_MESSAGE = "We’re having trouble loading live data right now. Please check your connection and try again.";
-const PRODUCTION_SITE_URL = "https://carnest.au";
 const PROFILE_SETUP_MESSAGE = "Your account was created, but we couldn’t finish setting up your profile. Please sign in to continue.";
 const PROFILE_LOAD_MESSAGE = "We signed you in, but couldn’t load your account profile. Please try again.";
 const PROFILE_CREATE_FAILED_MESSAGE = "Your account was created, but we couldn’t finish setting up your profile. Please sign in again and we’ll restore it automatically.";
@@ -351,7 +350,7 @@ function getAuthOrigin() {
     return window.location.origin;
   }
 
-  return process.env.NEXT_PUBLIC_SITE_URL?.trim() || PRODUCTION_SITE_URL || getSiteUrl();
+  return getSiteUrl();
 }
 
 function getPasswordResetActionCodeSettings(): ActionCodeSettings {

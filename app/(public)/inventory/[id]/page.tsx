@@ -43,12 +43,13 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
       },
       description: getVehicleSeoDescription(vehicle),
       alternates: {
-        canonical: `/inventory/${vehicle.id}`
+        canonical: buildAbsoluteUrl(`/inventory/${vehicle.id}`)
       },
       openGraph: {
         title: getVehicleSeoTitle(vehicle),
         description: getVehicleSeoDescription(vehicle),
         url: buildAbsoluteUrl(`/inventory/${vehicle.id}`),
+        siteName: "CarNest",
         type: "website",
         images: [
           {

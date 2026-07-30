@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:share-metadata": "node scripts/validate-public-share-metadata.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
