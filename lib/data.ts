@@ -5907,6 +5907,103 @@ function buildWarehouseIntakeWritePayload(
   };
 }
 
+type WarehouseIntakeWritePayload = ReturnType<typeof buildWarehouseIntakeWritePayload>;
+
+function hasSignedWarehouseIntakeEvidence(intake?: WarehouseIntakeRecord | null) {
+  return Boolean(
+    intake?.signature?.signatureStoragePath
+    || intake?.signature?.signedAt
+    || intake?.signedPdfStoragePath
+    || intake?.pdfGeneratedAt
+    || intake?.completedAt
+  );
+}
+
+function buildWarehouseIntakeContractContentSnapshot(intake: WarehouseIntakeRecord | WarehouseIntakeWritePayload) {
+  return JSON.stringify({
+    vehicleId: intake.vehicleId || "",
+    vehicleReference: intake.vehicleReference || "",
+    vehicleTitle: intake.vehicleTitle || "",
+    ownerDetails: intake.ownerDetails,
+    vehicleDetails: intake.vehicleDetails,
+    declarations: intake.declarations,
+    conditionReport: intake.conditionReport,
+    vehicleReport: intake.vehicleReport,
+    photos: intake.photos,
+    serviceItems: intake.serviceItems,
+    intakeDate: intake.intakeDate || "",
+    assignedStaffUid: intake.assignedStaffUid || "",
+    assignedStaffName: intake.assignedStaffName || "",
+    intakeNotes: intake.intakeNotes || "",
+    storageStartDate: intake.storageStartDate || "",
+    storageEndDate: intake.storageEndDate || "",
+    storageDurationDays: intake.storageDurationDays || 0,
+    agreement: intake.agreement,
+    serviceFeeSubtotal: intake.serviceFeeSubtotal || 0,
+    gstInclusiveServiceFeeTotal: intake.gstInclusiveServiceFeeTotal || 0,
+    gstAmount: intake.gstAmount || 0,
+    adminStaffName: intake.adminStaffName || ""
+  });
+}
+
+function preserveSignedWarehouseIntakeEvidence(
+  payload: WarehouseIntakeWritePayload,
+  previousIntake: WarehouseIntakeRecord | null,
+  actor: VehicleActor,
+  now: string
+): WarehouseIntakeWritePayload {
+  if (!hasSignedWarehouseIntakeEvidence(previousIntake)) {
+    return payload;
+  }
+
+  const previousSignature = previousIntake?.signature;
+  const preservedSignature = {
+    ...payload.signature,
+    signerName: payload.signature.signerName || previousSignature?.signerName || "",
+    adminStaffName:
+      payload.signature.adminStaffName
+      || previousSignature?.adminStaffName
+      || actor.displayName
+      || actor.name
+      || actor.email
+      || "CarNest Admin",
+    signedAt: payload.signature.signedAt || previousSignature?.signedAt || "",
+    signatureStoragePath: payload.signature.signatureStoragePath || previousSignature?.signatureStoragePath || ""
+  } satisfies WarehouseIntakeSignature;
+
+  const previousPdfPath = previousIntake?.signedPdfStoragePath || "";
+  const generatedNewSignedPdf = Boolean(payload.signedPdfStoragePath && payload.signedPdfStoragePath !== previousPdfPath);
+  const contentChanged =
+    previousIntake
+    && buildWarehouseIntakeContractContentSnapshot(previousIntake) !== buildWarehouseIntakeContractContentSnapshot(payload);
+  const shouldMarkPdfOutdated = Boolean(previousPdfPath && contentChanged && !generatedNewSignedPdf);
+
+  return {
+    ...payload,
+    status: previousIntake?.status === "signed" && (preservedSignature.signatureStoragePath || preservedSignature.signedAt)
+      ? "signed"
+      : payload.status,
+    signature: preservedSignature,
+    signedPdfStoragePath: payload.signedPdfStoragePath || previousIntake?.signedPdfStoragePath || "",
+    signedPdfFileName: payload.signedPdfFileName || previousIntake?.signedPdfFileName || "",
+    pdfGeneratedAt: payload.pdfGeneratedAt || previousIntake?.pdfGeneratedAt || "",
+    completedAt: payload.completedAt || previousIntake?.completedAt || "",
+    emailSentAt: payload.emailSentAt || previousIntake?.emailSentAt || "",
+    pdfRegenerationRequiredAt: shouldMarkPdfOutdated
+      ? payload.pdfRegenerationRequiredAt || previousIntake?.pdfRegenerationRequiredAt || now
+      : payload.pdfRegenerationRequiredAt || previousIntake?.pdfRegenerationRequiredAt || "",
+    pdfRegenerationReason: shouldMarkPdfOutdated
+      ? payload.pdfRegenerationReason || previousIntake?.pdfRegenerationReason || "Contract details changed after the signed PDF was generated."
+      : payload.pdfRegenerationReason || previousIntake?.pdfRegenerationReason || "",
+    pdfRegenerationRequiredByUid: shouldMarkPdfOutdated
+      ? payload.pdfRegenerationRequiredByUid || actor.id || previousIntake?.pdfRegenerationRequiredByUid || ""
+      : payload.pdfRegenerationRequiredByUid || previousIntake?.pdfRegenerationRequiredByUid || "",
+    pdfRegenerationRequiredByName: shouldMarkPdfOutdated
+      ? payload.pdfRegenerationRequiredByName || getActorDisplayName(actor) || previousIntake?.pdfRegenerationRequiredByName || ""
+      : payload.pdfRegenerationRequiredByName || previousIntake?.pdfRegenerationRequiredByName || ""
+  };
+}
+
 async function resolveVehicleReportDamageImages(input: Pick<WarehouseIntakeRecord, "photos">) {
   if (!isFirebaseStorageConfigured) return [];
 
@@ -6226,7 +6323,7 @@ export async function saveWarehouseIntake(
     customerProfileId,
     intakeId
   );
-  const payload = buildWarehouseIntakeWritePayload(
+  const initialPayload = buildWarehouseIntakeWritePayload(
     {
       ...input,
       customerProfileId,
@@ -6234,6 +6331,9 @@ export async function saveWarehouseIntake(
     },
     actor
   );
+  const payload = previousIntake
+    ? preserveSignedWarehouseIntakeEvidence(initialPayload, previousIntake, actor, now)
+    : initialPayload;
   const affectedVehicleIds = Array.from(
     new Set([previousIntake?.vehicleId?.trim() || "", payload.vehicleId?.trim() || ""].filter(Boolean))
   );

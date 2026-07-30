@@ -24,6 +24,14 @@ function isWarehouseIntakePermissionError(message?: string) {
     || normalized.includes("unauthenticated");
 }
 
+function getWarehouseIntakeFileUrl(storagePath: string, fileName?: string) {
+  const params = new URLSearchParams({ path: storagePath });
+  if (fileName?.trim()) {
+    params.set("name", fileName.trim());
+  }
+  return `/api/admin/warehouse-intake/file?${params.toString()}`;
+}
+
 function SectionCard({
   title,
   eyebrow,
@@ -423,12 +431,23 @@ export function WarehouseIntakeDashboard() {
                       >
                         Open storage contract
                       </Link>
-                      <Link
-                        href={`/admin/warehouse-intake/${intake.id}`}
-                        className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
-                      >
-                        {pdfReady ? "View PDF" : "Generate PDF"}
-                      </Link>
+                      {pdfReady && intake.signedPdfStoragePath ? (
+                        <a
+                          href={getWarehouseIntakeFileUrl(intake.signedPdfStoragePath, intake.signedPdfFileName || "carnest-warehouse-intake.pdf")}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        >
+                          View PDF
+                        </a>
+                      ) : (
+                        <Link
+                          href={`/admin/warehouse-intake/${intake.id}`}
+                          className="rounded-full border border-black/10 px-4 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                        >
+                          Generate PDF
+                        </Link>
+                      )}
                       <button
                         type="button"
                         disabled={!selectedListingId || assigningIntakeId === intake.id}

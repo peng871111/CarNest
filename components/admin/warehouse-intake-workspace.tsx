@@ -1777,7 +1777,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
         onProgress: (message) => updateSlowPdfProgress(message)
       });
       updateSlowPdfProgress("Uploading signed PDF...");
-      const pdfFileName = `${(signedDraft.vehicleReference || recordId).replace(/\s+/g, "-").toLowerCase()}-warehouse-intake.pdf`;
+      const pdfBaseName = (signedDraft.vehicleReference || recordId).replace(/\s+/g, "-").toLowerCase();
+      const pdfVersionLabel = draft.signedPdfStoragePath ? `revised-${Date.now()}` : `signed-${Date.now()}`;
+      const pdfFileName = `${pdfBaseName}-warehouse-intake-${pdfVersionLabel}.pdf`;
       const signedPdfStoragePath = await uploadWarehouseIntakePdf(pdfBytes, recordId, pdfFileName);
 
       updateSlowPdfProgress("Saving signed intake...");
@@ -2992,6 +2994,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                 <button
                   type="button"
                   onClick={() => {
+                    const hasSavedSignature = Boolean(draft.signature.signatureStoragePath || draft.signature.signedAt);
+                    if (hasSavedSignature) {
+                      const confirmed = window.confirm(
+                        "Clear the existing customer signature?\n\nThis action cannot be undone and the customer will need to sign again."
+                      );
+                      if (!confirmed) return;
+                      setErrorMessage("Saved customer signatures are protected. Use an authorised reset workflow before requesting a new signature.");
+                      return;
+                    }
                     signatureRef.current?.clear();
                     setDraft((current) => ({
                       ...current,
