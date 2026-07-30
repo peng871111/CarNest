@@ -18,7 +18,21 @@ export const metadata: Metadata = {
   description:
     "Helping sellers save time and buyers find cars they can trust. Browse quality vehicles, make offers, and request inspections on CarNest.",
   alternates: {
-    canonical: "/"
+    canonical: buildAbsoluteUrl("/")
+  },
+  openGraph: {
+    title: "CarNest | Buy and sell cars with confidence",
+    description:
+      "Helping sellers save time and buyers find cars they can trust. Browse quality vehicles, make offers, and request inspections on CarNest.",
+    url: buildAbsoluteUrl("/"),
+    siteName: "CarNest",
+    type: "website"
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "CarNest | Buy and sell cars with confidence",
+    description:
+      "Helping sellers save time and buyers find cars they can trust. Browse quality vehicles, make offers, and request inspections on CarNest."
   }
 };
 
