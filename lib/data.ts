@@ -4679,6 +4679,7 @@ function serializeSaleHandoverVehicle(input: unknown): SaleHandoverVehicleSnapsh
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   return {
     listingId: typeof source.listingId === "string" ? source.listingId : "",
+    listingReference: typeof source.listingReference === "string" ? source.listingReference : "",
     vehicleRecordId: typeof source.vehicleRecordId === "string" ? source.vehicleRecordId : "",
     year: typeof source.year === "string" ? source.year : "",
     make: typeof source.make === "string" ? source.make : "",
@@ -4778,7 +4779,7 @@ function serializeSaleHandoverPdf(input: unknown): SaleHandoverPdfSnapshot | nul
     documentVersion: Number(source.documentVersion || 1),
     agreementTermsVersion: typeof source.agreementTermsVersion === "string" ? source.agreementTermsVersion : SALE_HANDOVER_TERMS_VERSION,
     documentHash: typeof source.documentHash === "string" ? source.documentHash : "",
-    status: source.status === "signed" ? "signed" : "draft"
+    status: source.status === "superseded" ? "superseded" : source.status === "signed" ? "signed" : "draft"
   };
 }
 
@@ -5240,7 +5241,7 @@ export async function saveSaleHandoverRecord(input: SaleHandoverRecord, actor: V
         signedAt: "",
         pdf: null,
         pdfHistory: previousRecord.pdf
-          ? previousRecord.pdfHistory.concat(previousRecord.pdf)
+          ? previousRecord.pdfHistory.concat({ ...previousRecord.pdf, status: "superseded" as const })
           : previousRecord.pdfHistory,
         previousVersions: previousRecord.previousVersions.concat({
           documentVersion: previousRecord.documentVersion,
@@ -5443,6 +5444,115 @@ export async function signSaleHandoverRecord(
   };
 }
 
+export async function clearSaleHandoverSignature(
+  recordId: string,
+  signerRole: SaleHandoverSignatureRole,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+
+  const existingSignature = signerRole === "seller" ? record.sellerSignature : record.buyerSignature;
+  if (!existingSignature?.signatureStoragePath) {
+    return {
+      record,
+      source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
+      writeSucceeded: false
+    };
+  }
+
+  const now = new Date().toISOString();
+  const actorName = getActorDisplayName(actor);
+  const hadFinalSignedPdf = Boolean(
+    record.pdf?.storagePath
+    && record.pdf.status === "signed"
+    && record.sellerSignature?.signatureStoragePath
+    && record.buyerSignature?.signatureStoragePath
+  );
+  const sellerSignature = signerRole === "seller" ? null : record.sellerSignature ?? null;
+  const buyerSignature = signerRole === "buyer" ? null : record.buyerSignature ?? null;
+  const hasRemainingSignature = Boolean(sellerSignature?.signatureStoragePath || buyerSignature?.signatureStoragePath);
+  const supersededPdf = record.pdf ? { ...record.pdf, status: "superseded" as const } : null;
+  const nextHistory = hadFinalSignedPdf && supersededPdf
+    ? record.pdfHistory.some((item) => item.storagePath === supersededPdf.storagePath)
+      ? record.pdfHistory
+      : record.pdfHistory.concat(supersededPdf)
+    : record.pdfHistory;
+  const nextVersions = hadFinalSignedPdf
+    ? record.previousVersions.concat({
+        documentVersion: record.documentVersion,
+        supersededAt: now,
+        supersededByUid: actor.id,
+        supersededByName: actorName,
+        reason: `${signerRole === "seller" ? "Seller" : "Buyer"} signature replacement started.`
+      })
+    : record.previousVersions;
+  const nextRecord: SaleHandoverRecord = {
+    ...record,
+    sellerSignature,
+    buyerSignature,
+    status: hasRemainingSignature ? "partially_signed" : "ready_for_signature",
+    signedAt: "",
+    documentVersion: hadFinalSignedPdf ? record.documentVersion + 1 : record.documentVersion,
+    pdf: hadFinalSignedPdf ? null : record.pdf ?? null,
+    pdfHistory: nextHistory,
+    previousVersions: nextVersions,
+    updatedAt: now,
+    lastEditedAt: now,
+    lastEditedByUid: actor.id,
+    lastEditedByName: actorName
+  };
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: nextRecord,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    sanitizeFirestoreWriteData({
+      sellerSignature,
+      buyerSignature,
+      status: nextRecord.status,
+      signedAt: "",
+      documentVersion: nextRecord.documentVersion,
+      pdf: nextRecord.pdf,
+      pdfHistory: nextHistory,
+      previousVersions: nextVersions,
+      lastEditedByUid: actor.id,
+      lastEditedByName: actorName,
+      lastEditedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: hadFinalSignedPdf ? "new_version_created" : "updated",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: hadFinalSignedPdf
+      ? `${record.recordNumber} moved to version ${nextRecord.documentVersion} for ${signerRole} signature replacement.`
+      : `${record.recordNumber} ${signerRole} signature cleared for replacement.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? nextRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 export async function markSaleHandoverPdfGenerated(
   recordId: string,
   pdf: SaleHandoverPdfSnapshot,
@@ -5453,7 +5563,7 @@ export async function markSaleHandoverPdfGenerated(
   if (!record) throw new Error("Sale and handover record not found.");
 
   const nextHistory = record.pdf?.storagePath && record.pdf.storagePath !== pdf.storagePath
-    ? record.pdfHistory.concat(record.pdf)
+    ? record.pdfHistory.concat({ ...record.pdf, status: "superseded" as const })
     : record.pdfHistory;
 
   if (!isFirebaseConfigured) {

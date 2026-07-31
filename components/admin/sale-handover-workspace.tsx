@@ -7,6 +7,7 @@ import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-p
 import { AdminShell } from "@/components/layout/admin-shell";
 import { useAuth } from "@/lib/auth";
 import {
+  clearSaleHandoverSignature,
   createSaleHandoverRecordForListing,
   getSaleHandoverRecordsByListingId,
   getWarehouseRelationshipTreeByVehicleId,
@@ -37,7 +38,7 @@ import {
   uploadSaleHandoverPdf,
   uploadSaleHandoverSignature,
 } from "@/lib/storage";
-import { formatAdminDateTime, formatCurrency } from "@/lib/utils";
+import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import {
   AppUser,
   SaleHandoverBuyerSnapshot,
@@ -400,6 +401,37 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     }
   }
 
+  function handleClearSignatureCanvas(role: SaleHandoverSignatureRole) {
+    if (role === "seller") {
+      sellerSignatureRef.current?.clear();
+    } else {
+      buyerSignatureRef.current?.clear();
+    }
+  }
+
+  async function handleReplaceSavedSignature(role: SaleHandoverSignatureRole) {
+    if (!record || !actor) return;
+    const label = role === "seller" ? "Seller" : "Buyer";
+    const confirmed = window.confirm(`This will remove the saved ${label} signature and require that party to sign again. Continue?`);
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      const result = await clearSaleHandoverSignature(record.id, role, actor);
+      setRecord(result.record);
+      setNotice(
+        result.record.documentVersion > record.documentVersion
+          ? `${label} signature removed. A new document version is ready for that party to sign again; the previous signed PDF remains preserved as Superseded.`
+          : `${label} signature removed. That party can sign again now.`
+      );
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : `We couldn't replace the ${role} signature.`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleGeneratePdf() {
     if (!record || !actor || !firebaseUser) return;
 
@@ -570,6 +602,10 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
 
   function renderVehicleDetails() {
     if (!record) return null;
+    const listingReference = record.vehicle.listingReference || (record.listingId ? getVehicleDisplayReference(record.listingId) : "Not available");
+    const vehicleLinked = Boolean(record.vehicleRecordId || record.vehicle.vehicleRecordId);
+    const storageContractLinked = Boolean(record.storageContractId);
+
     return (
       <Card title="Vehicle details" eyebrow={record.storageContractId ? "Snapshot imported where available" : "Manual verification required"}>
         {!record.storageContractId ? (
@@ -578,12 +614,6 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           </div>
         ) : null}
         <div className="grid gap-4 md:grid-cols-3">
-          <Field label="Listing ID">
-            <Input value={record.vehicle.listingId} onChange={(event) => updateVehicle("listingId", event.target.value)} />
-          </Field>
-          <Field label="Vehicle record ID">
-            <Input value={record.vehicle.vehicleRecordId} onChange={(event) => updateVehicle("vehicleRecordId", event.target.value)} />
-          </Field>
           <Field label="Year">
             <Input value={record.vehicle.year} onChange={(event) => updateVehicle("year", event.target.value)} />
           </Field>
@@ -627,6 +657,31 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           <Field label="Keys supplied">
             <Input value={record.vehicle.keysSupplied} onChange={(event) => updateVehicle("keysSupplied", event.target.value)} />
           </Field>
+        </div>
+        <div className="mt-6 rounded-[22px] border border-black/6 bg-shell p-5">
+          <p className="text-sm font-semibold text-ink">Source record</p>
+          <div className="mt-3 grid gap-3 text-sm text-ink/65 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Listing reference</p>
+              <p className="mt-1 font-medium text-ink">{listingReference}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Vehicle linked</p>
+              <p className="mt-1 font-medium text-ink">{vehicleLinked ? "Yes" : "No"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">Storage Contract linked</p>
+              <p className="mt-1 font-medium text-ink">{storageContractLinked ? "Yes" : "No"}</p>
+            </div>
+          </div>
+          <details className="mt-4 rounded-2xl border border-black/6 bg-white px-4 py-3 text-xs text-ink/55">
+            <summary className="cursor-pointer font-semibold text-ink/65">Technical details</summary>
+            <div className="mt-3 space-y-1 break-all">
+              <p>Listing document ID: {record.listingId || "Not available"}</p>
+              <p>Vehicle record ID: {record.vehicleRecordId || record.vehicle.vehicleRecordId || "Not available"}</p>
+              <p>Storage Contract ID: {record.storageContractId || "Not available"}</p>
+            </div>
+          </details>
         </div>
       </Card>
     );
@@ -826,23 +881,43 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           <div className="rounded-[24px] border border-black/6 bg-shell p-5">
             <p className="text-sm font-semibold text-ink">Seller signature</p>
             {record.sellerSignature?.signatureStoragePath ? (
-              <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm text-emerald-700">
-                Seller signature recorded by {record.sellerSignature.recordedByName || "CarNest Admin"} on {formatAdminDateTime(record.sellerSignature.signedAt)}.
-              </p>
+              <div className="mt-3 space-y-3">
+                <p className="rounded-2xl bg-white px-4 py-3 text-sm text-emerald-700">
+                  Seller signature recorded by {record.sellerSignature.recordedByName || "CarNest Admin"} on {formatAdminDateTime(record.sellerSignature.signedAt)}.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleReplaceSavedSignature("seller")}
+                  className="w-full rounded-full border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-800 transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35"
+                >
+                  Replace signature
+                </button>
+              </div>
             ) : (
               <div className="mt-4 space-y-4">
                 <Field label="Signer name">
                   <Input value={sellerSignerName} onChange={(event) => setSellerSignerName(event.target.value)} placeholder={record.seller.legalName || "Seller legal name"} />
                 </Field>
                 <SignaturePad ref={sellerSignatureRef} />
-                <button
-                  type="button"
-                  disabled={!readyForSignature || !signatureCollectionOpen || saving}
-                  onClick={() => void handleSign("seller")}
-                  className="w-full rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30"
-                >
-                  Save seller signature
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleClearSignatureCanvas("seller")}
+                    className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35 sm:w-1/2"
+                  >
+                    Clear seller signature
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!readyForSignature || !signatureCollectionOpen || saving}
+                    onClick={() => void handleSign("seller")}
+                    className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30 sm:w-1/2"
+                  >
+                    Save seller signature
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -850,23 +925,43 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           <div className="rounded-[24px] border border-black/6 bg-shell p-5">
             <p className="text-sm font-semibold text-ink">Buyer signature</p>
             {record.buyerSignature?.signatureStoragePath ? (
-              <p className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm text-emerald-700">
-                Buyer signature recorded by {record.buyerSignature.recordedByName || "CarNest Admin"} on {formatAdminDateTime(record.buyerSignature.signedAt)}.
-              </p>
+              <div className="mt-3 space-y-3">
+                <p className="rounded-2xl bg-white px-4 py-3 text-sm text-emerald-700">
+                  Buyer signature recorded by {record.buyerSignature.recordedByName || "CarNest Admin"} on {formatAdminDateTime(record.buyerSignature.signedAt)}.
+                </p>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleReplaceSavedSignature("buyer")}
+                  className="w-full rounded-full border border-amber-300 bg-white px-5 py-3 text-sm font-semibold text-amber-800 transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35"
+                >
+                  Replace signature
+                </button>
+              </div>
             ) : (
               <div className="mt-4 space-y-4">
                 <Field label="Signer name">
                   <Input value={buyerSignerName} onChange={(event) => setBuyerSignerName(event.target.value)} placeholder={buyerDisplayName === "Buyer" ? "Buyer legal name" : buyerDisplayName} />
                 </Field>
                 <SignaturePad ref={buyerSignatureRef} />
-                <button
-                  type="button"
-                  disabled={!readyForSignature || !signatureCollectionOpen || saving}
-                  onClick={() => void handleSign("buyer")}
-                  className="w-full rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30"
-                >
-                  Save buyer signature
-                </button>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleClearSignatureCanvas("buyer")}
+                    className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35 sm:w-1/2"
+                  >
+                    Clear buyer signature
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!readyForSignature || !signatureCollectionOpen || saving}
+                    onClick={() => void handleSign("buyer")}
+                    className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30 sm:w-1/2"
+                  >
+                    Save buyer signature
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -882,6 +977,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     if (!record) return null;
     const hasPdf = Boolean(record.pdf?.storagePath);
     const signed = Boolean(record.sellerSignature?.signatureStoragePath && record.buyerSignature?.signatureStoragePath);
+    const pdfStatusLabel = record.pdf?.status === "signed" ? "Signed" : record.pdf?.status === "superseded" ? "Superseded" : "Draft";
     return (
       <Card title="Final PDF" eyebrow={signed ? "Signed record" : "Draft PDF"}>
         <div className="rounded-[22px] border border-black/6 bg-shell p-5">
@@ -890,7 +986,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
             <div className="mt-3 space-y-1 text-sm text-ink/65">
               <p>{record.pdf?.fileName}</p>
               <p>Generated {formatAdminDateTime(record.pdf?.generatedAt)}</p>
-              <p>Version {record.pdf?.documentVersion} · {record.pdf?.status === "signed" ? "Signed" : "Draft"}</p>
+              <p>Version {record.pdf?.documentVersion} · {pdfStatusLabel}</p>
             </div>
           ) : null}
           {record.pdfHistory.length ? (

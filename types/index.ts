@@ -793,6 +793,7 @@ export interface SaleHandoverBuyerSnapshot extends SaleHandoverAddressSnapshot {
 
 export interface SaleHandoverVehicleSnapshot {
   listingId: string;
+  listingReference: string;
   vehicleRecordId: string;
   year: string;
   make: string;
@@ -869,7 +870,7 @@ export interface SaleHandoverPdfSnapshot {
   documentVersion: number;
   agreementTermsVersion: string;
   documentHash: string;
-  status: "draft" | "signed";
+  status: "draft" | "signed" | "superseded";
 }
 
 export interface SaleHandoverSourceSnapshot {

@@ -61,6 +61,10 @@ export default async function SaleHandoverVerificationPage({
   const pdf = data.pdf && typeof data.pdf === "object" ? data.pdf as Record<string, unknown> : {};
   const fullySigned = Boolean(sellerSignature.signatureStoragePath && buyerSignature.signatureStoragePath);
   const storedHash = typeof pdf.documentHash === "string" ? pdf.documentHash : "";
+  const vehicle = {
+    ...createEmptySaleHandoverVehicle(),
+    ...(data.vehicle && typeof data.vehicle === "object" ? data.vehicle as Record<string, unknown> : {}),
+  } as ReturnType<typeof createEmptySaleHandoverVehicle>;
   const status: SaleHandoverRecordStatus =
     data.status === "ready_for_signature" || data.status === "partially_signed" || data.status === "signed" || data.status === "superseded"
       ? data.status
@@ -83,10 +87,7 @@ export default async function SaleHandoverVerificationPage({
       ...createEmptySaleHandoverBuyer(),
       ...(data.buyer && typeof data.buyer === "object" ? data.buyer as Record<string, unknown> : {}),
     },
-    vehicle: {
-      ...createEmptySaleHandoverVehicle(),
-      ...(data.vehicle && typeof data.vehicle === "object" ? data.vehicle as Record<string, unknown> : {}),
-    },
+    vehicle,
     preparation: {
       ...createEmptySaleHandoverPreparation(),
       ...(data.preparation && typeof data.preparation === "object" ? data.preparation as Record<string, unknown> : {}),
@@ -141,6 +142,8 @@ export default async function SaleHandoverVerificationPage({
   });
   const hashValid = Boolean(storedHash && storedHash === computedHash);
   const signedDate = serializeDate(data.signedAt) || serializeDate(sellerSignature.signedAt) || serializeDate(buyerSignature.signedAt);
+  const documentStatus = status === "superseded" ? "Superseded" : fullySigned && status === "signed" ? "Signed" : "Draft";
+  const vehicleTitle = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Not available";
 
   return (
     <main className="min-h-screen bg-shell px-5 py-12 text-ink">
@@ -148,7 +151,7 @@ export default async function SaleHandoverVerificationPage({
         <p className="text-xs font-semibold uppercase tracking-[0.24em] text-bronze">CarNest verification</p>
         <h1 className="mt-3 font-display text-4xl">Private Sale & Handover Record</h1>
         <p className="mt-3 text-sm leading-6 text-ink/65">
-          This page verifies the record ID and signed document version only. It does not display private buyer, seller, contact, transaction or signature information.
+          This page verifies the record ID and signed document version only. It does not display private party, contact, transaction or signature information.
         </p>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -161,8 +164,12 @@ export default async function SaleHandoverVerificationPage({
             <p className="mt-2 font-semibold">Version {Number(data.documentVersion || 1)}</p>
           </div>
           <div className="rounded-[22px] border border-black/6 bg-shell p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Signed status</p>
-            <p className="mt-2 font-semibold">{fullySigned ? "Signed" : "Unsigned or draft"}</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Vehicle</p>
+            <p className="mt-2 font-semibold">{vehicleTitle}</p>
+          </div>
+          <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Document status</p>
+            <p className="mt-2 font-semibold">{documentStatus}</p>
           </div>
           <div className="rounded-[22px] border border-black/6 bg-shell p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Signed date</p>
@@ -171,9 +178,9 @@ export default async function SaleHandoverVerificationPage({
         </div>
 
         <div className="mt-5 rounded-[22px] border border-black/6 bg-shell p-4">
-          <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Document hash validity</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Document integrity</p>
           <p className={`mt-2 font-semibold ${hashValid ? "text-emerald-700" : "text-amber-700"}`}>
-            {hashValid ? "Hash matches the stored signed document record." : "Hash is not available or does not match the current stored record."}
+            {hashValid ? "Valid" : "Unable to verify"}
           </p>
         </div>
 

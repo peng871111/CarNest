@@ -52,12 +52,13 @@ function formatDateTime(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("en-AU", {
-    day: "2-digit",
-    month: "short",
+    day: "numeric",
+    month: "long",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
     timeZone: "Australia/Melbourne",
+    timeZoneName: "short",
   }).format(date);
 }
 
@@ -190,6 +191,10 @@ function buildVerificationUrl(record: SaleHandoverRecord) {
   return `${PUBLIC_SITE_ORIGIN}${buildSaleHandoverVerificationUrl(record)}`;
 }
 
+function getPreparedByDisplayName(record: SaleHandoverRecord) {
+  return sanitizeText(record.preparedByName || record.lastEditedByName || record.pdf?.generatedByName, "CarNest Admin");
+}
+
 export async function generateSaleHandoverPdf(
   record: SaleHandoverRecord,
   options?: {
@@ -216,12 +221,13 @@ export async function generateSaleHandoverPdf(
   const isFullySigned = Boolean(record.sellerSignature?.signatureStoragePath && record.buyerSignature?.signatureStoragePath);
   const statusLabel = isFullySigned ? "SIGNED PRIVATE SALE & HANDOVER RECORD" : "DRAFT — NOT SIGNED";
   const verificationUrl = buildVerificationUrl(record);
-  const qrDataUrl = await QRCode.toDataURL(verificationUrl, {
-    margin: 1,
-    width: 132,
-    errorCorrectionLevel: "M",
-  });
-  const qrImage = await pdfDoc.embedPng(qrDataUrl);
+  const qrImage = options?.documentHash
+    ? await pdfDoc.embedPng(await QRCode.toDataURL(verificationUrl, {
+        margin: 1,
+        width: 132,
+        errorCorrectionLevel: "M",
+      }))
+    : null;
 
   page1.drawText("CarNest", {
     x: PAGE_MARGIN,
@@ -265,19 +271,21 @@ export async function generateSaleHandoverPdf(
     font: bodyFont,
     color: rgb(0.25, 0.22, 0.18),
   });
-  page1.drawImage(qrImage, {
-    x: PAGE_WIDTH - PAGE_MARGIN - 88,
-    y: PAGE_HEIGHT - 124,
-    width: 88,
-    height: 88,
-  });
-  page1.drawText("Verification QR", {
-    x: PAGE_WIDTH - PAGE_MARGIN - 83,
-    y: PAGE_HEIGHT - 137,
-    size: 7,
-    font: bodyFont,
-    color: rgb(0.45, 0.42, 0.36),
-  });
+  if (qrImage) {
+    page1.drawImage(qrImage, {
+      x: PAGE_WIDTH - PAGE_MARGIN - 88,
+      y: PAGE_HEIGHT - 124,
+      width: 88,
+      height: 88,
+    });
+    page1.drawText("Verify this document", {
+      x: PAGE_WIDTH - PAGE_MARGIN - 84,
+      y: PAGE_HEIGHT - 137,
+      size: 7,
+      font: bodyFont,
+      color: rgb(0.45, 0.42, 0.36),
+    });
+  }
 
   let cursorY = PAGE_HEIGHT - 162;
   const leftX = PAGE_MARGIN;
@@ -459,29 +467,27 @@ export async function generateSaleHandoverPdf(
     font: bodyFont,
     color: rgb(0.35, 0.32, 0.27),
   });
-  page1.drawText(`Prepared / recorded by CarNest: ${record.preparedByName || "CarNest Admin"} (${record.preparedByUid || "admin"}) · ${formatDateTime(record.createdAt)}`, {
+  page1.drawText(`Prepared by CarNest: ${getPreparedByDisplayName(record)}`, {
     x: leftX,
-    y: 42,
+    y: 40,
+    size: 7.2,
+    font: bodyFont,
+    color: rgb(0.35, 0.32, 0.27),
+  });
+  page1.drawText(`Prepared on: ${formatDateTime(record.createdAt || generatedAt)}`, {
+    x: leftX,
+    y: 28,
     size: 7.2,
     font: bodyFont,
     color: rgb(0.35, 0.32, 0.27),
   });
   page1.drawText("Prepared using CarNest administrative template", {
     x: leftX,
-    y: 29,
+    y: 16,
     size: 7.2,
     font: boldFont,
     color: rgb(0.58, 0.34, 0.18),
   });
-  if (options?.documentHash) {
-    page1.drawText(`Document hash: ${options.documentHash.slice(0, 24)}...`, {
-      x: leftX,
-      y: 16,
-      size: 6.5,
-      font: bodyFont,
-      color: rgb(0.45, 0.42, 0.36),
-    });
-  }
 
   page2.drawText("IMPORTANT INFORMATION AND AGREEMENT TERMS", {
     x: PAGE_MARGIN,

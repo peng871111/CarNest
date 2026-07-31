@@ -191,6 +191,7 @@ export function createEmptySaleHandoverBuyer(): SaleHandoverBuyerSnapshot {
 export function createEmptySaleHandoverVehicle(): SaleHandoverVehicleSnapshot {
   return {
     listingId: "",
+    listingReference: "",
     vehicleRecordId: "",
     year: "",
     make: "",
@@ -334,6 +335,7 @@ export function importSaleHandoverSnapshots(input: {
 
   const sourceVehicle = storageContract?.vehicleDetails;
   vehicle.listingId = listing.id;
+  vehicle.listingReference = getVehicleDisplayReference(listing);
   vehicle.vehicleRecordId = vehicleRecord?.id || storageContract?.vehicleRecordId || "";
   vehicle.year = cleanText(vehicleRecord?.year) || cleanText(sourceVehicle?.year) || cleanText(listing.year);
   vehicle.make = cleanText(vehicleRecord?.make) || cleanText(sourceVehicle?.make) || cleanText(listing.make);
@@ -530,7 +532,8 @@ export function withCalculatedSaleHandoverBalance<T extends { transaction: SaleH
 }
 
 export function getListingReferenceFromSaleHandover(record: SaleHandoverRecord, listing?: Vehicle | null) {
-  return listing ? getVehicleDisplayReference(listing) : record.vehicle.listingId || record.listingId || "Listing";
+  if (listing) return getVehicleDisplayReference(listing);
+  return record.vehicle.listingReference || (record.listingId ? getVehicleDisplayReference(record.listingId) : "Listing");
 }
 
 export function isSaleHandoverMaterialField(path: string) {
