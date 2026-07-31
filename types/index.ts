@@ -57,6 +57,10 @@ export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
 export type VehicleActivityVisibility = "admin" | "customer";
 export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
+export type SaleHandoverRecordStatus = "draft" | "ready_for_signature" | "partially_signed" | "signed" | "superseded";
+export type SaleHandoverBuyerType = "individual" | "company";
+export type SaleHandoverSignatureRole = "seller" | "buyer";
+export type SaleHandoverRegistrationStatus = "registered" | "unregistered" | "unknown";
 export type WarehouseDeclarationAnswer = "yes" | "no" | "unknown";
 export type WarehouseConditionStatus = "documented" | "not_checked";
 export type CustomerProfileStatus = "active" | "archived";
@@ -131,7 +135,7 @@ export type VehicleReportRwcCooperation =
   | "seller_repairs_for_rwc"
   | "seller_coordinates_with_carnest"
   | "seller_does_not_include_rwc";
-export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing" | "user_access";
+export type AdminAuditRecordType = "customer_profile" | "vehicle_record" | "warehouse_intake" | "public_listing" | "user_access" | "sale_handover";
 export type AdminAuditActionType =
   | "created"
   | "updated"
@@ -141,7 +145,16 @@ export type AdminAuditActionType =
   | "fees_updated"
   | "photo_deleted"
   | "editor_heartbeat"
-  | "role_changed";
+  | "role_changed"
+  | "imported_from_storage_contract"
+  | "marked_ready_for_signature"
+  | "seller_signed"
+  | "buyer_signed"
+  | "new_version_created"
+  | "pdf_generated"
+  | "pdf_viewed"
+  | "pdf_downloaded"
+  | "superseded";
 export type WarehouseServiceFeeCategory =
   | "car_wash"
   | "light_detailing"
@@ -746,6 +759,169 @@ export interface WarehouseRelationshipTree {
   vehicleRecord: VehicleRecord | null;
   listing: Vehicle | null;
   intakeRecords: WarehouseIntakeRecord[];
+}
+
+export interface SaleHandoverAddressSnapshot {
+  address: string;
+  suburb: string;
+  state: string;
+  postcode: string;
+}
+
+export interface SaleHandoverSellerSnapshot extends SaleHandoverAddressSnapshot {
+  customerId?: string;
+  legalName: string;
+  phone: string;
+  email: string;
+  ownershipAuthorityConfirmed: boolean;
+}
+
+export interface SaleHandoverBuyerSnapshot extends SaleHandoverAddressSnapshot {
+  buyerType: SaleHandoverBuyerType;
+  buyerCustomerId?: string;
+  createOrLinkCustomerProfile: boolean;
+  legalFirstName: string;
+  legalFamilyName: string;
+  companyLegalName: string;
+  acn: string;
+  authorisedRepresentativeName: string;
+  phone: string;
+  email: string;
+  vicRoadsCustomerNumber: string;
+  driverLicenceNumber: string;
+}
+
+export interface SaleHandoverVehicleSnapshot {
+  listingId: string;
+  vehicleRecordId: string;
+  year: string;
+  make: string;
+  model: string;
+  variant: string;
+  colour: string;
+  registrationNumber: string;
+  registrationStatus: SaleHandoverRegistrationStatus;
+  registrationExpiry: string;
+  vinOrChassis: string;
+  engineNumber: string;
+  odometerAtAgreement: string;
+  odometerAtHandover: string;
+  keysSupplied: string;
+}
+
+export interface SaleHandoverPreparationChecklist {
+  roadworthyCertificate: boolean;
+  paintCorrection: boolean;
+  wheelRepair: boolean;
+  professionalDetail: boolean;
+  ceramicCoating: boolean;
+  dentRepair: boolean;
+  windscreenRepair: boolean;
+  batteryReplacement: boolean;
+  other: boolean;
+  otherNotes: string;
+}
+
+export interface SaleHandoverTransactionDetails {
+  purchasePrice: number;
+  deposit: number;
+  balance: number;
+  balanceOverrideEnabled: boolean;
+  balanceOverrideReason: string;
+  paymentMethod: string;
+  paymentArrangement: string;
+  saleDate: string;
+  settlementDate: string;
+  handoverDate: string;
+  handoverTime: string;
+  handoverLocation: string;
+  documentsSupplied: string;
+  additionalTerms: string;
+}
+
+export interface SaleHandoverConfirmations {
+  sellerInformationReviewed: boolean;
+  buyerInformationReviewed: boolean;
+  vehicleInformationReviewed: boolean;
+  noVicRoadsTransferAcknowledged: boolean;
+  termsProvided: boolean;
+}
+
+export interface SaleHandoverSignatureSnapshot {
+  signerRole: SaleHandoverSignatureRole;
+  signerName: string;
+  signatureStoragePath: string;
+  signedAt: string;
+  timezone: string;
+  documentVersion: number;
+  agreementTermsVersion: string;
+  recordId: string;
+  recordedByUid: string;
+  recordedByName: string;
+}
+
+export interface SaleHandoverPdfSnapshot {
+  storagePath: string;
+  fileName: string;
+  generatedAt: string;
+  generatedByUid: string;
+  generatedByName: string;
+  documentVersion: number;
+  agreementTermsVersion: string;
+  documentHash: string;
+  status: "draft" | "signed";
+}
+
+export interface SaleHandoverSourceSnapshot {
+  importedFromStorageContract: boolean;
+  importedAt?: string;
+  importedByUid?: string;
+  importedByName?: string;
+  storageContractId?: string;
+  fieldSources: Record<string, string>;
+  warnings: string[];
+}
+
+export interface SaleHandoverRecord {
+  id: string;
+  recordNumber: string;
+  status: SaleHandoverRecordStatus;
+  listingId: string;
+  vehicleId: string;
+  vehicleRecordId: string;
+  storageContractId: string;
+  sellerCustomerId: string;
+  buyerCustomerId: string;
+  seller: SaleHandoverSellerSnapshot;
+  buyer: SaleHandoverBuyerSnapshot;
+  vehicle: SaleHandoverVehicleSnapshot;
+  preparation: SaleHandoverPreparationChecklist;
+  transaction: SaleHandoverTransactionDetails;
+  confirmations: SaleHandoverConfirmations;
+  sellerSignature?: SaleHandoverSignatureSnapshot | null;
+  buyerSignature?: SaleHandoverSignatureSnapshot | null;
+  documentVersion: number;
+  agreementTermsVersion: string;
+  sourceSnapshot: SaleHandoverSourceSnapshot;
+  pdf?: SaleHandoverPdfSnapshot | null;
+  pdfHistory: SaleHandoverPdfSnapshot[];
+  previousVersions: Array<{
+    documentVersion: number;
+    supersededAt: string;
+    supersededByUid: string;
+    supersededByName: string;
+    reason: string;
+  }>;
+  preparedByUid: string;
+  preparedByName: string;
+  lastEditedByUid?: string;
+  lastEditedByName?: string;
+  lastEditedAt?: string;
+  readyForSignatureAt?: string;
+  readyForSignatureByUid?: string;
+  signedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface WarehouseIntakeRecord {

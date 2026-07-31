@@ -13,13 +13,14 @@ import {
   createEmptyVehicleRecord,
   deleteEmptyCustomerProfiles,
   getVehicleActivityLog,
+  getSaleHandoverRecordsData,
   saveCustomerProfile,
   saveVehicleRecord,
   updateVehicleStatus,
   updateVehicleActivityImageUrls,
   updateSellerVehicleStatus
 } from "@/lib/data";
-import { uploadVehicleActivityImages } from "@/lib/storage";
+import { fetchAdminSaleHandoverFileBlob, uploadVehicleActivityImages } from "@/lib/storage";
 import {
   getAdminVehicleListingFilterGroup,
   getVehicleStatusLabel,
@@ -27,8 +28,9 @@ import {
   isAdminVehiclePendingReview,
   isSuperAdminUser
 } from "@/lib/permissions";
+import { getSaleHandoverActionLabel, isWarehouseManagedListing } from "@/lib/sale-handover";
 import { formatAccountingCurrency, formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
-import { AdminAccountingEntry, AppUser, CustomerProfile, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
+import { AdminAccountingEntry, AppUser, CustomerProfile, SaleHandoverRecord, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
 type VehicleManagementView = "customers" | "vehicles" | "warehouse" | "listings";
 type VehicleOperationalStatus =
@@ -321,7 +323,7 @@ export function VehicleManagementHub({
   defaultView?: VehicleManagementView;
   initialCustomerSearch?: string;
 }) {
-  const { appUser } = useAuth();
+  const { appUser, firebaseUser } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const canManageSensitiveCustomerFields = hasAdminPermission(appUser, "manageUsers");
   const isSuperAdmin = isSuperAdminUser(appUser);
@@ -342,6 +344,7 @@ export function VehicleManagementHub({
   const [localCustomerProfiles, setLocalCustomerProfiles] = useState(customerProfiles);
   const [localVehicleRecords, setLocalVehicleRecords] = useState(vehicleRecords);
   const [localIntakes, setLocalIntakes] = useState(intakes);
+  const [localSaleHandoverRecords, setLocalSaleHandoverRecords] = useState<SaleHandoverRecord[]>([]);
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [showCreateVehicleForm, setShowCreateVehicleForm] = useState(false);
   const [editingVehicleId, setEditingVehicleId] = useState<string | null>(null);
@@ -378,6 +381,27 @@ export function VehicleManagementHub({
     setLocalIntakes(intakes);
   }, [intakes]);
 
+  useEffect(() => {
+    if (!hasAdminPermission(appUser, "manageVehicles")) return;
+    let cancelled = false;
+
+    void getSaleHandoverRecordsData()
+      .then((result) => {
+        if (!cancelled) {
+          setLocalSaleHandoverRecords(result.items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLocalSaleHandoverRecords([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appUser]);
+
   const listingMap = useMemo(() => new Map(localVehicles.map((vehicle) => [vehicle.id, vehicle])), [localVehicles]);
   const customerMap = useMemo(() => new Map(localCustomerProfiles.map((profile) => [profile.id, profile])), [localCustomerProfiles]);
   const ownerMap = useMemo(() => new Map(owners.map((owner) => [owner.id, owner])), [owners]);
@@ -407,6 +431,18 @@ export function VehicleManagementHub({
     });
     return map;
   }, [localIntakes]);
+  const saleHandoverRecordByListingId = useMemo(() => {
+    const map = new Map<string, SaleHandoverRecord>();
+    localSaleHandoverRecords
+      .filter((record) => record.listingId)
+      .sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || ""))
+      .forEach((record) => {
+        if (!map.has(record.listingId)) {
+          map.set(record.listingId, record);
+        }
+      });
+    return map;
+  }, [localSaleHandoverRecords]);
 
   const customerRows = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
@@ -658,6 +694,26 @@ export function VehicleManagementHub({
       cancelled = true;
     };
   }, [localVehicles, vehicleLogLoadingByVehicleId, vehicleLogReminderCheckedByVehicleId]);
+
+  async function openSaleHandoverPdf(record: SaleHandoverRecord) {
+    if (!firebaseUser || !record.pdf?.storagePath) {
+      setActionError("No PDF has been generated for this sale and handover record yet.");
+      return;
+    }
+
+    try {
+      setActionError("");
+      const idToken = await firebaseUser.getIdToken();
+      const blob = await fetchAdminSaleHandoverFileBlob(record.pdf.storagePath, idToken, {
+        name: record.pdf.fileName
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "This protected sale and handover PDF could not be opened with your current access.");
+    }
+  }
 
   async function handleVehicleListingStatusChange(vehicle: Vehicle, nextStatus: VehicleRowStatusControl) {
     if (!actor) return;
@@ -1408,6 +1464,8 @@ export function VehicleManagementHub({
                 const daysListed = listedAt ? getDaysBetweenIsoDates(listedAt, listingEndDate) : null;
                 const logReminderChecked = vehicleLogReminderCheckedByVehicleId[vehicle.id] ?? false;
                 const showVehicleLogReminder = logReminderChecked && isVehicleLogReminderOverdue(vehicle, logItems);
+                const saleHandoverRecord = saleHandoverRecordByListingId.get(vehicle.id) ?? null;
+                const showSaleHandoverAction = isWarehouseManagedListing(vehicle);
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1498,7 +1556,7 @@ export function VehicleManagementHub({
                       </div>
                     </div>
                   </div>
-                  <div className="mt-4 grid gap-2 border-t border-black/6 pt-4 sm:grid-cols-2 xl:grid-cols-5 xl:gap-3">
+                  <div className="mt-4 grid gap-2 border-t border-black/6 pt-4 sm:grid-cols-2 xl:grid-cols-6 xl:gap-3">
                       <Link href={`/admin/vehicles/${vehicle.id}/edit`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze">
                         Edit listing
                       </Link>
@@ -1531,6 +1589,21 @@ export function VehicleManagementHub({
                         onClick={() => void openVehicleLog(vehicle.id)}
                         className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                       />
+                      {showSaleHandoverAction ? (
+                        saleHandoverRecord?.pdf?.storagePath ? (
+                          <button
+                            type="button"
+                            onClick={() => void openSaleHandoverPdf(saleHandoverRecord)}
+                            className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-bronze/40 bg-white px-3 py-2 text-center text-xs font-semibold text-bronze transition hover:bg-bronze hover:text-white sm:col-span-2 xl:col-span-1"
+                          >
+                            {getSaleHandoverActionLabel(saleHandoverRecord)}
+                          </button>
+                        ) : (
+                          <Link href={`/admin/vehicles/${vehicle.id}/sale-handover`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-bronze/40 bg-white px-3 py-2 text-center text-xs font-semibold text-bronze transition hover:bg-bronze hover:text-white sm:col-span-2 xl:col-span-1">
+                            {getSaleHandoverActionLabel(saleHandoverRecord)}
+                          </Link>
+                        )
+                      ) : null}
                   </div>
                   <div className="mt-4">
                     <VehicleAccountingSummary

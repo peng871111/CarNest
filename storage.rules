@@ -63,6 +63,10 @@ service firebase.storage {
       allow read, write: if isAdmin();
     }
 
+    match /sale-handover-records/{recordId}/{allPaths=**} {
+      allow read, write: if hasAdminPermission("manageVehicles");
+    }
+
     match /activity-updates/{vehicleId}/{activityId}/{allPaths=**} {
       allow read, write: if isAdmin();
     }

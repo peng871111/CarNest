@@ -360,6 +360,74 @@ export async function uploadWarehouseIntakePdf(pdfBytes: Uint8Array, intakeId: s
   return storageRef.fullPath;
 }
 
+export async function uploadSaleHandoverSignature(dataUrl: string, recordId: string, role: "seller" | "buyer") {
+  if (!dataUrl) {
+    throw new Error("Capture a signature before uploading.");
+  }
+
+  if (!recordId) {
+    throw new Error("Create the sale and handover record before uploading the signature.");
+  }
+
+  if (role !== "seller" && role !== "buyer") {
+    throw new Error("Signature role must be seller or buyer.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("Signature upload is temporarily unavailable. Please try again later.");
+  }
+
+  const signatureFile = await dataUrlToFile(dataUrl, `${role}-signature-${Date.now()}.png`);
+  const storageRef = ref(storage, `sale-handover-records/${recordId}/signatures/${signatureFile.name}`);
+  try {
+    await uploadBytes(storageRef, signatureFile, {
+      contentType: signatureFile.type || "image/png"
+    });
+  } catch (error) {
+    const errorCode = getFirebaseStorageErrorCode(error);
+    console.error("[sale-handover-signature] Signature upload failed.", {
+      recordId,
+      role,
+      errorCode: errorCode || "unknown"
+    });
+
+    if (errorCode === "storage/unauthorized") {
+      throw new Error("Unable to upload the signature. Please refresh your admin session and try again.");
+    }
+
+    throw error;
+  }
+
+  return storageRef.fullPath;
+}
+
+export async function uploadSaleHandoverPdf(pdfBytes: Uint8Array, recordId: string, fileName: string) {
+  if (!pdfBytes.length) {
+    throw new Error("Generate the PDF before uploading.");
+  }
+
+  if (!recordId) {
+    throw new Error("Create the sale and handover record before uploading the PDF.");
+  }
+
+  if (!isFirebaseStorageConfigured) {
+    throw new Error("PDF upload is temporarily unavailable. Please try again later.");
+  }
+
+  const sanitizedName = sanitizeStorageName(fileName || `carnest-sale-handover-${recordId}.pdf`);
+  const normalizedPdfBytes = new Uint8Array(pdfBytes);
+  const pdfBlob = new Blob([normalizedPdfBytes], {
+    type: "application/pdf"
+  });
+  const pdfFile = new File([pdfBlob], `${Date.now()}-${sanitizedName}`, { type: "application/pdf" });
+  const storageRef = ref(storage, `sale-handover-records/${recordId}/pdf/${pdfFile.name}`);
+  await uploadBytes(storageRef, pdfFile, {
+    contentType: "application/pdf"
+  });
+
+  return storageRef.fullPath;
+}
+
 export async function uploadVehicleReportPdf(pdfBytes: Uint8Array, vehicleId: string, fileName: string) {
   if (!pdfBytes.length) {
     throw new Error("Generate the report PDF before uploading.");
@@ -427,6 +495,42 @@ export async function fetchAdminWarehouseIntakeFileBlob(storagePath: string, idT
 
 export async function fetchAdminWarehouseIntakeFileBytes(storagePath: string, idToken: string) {
   const blob = await fetchAdminWarehouseIntakeFileBlob(storagePath, idToken);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+export async function fetchAdminSaleHandoverFileBlob(storagePath: string, idToken: string, options?: { download?: boolean; name?: string }) {
+  if (!storagePath) {
+    throw new Error("Storage path is required.");
+  }
+
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
+  }
+
+  const params = new URLSearchParams({
+    path: storagePath
+  });
+  if (options?.download) params.set("download", "1");
+  if (options?.name) params.set("name", options.name);
+
+  const response = await fetch(`/api/admin/sale-handover/file?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${idToken}`
+    },
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(errorPayload?.error || "Unable to load the requested sale and handover file.");
+  }
+
+  return await response.blob();
+}
+
+export async function fetchAdminSaleHandoverFileBytes(storagePath: string, idToken: string) {
+  const blob = await fetchAdminSaleHandoverFileBlob(storagePath, idToken);
   return new Uint8Array(await blob.arrayBuffer());
 }
 

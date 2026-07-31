@@ -34,6 +34,25 @@ import {
   normalizeVehicleWheelDamageType,
 } from "@/lib/vehicle-wheel-condition";
 import {
+  calculateSaleHandoverBalance,
+  canSaleHandoverBeSigned,
+  createEmptySaleHandoverBuyer,
+  createEmptySaleHandoverConfirmations,
+  createEmptySaleHandoverPreparation,
+  createEmptySaleHandoverSeller,
+  createEmptySaleHandoverSourceSnapshot,
+  createEmptySaleHandoverTransaction,
+  createEmptySaleHandoverVehicle,
+  createSaleHandoverRecordNumber,
+  getChangedMaterialSaleHandoverFields,
+  importSaleHandoverSnapshots,
+  isSaleHandoverSignedOrPartiallySigned,
+  isWarehouseManagedListing,
+  SALE_HANDOVER_TERMS_VERSION,
+  SALE_HANDOVER_TIMEZONE,
+  withCalculatedSaleHandoverBalance,
+} from "@/lib/sale-handover";
+import {
   AccountType,
   AdminAccountingEntry,
   AdminAppointment,
@@ -74,6 +93,19 @@ import {
   QuoteSource,
   QuoteStatus,
   QuoteType,
+  SaleHandoverBuyerSnapshot,
+  SaleHandoverConfirmations,
+  SaleHandoverPdfSnapshot,
+  SaleHandoverPreparationChecklist,
+  SaleHandoverRecord,
+  SaleHandoverRecordStatus,
+  SaleHandoverRegistrationStatus,
+  SaleHandoverSellerSnapshot,
+  SaleHandoverSignatureRole,
+  SaleHandoverSignatureSnapshot,
+  SaleHandoverSourceSnapshot,
+  SaleHandoverTransactionDetails,
+  SaleHandoverVehicleSnapshot,
   SavedVehicle,
   SellerVehicleStatus,
   SellerTrustInfo,
@@ -151,7 +183,8 @@ type CollectionName =
   | "vehicleRecords"
   | "adminOperationalEvents"
   | "adminAccountingEntries"
-  | "adminAppointments";
+  | "adminAppointments"
+  | "saleHandoverRecords";
 export type VehicleDataSource = "firestore" | "mock";
 
 interface CollectionResult<T> {
@@ -4595,6 +4628,299 @@ export async function updateVehicleActivityImageUrls(
   };
 }
 
+function normalizeSaleHandoverStatus(value: unknown): SaleHandoverRecordStatus {
+  return value === "ready_for_signature" || value === "partially_signed" || value === "signed" || value === "superseded"
+    ? value
+    : "draft";
+}
+
+function normalizeSaleHandoverRegistrationStatus(value: unknown): SaleHandoverRegistrationStatus {
+  return value === "registered" || value === "unregistered" || value === "unknown" ? value : "unknown";
+}
+
+function serializeSaleHandoverSeller(input: unknown): SaleHandoverSellerSnapshot {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    customerId: typeof source.customerId === "string" ? source.customerId : "",
+    legalName: typeof source.legalName === "string" ? source.legalName : "",
+    phone: typeof source.phone === "string" ? source.phone : "",
+    email: typeof source.email === "string" ? source.email : "",
+    address: typeof source.address === "string" ? source.address : "",
+    suburb: typeof source.suburb === "string" ? source.suburb : "",
+    state: typeof source.state === "string" ? source.state : "VIC",
+    postcode: typeof source.postcode === "string" ? source.postcode : "",
+    ownershipAuthorityConfirmed: source.ownershipAuthorityConfirmed === true
+  };
+}
+
+function serializeSaleHandoverBuyer(input: unknown): SaleHandoverBuyerSnapshot {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    buyerType: source.buyerType === "company" ? "company" : "individual",
+    buyerCustomerId: typeof source.buyerCustomerId === "string" ? source.buyerCustomerId : "",
+    createOrLinkCustomerProfile: source.createOrLinkCustomerProfile === true,
+    legalFirstName: typeof source.legalFirstName === "string" ? source.legalFirstName : "",
+    legalFamilyName: typeof source.legalFamilyName === "string" ? source.legalFamilyName : "",
+    companyLegalName: typeof source.companyLegalName === "string" ? source.companyLegalName : "",
+    acn: typeof source.acn === "string" ? source.acn : "",
+    authorisedRepresentativeName: typeof source.authorisedRepresentativeName === "string" ? source.authorisedRepresentativeName : "",
+    phone: typeof source.phone === "string" ? source.phone : "",
+    email: typeof source.email === "string" ? source.email : "",
+    address: typeof source.address === "string" ? source.address : "",
+    suburb: typeof source.suburb === "string" ? source.suburb : "",
+    state: typeof source.state === "string" ? source.state : "VIC",
+    postcode: typeof source.postcode === "string" ? source.postcode : "",
+    vicRoadsCustomerNumber: typeof source.vicRoadsCustomerNumber === "string" ? source.vicRoadsCustomerNumber : "",
+    driverLicenceNumber: typeof source.driverLicenceNumber === "string" ? source.driverLicenceNumber : ""
+  };
+}
+
+function serializeSaleHandoverVehicle(input: unknown): SaleHandoverVehicleSnapshot {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    listingId: typeof source.listingId === "string" ? source.listingId : "",
+    vehicleRecordId: typeof source.vehicleRecordId === "string" ? source.vehicleRecordId : "",
+    year: typeof source.year === "string" ? source.year : "",
+    make: typeof source.make === "string" ? source.make : "",
+    model: typeof source.model === "string" ? source.model : "",
+    variant: typeof source.variant === "string" ? source.variant : "",
+    colour: typeof source.colour === "string" ? source.colour : "",
+    registrationNumber: typeof source.registrationNumber === "string" ? source.registrationNumber : "",
+    registrationStatus: normalizeSaleHandoverRegistrationStatus(source.registrationStatus),
+    registrationExpiry: typeof source.registrationExpiry === "string" ? source.registrationExpiry : "",
+    vinOrChassis: typeof source.vinOrChassis === "string" ? source.vinOrChassis : "",
+    engineNumber: typeof source.engineNumber === "string" ? source.engineNumber : "",
+    odometerAtAgreement: typeof source.odometerAtAgreement === "string" ? source.odometerAtAgreement : "",
+    odometerAtHandover: typeof source.odometerAtHandover === "string" ? source.odometerAtHandover : "",
+    keysSupplied: typeof source.keysSupplied === "string" ? source.keysSupplied : ""
+  };
+}
+
+function serializeSaleHandoverPreparation(input: unknown): SaleHandoverPreparationChecklist {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    roadworthyCertificate: source.roadworthyCertificate === true,
+    paintCorrection: source.paintCorrection === true,
+    wheelRepair: source.wheelRepair === true,
+    professionalDetail: source.professionalDetail === true,
+    ceramicCoating: source.ceramicCoating === true,
+    dentRepair: source.dentRepair === true,
+    windscreenRepair: source.windscreenRepair === true,
+    batteryReplacement: source.batteryReplacement === true,
+    other: source.other === true,
+    otherNotes: typeof source.otherNotes === "string" ? source.otherNotes : ""
+  };
+}
+
+function serializeSaleHandoverTransaction(input: unknown): SaleHandoverTransactionDetails {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const transaction = {
+    purchasePrice: parseCurrencyNumber(source.purchasePrice),
+    deposit: parseCurrencyNumber(source.deposit),
+    balance: parseCurrencyNumber(source.balance),
+    balanceOverrideEnabled: source.balanceOverrideEnabled === true,
+    balanceOverrideReason: typeof source.balanceOverrideReason === "string" ? source.balanceOverrideReason : "",
+    paymentMethod: typeof source.paymentMethod === "string" ? source.paymentMethod : "",
+    paymentArrangement: typeof source.paymentArrangement === "string" ? source.paymentArrangement : "",
+    saleDate: typeof source.saleDate === "string" ? source.saleDate : "",
+    settlementDate: typeof source.settlementDate === "string" ? source.settlementDate : "",
+    handoverDate: typeof source.handoverDate === "string" ? source.handoverDate : "",
+    handoverTime: typeof source.handoverTime === "string" ? source.handoverTime : "",
+    handoverLocation: typeof source.handoverLocation === "string" ? source.handoverLocation : "",
+    documentsSupplied: typeof source.documentsSupplied === "string" ? source.documentsSupplied : "",
+    additionalTerms: typeof source.additionalTerms === "string" ? source.additionalTerms : ""
+  };
+  return {
+    ...transaction,
+    balance: calculateSaleHandoverBalance(transaction)
+  };
+}
+
+function serializeSaleHandoverConfirmations(input: unknown): SaleHandoverConfirmations {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    sellerInformationReviewed: source.sellerInformationReviewed === true,
+    buyerInformationReviewed: source.buyerInformationReviewed === true,
+    vehicleInformationReviewed: source.vehicleInformationReviewed === true,
+    noVicRoadsTransferAcknowledged: source.noVicRoadsTransferAcknowledged === true,
+    termsProvided: source.termsProvided === true
+  };
+}
+
+function serializeSaleHandoverSignature(input: unknown): SaleHandoverSignatureSnapshot | null {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const storagePath = typeof source.signatureStoragePath === "string" ? source.signatureStoragePath : "";
+  if (!storagePath) return null;
+  return {
+    signerRole: source.signerRole === "buyer" ? "buyer" : "seller",
+    signerName: typeof source.signerName === "string" ? source.signerName : "",
+    signatureStoragePath: storagePath,
+    signedAt: serializeDate(source.signedAt) || "",
+    timezone: typeof source.timezone === "string" ? source.timezone : SALE_HANDOVER_TIMEZONE,
+    documentVersion: Number(source.documentVersion || 1),
+    agreementTermsVersion: typeof source.agreementTermsVersion === "string" ? source.agreementTermsVersion : SALE_HANDOVER_TERMS_VERSION,
+    recordId: typeof source.recordId === "string" ? source.recordId : "",
+    recordedByUid: typeof source.recordedByUid === "string" ? source.recordedByUid : "",
+    recordedByName: typeof source.recordedByName === "string" ? source.recordedByName : ""
+  };
+}
+
+function serializeSaleHandoverPdf(input: unknown): SaleHandoverPdfSnapshot | null {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const storagePath = typeof source.storagePath === "string" ? source.storagePath : "";
+  if (!storagePath) return null;
+  return {
+    storagePath,
+    fileName: typeof source.fileName === "string" ? source.fileName : storagePath.split("/").pop() || "sale-handover-record.pdf",
+    generatedAt: serializeDate(source.generatedAt) || "",
+    generatedByUid: typeof source.generatedByUid === "string" ? source.generatedByUid : "",
+    generatedByName: typeof source.generatedByName === "string" ? source.generatedByName : "",
+    documentVersion: Number(source.documentVersion || 1),
+    agreementTermsVersion: typeof source.agreementTermsVersion === "string" ? source.agreementTermsVersion : SALE_HANDOVER_TERMS_VERSION,
+    documentHash: typeof source.documentHash === "string" ? source.documentHash : "",
+    status: source.status === "signed" ? "signed" : "draft"
+  };
+}
+
+function serializeSaleHandoverSourceSnapshot(input: unknown): SaleHandoverSourceSnapshot {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  return {
+    importedFromStorageContract: source.importedFromStorageContract === true,
+    importedAt: serializeDate(source.importedAt) || "",
+    importedByUid: typeof source.importedByUid === "string" ? source.importedByUid : "",
+    importedByName: typeof source.importedByName === "string" ? source.importedByName : "",
+    storageContractId: typeof source.storageContractId === "string" ? source.storageContractId : "",
+    fieldSources: source.fieldSources && typeof source.fieldSources === "object" && !Array.isArray(source.fieldSources)
+      ? Object.fromEntries(
+          Object.entries(source.fieldSources as Record<string, unknown>)
+            .filter(([, value]) => typeof value === "string")
+        ) as Record<string, string>
+      : {},
+    warnings: Array.isArray(source.warnings) ? source.warnings.filter((item): item is string => typeof item === "string") : []
+  };
+}
+
+function serializeSaleHandoverRecordDoc(id: string, data: Record<string, unknown>): SaleHandoverRecord {
+  const pdf = serializeSaleHandoverPdf(data.pdf);
+  const pdfHistory = Array.isArray(data.pdfHistory)
+    ? data.pdfHistory.map(serializeSaleHandoverPdf).filter((item): item is SaleHandoverPdfSnapshot => Boolean(item))
+    : [];
+
+  return {
+    id,
+    recordNumber: typeof data.recordNumber === "string" && data.recordNumber ? data.recordNumber : createSaleHandoverRecordNumber(id),
+    status: normalizeSaleHandoverStatus(data.status),
+    listingId: typeof data.listingId === "string" ? data.listingId : "",
+    vehicleId: typeof data.vehicleId === "string" ? data.vehicleId : "",
+    vehicleRecordId: typeof data.vehicleRecordId === "string" ? data.vehicleRecordId : "",
+    storageContractId: typeof data.storageContractId === "string" ? data.storageContractId : "",
+    sellerCustomerId: typeof data.sellerCustomerId === "string" ? data.sellerCustomerId : "",
+    buyerCustomerId: typeof data.buyerCustomerId === "string" ? data.buyerCustomerId : "",
+    seller: serializeSaleHandoverSeller(data.seller),
+    buyer: serializeSaleHandoverBuyer(data.buyer),
+    vehicle: serializeSaleHandoverVehicle(data.vehicle),
+    preparation: serializeSaleHandoverPreparation(data.preparation),
+    transaction: serializeSaleHandoverTransaction(data.transaction),
+    confirmations: serializeSaleHandoverConfirmations(data.confirmations),
+    sellerSignature: serializeSaleHandoverSignature(data.sellerSignature),
+    buyerSignature: serializeSaleHandoverSignature(data.buyerSignature),
+    documentVersion: Number(data.documentVersion || 1),
+    agreementTermsVersion: typeof data.agreementTermsVersion === "string" ? data.agreementTermsVersion : SALE_HANDOVER_TERMS_VERSION,
+    sourceSnapshot: serializeSaleHandoverSourceSnapshot(data.sourceSnapshot),
+    pdf,
+    pdfHistory,
+    previousVersions: Array.isArray(data.previousVersions)
+      ? data.previousVersions
+          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+          .map((item) => ({
+            documentVersion: Number(item.documentVersion || 1),
+            supersededAt: serializeDate(item.supersededAt) || "",
+            supersededByUid: typeof item.supersededByUid === "string" ? item.supersededByUid : "",
+            supersededByName: typeof item.supersededByName === "string" ? item.supersededByName : "",
+            reason: typeof item.reason === "string" ? item.reason : ""
+          }))
+      : [],
+    preparedByUid: typeof data.preparedByUid === "string" ? data.preparedByUid : "",
+    preparedByName: typeof data.preparedByName === "string" ? data.preparedByName : "",
+    lastEditedByUid: typeof data.lastEditedByUid === "string" ? data.lastEditedByUid : "",
+    lastEditedByName: typeof data.lastEditedByName === "string" ? data.lastEditedByName : "",
+    lastEditedAt: serializeDate(data.lastEditedAt) || "",
+    readyForSignatureAt: serializeDate(data.readyForSignatureAt) || "",
+    readyForSignatureByUid: typeof data.readyForSignatureByUid === "string" ? data.readyForSignatureByUid : "",
+    signedAt: serializeDate(data.signedAt) || "",
+    createdAt: serializeDate(data.createdAt) || "",
+    updatedAt: serializeDate(data.updatedAt) || ""
+  };
+}
+
+function buildSaleHandoverWritePayload(input: SaleHandoverRecord | Omit<SaleHandoverRecord, "id">, actor: VehicleActor) {
+  const normalized = withCalculatedSaleHandoverBalance({
+    ...input,
+    seller: {
+      ...createEmptySaleHandoverSeller(),
+      ...input.seller
+    },
+    buyer: {
+      ...createEmptySaleHandoverBuyer(),
+      ...input.buyer
+    },
+    vehicle: {
+      ...createEmptySaleHandoverVehicle(),
+      ...input.vehicle
+    },
+    preparation: {
+      ...createEmptySaleHandoverPreparation(),
+      ...input.preparation
+    },
+    transaction: {
+      ...createEmptySaleHandoverTransaction(),
+      ...input.transaction
+    },
+    confirmations: {
+      ...createEmptySaleHandoverConfirmations(),
+      ...input.confirmations
+    },
+    sourceSnapshot: {
+      ...createEmptySaleHandoverSourceSnapshot(),
+      ...input.sourceSnapshot
+    }
+  });
+
+  return sanitizeFirestoreWriteData({
+    recordNumber: normalized.recordNumber,
+    status: normalized.status,
+    listingId: normalized.listingId,
+    vehicleId: normalized.vehicleId || normalized.listingId,
+    vehicleRecordId: normalized.vehicleRecordId || normalized.vehicle.vehicleRecordId || "",
+    storageContractId: normalized.storageContractId,
+    sellerCustomerId: normalized.sellerCustomerId || normalized.seller.customerId || "",
+    buyerCustomerId: normalized.buyerCustomerId || normalized.buyer.buyerCustomerId || "",
+    seller: normalized.seller,
+    buyer: normalized.buyer,
+    vehicle: normalized.vehicle,
+    preparation: normalized.preparation,
+    transaction: normalized.transaction,
+    confirmations: normalized.confirmations,
+    sellerSignature: normalized.sellerSignature ?? null,
+    buyerSignature: normalized.buyerSignature ?? null,
+    documentVersion: normalized.documentVersion || 1,
+    agreementTermsVersion: normalized.agreementTermsVersion || SALE_HANDOVER_TERMS_VERSION,
+    sourceSnapshot: normalized.sourceSnapshot,
+    pdf: normalized.pdf ?? null,
+    pdfHistory: normalized.pdfHistory ?? [],
+    previousVersions: normalized.previousVersions ?? [],
+    preparedByUid: normalized.preparedByUid || actor.id,
+    preparedByName: normalized.preparedByName || getActorDisplayName(actor),
+    lastEditedByUid: actor.id,
+    lastEditedByName: getActorDisplayName(actor),
+    lastEditedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    readyForSignatureAt: normalized.readyForSignatureAt || "",
+    readyForSignatureByUid: normalized.readyForSignatureByUid || "",
+    signedAt: normalized.signedAt || ""
+  });
+}
+
 export async function getWarehouseIntakesData() {
   if (!isFirebaseConfigured) {
     return {
@@ -4663,6 +4989,517 @@ export async function getWarehouseIntakeByVehicleId(vehicleId: string) {
       error: error instanceof Error ? error.message : "Unknown Firestore read error"
     };
   }
+}
+
+async function getVehicleRecordByPublicListingId(publicListingId: string) {
+  if (!publicListingId || !isFirebaseConfigured) return null;
+  const snapshot = await readFirestoreWithAuthRetry(() =>
+    getDocs(query(collection(db, "vehicleRecords"), where("publicListingId", "==", publicListingId), limit(1)))
+  );
+  if (snapshot.empty) return null;
+  return serializeVehicleRecordDoc(snapshot.docs[0].id, snapshot.docs[0].data());
+}
+
+async function getWarehouseIntakeByVehicleRecordId(vehicleRecordId: string) {
+  if (!vehicleRecordId || !isFirebaseConfigured) {
+    return {
+      items: [] as WarehouseIntakeRecord[],
+      source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const)
+    };
+  }
+
+  try {
+    const snapshot = await readFirestoreWithAuthRetry(() =>
+      getDocs(query(collection(db, "warehouseIntakes"), where("vehicleRecordId", "==", vehicleRecordId)))
+    );
+    const items = snapshot.docs
+      .map((item) => serializeWarehouseIntakeDoc(item.id, item.data()))
+      .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as WarehouseIntakeRecord[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function getSaleHandoverRecordsData() {
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as SaleHandoverRecord[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await readFirestoreWithAuthRetry(() => getDocs(collection(db, "saleHandoverRecords")));
+    const items = snapshot.docs
+      .map((item) => serializeSaleHandoverRecordDoc(item.id, item.data()))
+      .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as SaleHandoverRecord[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function getSaleHandoverRecordById(id: string) {
+  if (!id || !isFirebaseConfigured) return null;
+  const snapshot = await readFirestoreWithAuthRetry(() => getDoc(doc(db, "saleHandoverRecords", id)));
+  if (!snapshot.exists()) return null;
+  return serializeSaleHandoverRecordDoc(snapshot.id, snapshot.data());
+}
+
+export async function getSaleHandoverRecordsByListingId(listingId: string) {
+  if (!listingId) {
+    return {
+      items: [] as SaleHandoverRecord[],
+      source: "mock" as const
+    };
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      items: [] as SaleHandoverRecord[],
+      source: "mock" as const
+    };
+  }
+
+  try {
+    const snapshot = await readFirestoreWithAuthRetry(() =>
+      getDocs(query(collection(db, "saleHandoverRecords"), where("listingId", "==", listingId)))
+    );
+    const items = snapshot.docs
+      .map((item) => serializeSaleHandoverRecordDoc(item.id, item.data()))
+      .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""));
+
+    return {
+      items,
+      source: "firestore" as const
+    };
+  } catch (error) {
+    return {
+      items: [] as SaleHandoverRecord[],
+      source: "firestore" as const,
+      error: error instanceof Error ? error.message : "Unknown Firestore read error"
+    };
+  }
+}
+
+export async function createSaleHandoverRecordForListing(listingId: string, actor: VehicleActor) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+
+  if (!listingId.trim()) {
+    throw new Error("A vehicle listing is required before creating a sale and handover record.");
+  }
+
+  const listing = await getVehicleById(listingId.trim());
+  if (!listing) {
+    throw new Error("Vehicle listing not found.");
+  }
+
+  if (!isWarehouseManagedListing(listing)) {
+    throw new Error("Sale and handover records are only available for warehouse-managed listings.");
+  }
+
+  const existing = await getSaleHandoverRecordsByListingId(listing.id);
+  if (existing.items[0]) {
+    return {
+      record: existing.items[0],
+      source: existing.source,
+      writeSucceeded: false,
+      reusedExisting: true
+    };
+  }
+
+  const vehicleRecord = await getVehicleRecordByPublicListingId(listing.id).catch(() => null);
+  const byListing = await getWarehouseIntakeByVehicleId(listing.id);
+  const byVehicleRecord = vehicleRecord?.id ? await getWarehouseIntakeByVehicleRecordId(vehicleRecord.id) : { items: [] as WarehouseIntakeRecord[] };
+  const storageContract = [...byListing.items, ...byVehicleRecord.items]
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index)
+    .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""))[0] ?? null;
+  const recordId = isFirebaseConfigured ? doc(collection(db, "saleHandoverRecords")).id : `mock-sale-handover-${Date.now()}`;
+  const now = new Date().toISOString();
+  const draft = importSaleHandoverSnapshots({
+    recordId,
+    listing,
+    storageContract,
+    vehicleRecord,
+    actor,
+    now
+  });
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: {
+        id: recordId,
+        ...draft
+      } satisfies SaleHandoverRecord,
+      source: "mock" as const,
+      writeSucceeded: false,
+      reusedExisting: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    sanitizeFirestoreWriteData({
+      ...draft,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "created",
+    affectedRecordId: recordId,
+    customerProfileId: draft.sellerCustomerId,
+    vehicleRecordId: draft.vehicleRecordId,
+    intakeEventId: draft.storageContractId,
+    publicListingId: listing.id,
+    summary: `${draft.recordNumber} created for ${getVehicleDisplayReference(listing)}.`
+  }).catch(() => undefined);
+
+  if (storageContract) {
+    await writeAdminOperationalEvent({
+      actor,
+      recordType: "sale_handover",
+      actionType: "imported_from_storage_contract",
+      affectedRecordId: recordId,
+      customerProfileId: draft.sellerCustomerId,
+      vehicleRecordId: draft.vehicleRecordId,
+      intakeEventId: draft.storageContractId,
+      publicListingId: listing.id,
+      summary: `${draft.recordNumber} imported seller and vehicle details from linked Storage Contract ${storageContract.id}.`
+    }).catch(() => undefined);
+  }
+
+  const saved = await getSaleHandoverRecordById(recordId);
+
+  return {
+    record: saved ?? ({ id: recordId, ...draft } satisfies SaleHandoverRecord),
+    source: "firestore" as const,
+    writeSucceeded: true,
+    reusedExisting: false
+  };
+}
+
+export async function saveSaleHandoverRecord(input: SaleHandoverRecord, actor: VehicleActor) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+
+  if (!input.id) {
+    throw new Error("Sale and handover record ID is required.");
+  }
+
+  const now = new Date().toISOString();
+  const previousRecord = isFirebaseConfigured ? await getSaleHandoverRecordById(input.id).catch(() => null) : null;
+  let nextRecord: SaleHandoverRecord = {
+    ...input,
+    transaction: {
+      ...input.transaction,
+      balance: calculateSaleHandoverBalance(input.transaction)
+    }
+  };
+  let createdNewVersion = false;
+
+  if (previousRecord) {
+    nextRecord = {
+      ...nextRecord,
+      sellerSignature: nextRecord.sellerSignature ?? previousRecord.sellerSignature ?? null,
+      buyerSignature: nextRecord.buyerSignature ?? previousRecord.buyerSignature ?? null,
+      pdf: nextRecord.pdf ?? previousRecord.pdf ?? null,
+      pdfHistory: nextRecord.pdfHistory?.length ? nextRecord.pdfHistory : previousRecord.pdfHistory,
+      previousVersions: nextRecord.previousVersions?.length ? nextRecord.previousVersions : previousRecord.previousVersions,
+      createdAt: previousRecord.createdAt
+    };
+
+    const changedMaterialFields = getChangedMaterialSaleHandoverFields(previousRecord, nextRecord);
+    if (isSaleHandoverSignedOrPartiallySigned(previousRecord) && changedMaterialFields.length) {
+      createdNewVersion = true;
+      nextRecord = {
+        ...nextRecord,
+        status: "draft",
+        documentVersion: previousRecord.documentVersion + 1,
+        sellerSignature: null,
+        buyerSignature: null,
+        signedAt: "",
+        pdf: null,
+        pdfHistory: previousRecord.pdf
+          ? previousRecord.pdfHistory.concat(previousRecord.pdf)
+          : previousRecord.pdfHistory,
+        previousVersions: previousRecord.previousVersions.concat({
+          documentVersion: previousRecord.documentVersion,
+          supersededAt: now,
+          supersededByUid: actor.id,
+          supersededByName: getActorDisplayName(actor),
+          reason: `Material fields changed: ${changedMaterialFields.join(", ")}`
+        })
+      };
+    }
+  }
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: {
+        ...nextRecord,
+        updatedAt: now
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", input.id),
+    buildSaleHandoverWritePayload(nextRecord, actor),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: createdNewVersion ? "new_version_created" : "updated",
+    affectedRecordId: input.id,
+    customerProfileId: nextRecord.sellerCustomerId,
+    vehicleRecordId: nextRecord.vehicleRecordId,
+    intakeEventId: nextRecord.storageContractId,
+    publicListingId: nextRecord.listingId,
+    summary: createdNewVersion
+      ? `${nextRecord.recordNumber} moved to version ${nextRecord.documentVersion} after a material signed-field change.`
+      : `${nextRecord.recordNumber} updated.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(input.id);
+
+  return {
+    record: saved ?? nextRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function markSaleHandoverReadyForSignature(recordId: string, actor: VehicleActor) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status !== "draft") {
+    throw new Error("Only Draft sale and handover records can be marked ready for signature.");
+  }
+  if (!canSaleHandoverBeSigned(record)) {
+    throw new Error("Complete all required seller, buyer, vehicle, transaction and confirmation fields before collecting signatures.");
+  }
+
+  const now = new Date().toISOString();
+  if (!isFirebaseConfigured) {
+    return {
+      record: {
+        ...record,
+        status: "ready_for_signature" as const,
+        readyForSignatureAt: now,
+        readyForSignatureByUid: actor.id,
+        updatedAt: now
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    sanitizeFirestoreWriteData({
+      status: "ready_for_signature",
+      readyForSignatureAt: now,
+      readyForSignatureByUid: actor.id,
+      lastEditedByUid: actor.id,
+      lastEditedByName: getActorDisplayName(actor),
+      lastEditedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "marked_ready_for_signature",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} marked ready for signature.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? { ...record, status: "ready_for_signature", readyForSignatureAt: now, readyForSignatureByUid: actor.id },
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function signSaleHandoverRecord(
+  recordId: string,
+  signerRole: SaleHandoverSignatureRole,
+  signerName: string,
+  signatureStoragePath: string,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status !== "ready_for_signature" && record.status !== "partially_signed") {
+    throw new Error("Mark this record ready for signature before collecting signatures.");
+  }
+  if (!canSaleHandoverBeSigned(record)) {
+    throw new Error("Complete all required fields before collecting signatures.");
+  }
+  if (!signatureStoragePath) {
+    throw new Error("Capture a signature before saving.");
+  }
+  if (!signerName.trim()) {
+    throw new Error("Enter the signer name before saving the signature.");
+  }
+
+  const now = new Date().toISOString();
+  const signature: SaleHandoverSignatureSnapshot = {
+    signerRole,
+    signerName: signerName.trim(),
+    signatureStoragePath,
+    signedAt: now,
+    timezone: SALE_HANDOVER_TIMEZONE,
+    documentVersion: record.documentVersion,
+    agreementTermsVersion: record.agreementTermsVersion,
+    recordId,
+    recordedByUid: actor.id,
+    recordedByName: getActorDisplayName(actor)
+  };
+  const sellerSignature = signerRole === "seller" ? signature : record.sellerSignature ?? null;
+  const buyerSignature = signerRole === "buyer" ? signature : record.buyerSignature ?? null;
+  const bothSigned = Boolean(sellerSignature?.signatureStoragePath && buyerSignature?.signatureStoragePath);
+  const nextStatus: SaleHandoverRecordStatus = bothSigned ? "signed" : "partially_signed";
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: {
+        ...record,
+        sellerSignature,
+        buyerSignature,
+        status: nextStatus,
+        signedAt: bothSigned ? now : record.signedAt,
+        updatedAt: now
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    sanitizeFirestoreWriteData({
+      [signerRole === "seller" ? "sellerSignature" : "buyerSignature"]: signature,
+      status: nextStatus,
+      signedAt: bothSigned ? now : record.signedAt || "",
+      lastEditedByUid: actor.id,
+      lastEditedByName: getActorDisplayName(actor),
+      lastEditedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: signerRole === "seller" ? "seller_signed" : "buyer_signed",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} ${signerRole} signature recorded.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? { ...record, sellerSignature, buyerSignature, status: nextStatus, signedAt: bothSigned ? now : record.signedAt },
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function markSaleHandoverPdfGenerated(
+  recordId: string,
+  pdf: SaleHandoverPdfSnapshot,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+
+  const nextHistory = record.pdf?.storagePath && record.pdf.storagePath !== pdf.storagePath
+    ? record.pdfHistory.concat(record.pdf)
+    : record.pdfHistory;
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: {
+        ...record,
+        pdf,
+        pdfHistory: nextHistory,
+        updatedAt: new Date().toISOString()
+      },
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    sanitizeFirestoreWriteData({
+      pdf,
+      pdfHistory: nextHistory,
+      lastEditedByUid: actor.id,
+      lastEditedByName: getActorDisplayName(actor),
+      lastEditedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "pdf_generated",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} PDF generated for version ${pdf.documentVersion}.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? { ...record, pdf, pdfHistory: nextHistory },
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
 }
 
 export async function getCustomerProfileById(id: string) {
