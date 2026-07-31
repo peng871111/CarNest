@@ -293,10 +293,67 @@ export function createSaleHandoverRecordNumber(recordId: string, now = new Date(
 
 export function getSaleHandoverActionLabel(record?: SaleHandoverRecord | null) {
   if (!record) return "Create Sale & Handover Record";
+  if (record.status === "cancelled") return "View Cancelled Record";
   if (record.pdf?.storagePath) return "View PDF";
   if (record.status === "signed") return "View Signed Record";
   if (record.status === "ready_for_signature" || record.status === "partially_signed") return "Review & Sign Record";
   return "Continue Sale & Handover Record";
+}
+
+export type SaleHandoverVehicleCardActionKey =
+  | "continue"
+  | "edit_buyer"
+  | "review_sign"
+  | "view_record_or_pdf"
+  | "correct_buyer"
+  | "cancel_draft"
+  | "cancel_transaction"
+  | "view_cancelled"
+  | "create_new";
+
+export interface SaleHandoverVehicleCardAction {
+  key: SaleHandoverVehicleCardActionKey;
+  label: string;
+}
+
+export function hasSaleHandoverSignature(record?: Pick<SaleHandoverRecord, "sellerSignature" | "buyerSignature"> | null) {
+  return Boolean(record?.sellerSignature?.signatureStoragePath || record?.buyerSignature?.signatureStoragePath);
+}
+
+export function getSaleHandoverVehicleCardActions(record?: SaleHandoverRecord | null): SaleHandoverVehicleCardAction[] {
+  if (!record) {
+    return [{ key: "continue", label: "Create Sale & Handover Record" }];
+  }
+
+  if (record.status === "cancelled") {
+    return [
+      { key: "view_cancelled", label: "View Cancelled Record" },
+      { key: "create_new", label: "Create New Sale & Handover Record" },
+    ];
+  }
+
+  const hasSignature = hasSaleHandoverSignature(record);
+  if (record.status === "draft") {
+    return [
+      { key: "continue", label: "Continue Sale & Handover Record" },
+      { key: "edit_buyer", label: "Edit Buyer Details" },
+      { key: "cancel_draft", label: "Cancel Draft" },
+    ];
+  }
+
+  if (record.status === "ready_for_signature" && !hasSignature) {
+    return [
+      { key: "review_sign", label: "Review & Sign Record" },
+      { key: "edit_buyer", label: "Edit Buyer Details" },
+      { key: "cancel_transaction", label: "Cancel Transaction" },
+    ];
+  }
+
+  return [
+    { key: "view_record_or_pdf", label: "View Record / View PDF" },
+    { key: "correct_buyer", label: "Correct Buyer Details" },
+    { key: "cancel_transaction", label: "Cancel Transaction" },
+  ];
 }
 
 export function importSaleHandoverSnapshots(input: {
@@ -403,6 +460,14 @@ export function importSaleHandoverSnapshots(input: {
     pdf: null,
     pdfHistory: [],
     previousVersions: [],
+    amendments: [],
+    adminNotes: "",
+    cancelledAt: "",
+    cancelledByUid: "",
+    cancelledByName: "",
+    cancellationReason: "",
+    replacementRecordId: "",
+    replacesRecordId: "",
     preparedByUid: input.actor?.id || "",
     preparedByName: actorName,
     lastEditedByUid: input.actor?.id || "",
@@ -461,6 +526,7 @@ export function getSaleHandoverStatusLabel(status: SaleHandoverRecordStatus) {
     partially_signed: "Partially signed",
     signed: "Signed",
     superseded: "Superseded",
+    cancelled: "Cancelled",
   };
   return labels[status] ?? "Draft";
 }
@@ -578,6 +644,28 @@ export function getChangedMaterialSaleHandoverFields(previous: SaleHandoverRecor
     "transaction.handoverDate",
     "transaction.handoverTime",
     "transaction.handoverLocation",
+  ].filter((path) => JSON.stringify(readByPath(previous, path) ?? "") !== JSON.stringify(readByPath(next, path) ?? ""));
+}
+
+export function getChangedBuyerSaleHandoverFields(previous: SaleHandoverRecord, next: SaleHandoverRecord | Omit<SaleHandoverRecord, "id">) {
+  return [
+    "buyerCustomerId",
+    "buyer.buyerType",
+    "buyer.buyerCustomerId",
+    "buyer.legalFirstName",
+    "buyer.legalFamilyName",
+    "buyer.companyLegalName",
+    "buyer.acn",
+    "buyer.authorisedRepresentativeName",
+    "buyer.phone",
+    "buyer.email",
+    "buyer.address",
+    "buyer.suburb",
+    "buyer.state",
+    "buyer.postcode",
+    "buyer.vicRoadsCustomerNumber",
+    "buyer.driverLicenceNumber",
+    "buyer.createOrLinkCustomerProfile",
   ].filter((path) => JSON.stringify(readByPath(previous, path) ?? "") !== JSON.stringify(readByPath(next, path) ?? ""));
 }
 

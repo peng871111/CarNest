@@ -9,6 +9,7 @@ import { VehicleForm } from "@/components/forms/vehicle-form";
 import { useAuth } from "@/lib/auth";
 import {
   addVehicleActivityNote,
+  cancelSaleHandoverRecord,
   createEmptyCustomerProfile,
   createEmptyVehicleRecord,
   deleteEmptyCustomerProfiles,
@@ -20,7 +21,7 @@ import {
   updateVehicleActivityImageUrls,
   updateSellerVehicleStatus
 } from "@/lib/data";
-import { fetchAdminSaleHandoverFileBlob, uploadVehicleActivityImages } from "@/lib/storage";
+import { uploadVehicleActivityImages } from "@/lib/storage";
 import {
   getAdminVehicleListingFilterGroup,
   getVehicleStatusLabel,
@@ -28,7 +29,7 @@ import {
   isAdminVehiclePendingReview,
   isSuperAdminUser
 } from "@/lib/permissions";
-import { getSaleHandoverActionLabel, isWarehouseManagedListing } from "@/lib/sale-handover";
+import { getSaleHandoverVehicleCardActions, isWarehouseManagedListing } from "@/lib/sale-handover";
 import { formatAccountingCurrency, formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AdminAccountingEntry, AppUser, CustomerProfile, SaleHandoverRecord, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
@@ -323,7 +324,7 @@ export function VehicleManagementHub({
   defaultView?: VehicleManagementView;
   initialCustomerSearch?: string;
 }) {
-  const { appUser, firebaseUser } = useAuth();
+  const { appUser } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
   const canManageSensitiveCustomerFields = hasAdminPermission(appUser, "manageUsers");
   const isSuperAdmin = isSuperAdminUser(appUser);
@@ -433,14 +434,19 @@ export function VehicleManagementHub({
   }, [localIntakes]);
   const saleHandoverRecordByListingId = useMemo(() => {
     const map = new Map<string, SaleHandoverRecord>();
-    localSaleHandoverRecords
-      .filter((record) => record.listingId)
-      .sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || ""))
-      .forEach((record) => {
-        if (!map.has(record.listingId)) {
-          map.set(record.listingId, record);
-        }
-      });
+    const recordsByListing = new Map<string, SaleHandoverRecord[]>();
+    localSaleHandoverRecords.forEach((record) => {
+      if (!record.listingId) return;
+      const existing = recordsByListing.get(record.listingId) ?? [];
+      existing.push(record);
+      recordsByListing.set(record.listingId, existing);
+    });
+    recordsByListing.forEach((records, listingId) => {
+      const sorted = [...records].sort((left, right) =>
+        (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || "")
+      );
+      map.set(listingId, sorted.find((record) => record.status !== "cancelled") ?? sorted[0]);
+    });
     return map;
   }, [localSaleHandoverRecords]);
 
@@ -695,23 +701,43 @@ export function VehicleManagementHub({
     };
   }, [localVehicles, vehicleLogLoadingByVehicleId, vehicleLogReminderCheckedByVehicleId]);
 
-  async function openSaleHandoverPdf(record: SaleHandoverRecord) {
-    if (!firebaseUser || !record.pdf?.storagePath) {
-      setActionError("No PDF has been generated for this sale and handover record yet.");
-      return;
-    }
+  function updateLocalSaleHandoverRecord(record: SaleHandoverRecord) {
+    setLocalSaleHandoverRecords((current) => {
+      const next = current.some((item) => item.id === record.id)
+        ? current.map((item) => (item.id === record.id ? record : item))
+        : current.concat(record);
+      return next.sort((left, right) => (right.updatedAt || right.createdAt || "").localeCompare(left.updatedAt || left.createdAt || ""));
+    });
+  }
+
+  async function handleCancelSaleHandoverRecord(record: SaleHandoverRecord, label: string) {
+    if (!actor) return;
+
+    const promptMessage = label === "Cancel Draft"
+      ? "Cancel this Sale & Handover draft? The vehicle, listing and customer records will not be deleted. Optional reason:"
+      : "Cancel this Sale & Handover transaction? Existing signatures and PDFs will be preserved. Optional reason:";
+    const reason = window.prompt(promptMessage, "");
+    if (reason === null) return;
 
     try {
+      setSaving(true);
       setActionError("");
-      const idToken = await firebaseUser.getIdToken();
-      const blob = await fetchAdminSaleHandoverFileBlob(record.pdf.storagePath, idToken, {
-        name: record.pdf.fileName
-      });
-      const objectUrl = URL.createObjectURL(blob);
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      const result = await cancelSaleHandoverRecord(record.id, reason, actor);
+      updateLocalSaleHandoverRecord(result.record);
+      if (result.record.listingId) {
+        setLocalVehicles((current) =>
+          current.map((vehicle) =>
+            vehicle.id === result.record.listingId
+              ? { ...vehicle, sellerStatus: "ACTIVE", updatedAt: result.record.updatedAt || vehicle.updatedAt }
+              : vehicle
+          )
+        );
+      }
+      setNotice(label === "Cancel Draft" ? "Sale & Handover draft cancelled." : "Sale & Handover transaction cancelled.");
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "This protected sale and handover PDF could not be opened with your current access.");
+      setActionError(error instanceof Error ? error.message : "We couldn't cancel this Sale & Handover record.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -1466,6 +1492,7 @@ export function VehicleManagementHub({
                 const showVehicleLogReminder = logReminderChecked && isVehicleLogReminderOverdue(vehicle, logItems);
                 const saleHandoverRecord = saleHandoverRecordByListingId.get(vehicle.id) ?? null;
                 const showSaleHandoverAction = isWarehouseManagedListing(vehicle);
+                const saleHandoverActions = showSaleHandoverAction ? getSaleHandoverVehicleCardActions(saleHandoverRecord) : [];
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1589,21 +1616,39 @@ export function VehicleManagementHub({
                         onClick={() => void openVehicleLog(vehicle.id)}
                         className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-black/10 px-3 py-2 text-center text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
                       />
-                      {showSaleHandoverAction ? (
-                        saleHandoverRecord?.pdf?.storagePath ? (
-                          <button
-                            type="button"
-                            onClick={() => void openSaleHandoverPdf(saleHandoverRecord)}
-                            className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-bronze/40 bg-white px-3 py-2 text-center text-xs font-semibold text-bronze transition hover:bg-bronze hover:text-white sm:col-span-2 xl:col-span-1"
-                          >
-                            {getSaleHandoverActionLabel(saleHandoverRecord)}
-                          </button>
-                        ) : (
-                          <Link href={`/admin/vehicles/${vehicle.id}/sale-handover`} className="inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-bronze/40 bg-white px-3 py-2 text-center text-xs font-semibold text-bronze transition hover:bg-bronze hover:text-white sm:col-span-2 xl:col-span-1">
-                            {getSaleHandoverActionLabel(saleHandoverRecord)}
+                      {saleHandoverActions.map((action) => {
+                        const isCancelAction = action.key === "cancel_draft" || action.key === "cancel_transaction";
+                        const saleHandoverHref = action.key === "edit_buyer"
+                          ? `/admin/vehicles/${vehicle.id}/sale-handover?mode=buyer`
+                          : action.key === "correct_buyer"
+                            ? `/admin/vehicles/${vehicle.id}/sale-handover?mode=correct-buyer`
+                            : action.key === "view_cancelled" && saleHandoverRecord
+                              ? `/admin/vehicles/${vehicle.id}/sale-handover?mode=view-cancelled&recordId=${encodeURIComponent(saleHandoverRecord.id)}`
+                              : `/admin/vehicles/${vehicle.id}/sale-handover`;
+                        const actionClassName = isCancelAction
+                          ? "inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-red-200 bg-white px-3 py-2 text-center text-xs font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2 xl:col-span-1"
+                          : "inline-flex min-h-[40px] w-full items-center justify-center rounded-full border border-bronze/40 bg-white px-3 py-2 text-center text-xs font-semibold text-bronze transition hover:bg-bronze hover:text-white sm:col-span-2 xl:col-span-1";
+
+                        if (isCancelAction) {
+                          return (
+                            <button
+                              key={action.key}
+                              type="button"
+                              disabled={saving || !saleHandoverRecord}
+                              onClick={() => saleHandoverRecord ? void handleCancelSaleHandoverRecord(saleHandoverRecord, action.label) : undefined}
+                              className={actionClassName}
+                            >
+                              {saving ? "Saving..." : action.label}
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <Link key={action.key} href={saleHandoverHref} className={actionClassName}>
+                            {action.label}
                           </Link>
-                        )
-                      ) : null}
+                        );
+                      })}
                   </div>
                   <div className="mt-4">
                     <VehicleAccountingSummary

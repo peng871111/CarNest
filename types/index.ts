@@ -57,7 +57,7 @@ export type VehicleViewRole = "guest" | UserRole;
 export type VehicleDeviceType = "mobile" | "tablet" | "desktop";
 export type VehicleActivityVisibility = "admin" | "customer";
 export type WarehouseIntakeStatus = "draft" | "review_ready" | "signed";
-export type SaleHandoverRecordStatus = "draft" | "ready_for_signature" | "partially_signed" | "signed" | "superseded";
+export type SaleHandoverRecordStatus = "draft" | "ready_for_signature" | "partially_signed" | "signed" | "superseded" | "cancelled";
 export type SaleHandoverBuyerType = "individual" | "company";
 export type SaleHandoverSignatureRole = "seller" | "buyer";
 export type SaleHandoverRegistrationStatus = "registered" | "unregistered" | "unknown";
@@ -154,7 +154,8 @@ export type AdminAuditActionType =
   | "pdf_generated"
   | "pdf_viewed"
   | "pdf_downloaded"
-  | "superseded";
+  | "superseded"
+  | "cancelled";
 export type WarehouseServiceFeeCategory =
   | "car_wash"
   | "light_detailing"
@@ -913,6 +914,23 @@ export interface SaleHandoverRecord {
     supersededByName: string;
     reason: string;
   }>;
+  amendments: Array<{
+    id: string;
+    type: "buyer_correction" | "cancelled" | "new_buyer_replacement";
+    documentVersion: number;
+    previousDocumentVersion?: number;
+    reason: string;
+    createdAt: string;
+    createdByUid: string;
+    createdByName: string;
+  }>;
+  adminNotes?: string;
+  cancelledAt?: string;
+  cancelledByUid?: string;
+  cancelledByName?: string;
+  cancellationReason?: string;
+  replacementRecordId?: string;
+  replacesRecordId?: string;
   preparedByUid: string;
   preparedByName: string;
   lastEditedByUid?: string;

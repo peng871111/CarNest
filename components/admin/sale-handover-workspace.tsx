@@ -7,8 +7,11 @@ import { SignaturePad, SignaturePadHandle } from "@/components/admin/signature-p
 import { AdminShell } from "@/components/layout/admin-shell";
 import { useAuth } from "@/lib/auth";
 import {
+  cancelAndCreateSaleHandoverRecordForNewBuyer,
   clearSaleHandoverSignature,
+  correctSaleHandoverBuyerDetails,
   createSaleHandoverRecordForListing,
+  getSaleHandoverRecordById,
   getSaleHandoverRecordsByListingId,
   getWarehouseRelationshipTreeByVehicleId,
   markSaleHandoverPdfGenerated,
@@ -42,6 +45,7 @@ import { formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from 
 import {
   AppUser,
   SaleHandoverBuyerSnapshot,
+  SaleHandoverPdfSnapshot,
   SaleHandoverRecord,
   SaleHandoverRegistrationStatus,
   SaleHandoverSellerSnapshot,
@@ -150,10 +154,14 @@ function Card({ title, eyebrow, children }: { title: string; eyebrow?: string; c
   );
 }
 
+type SaleHandoverWorkspaceMode = "buyer" | "correct-buyer" | "view-cancelled";
+type BuyerCorrectionChoice = "same" | "new";
+
 function statusPillClass(status: SaleHandoverRecord["status"]) {
   if (status === "signed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "partially_signed" || status === "ready_for_signature") return "border-amber-200 bg-amber-50 text-amber-800";
   if (status === "superseded") return "border-slate-200 bg-slate-50 text-slate-700";
+  if (status === "cancelled") return "border-red-200 bg-red-50 text-red-700";
   return "border-black/10 bg-shell text-ink/65";
 }
 
@@ -177,7 +185,19 @@ function summarizeImportedChanges(current: SaleHandoverRecord, imported: Omit<Sa
   return fields.filter(([, before, after]) => after.trim() && before.trim() !== after.trim());
 }
 
-export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
+function isSaleHandoverWorkspaceMode(value?: string): value is SaleHandoverWorkspaceMode {
+  return value === "buyer" || value === "correct-buyer" || value === "view-cancelled";
+}
+
+export function SaleHandoverWorkspace({
+  listingId,
+  initialMode,
+  initialRecordId,
+}: {
+  listingId: string;
+  initialMode?: string;
+  initialRecordId?: string;
+}) {
   const router = useRouter();
   const { appUser, firebaseUser, loading: authLoading } = useAuth();
   const actor = useMemo(() => createActorFromUser(appUser), [appUser]);
@@ -193,12 +213,26 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
   const [errorMessage, setErrorMessage] = useState("");
   const [sellerSignerName, setSellerSignerName] = useState("");
   const [buyerSignerName, setBuyerSignerName] = useState("");
+  const [buyerCorrectionOpen, setBuyerCorrectionOpen] = useState(false);
+  const [buyerCorrectionDraft, setBuyerCorrectionDraft] = useState<SaleHandoverBuyerSnapshot | null>(null);
+  const [buyerCorrectionReason, setBuyerCorrectionReason] = useState("");
+  const [buyerCorrectionChoice, setBuyerCorrectionChoice] = useState<BuyerCorrectionChoice>("same");
+  const [buyerCorrectionUnderstood, setBuyerCorrectionUnderstood] = useState(false);
+  const [copyTransactionForNewBuyer, setCopyTransactionForNewBuyer] = useState(false);
 
   const missingFields = useMemo(() => (record ? getSaleHandoverMissingRequiredFields(record) : []), [record]);
   const readyForSignature = record ? canSaleHandoverBeSigned(record) : false;
   const signatureCollectionOpen = record?.status === "ready_for_signature" || record?.status === "partially_signed";
   const buyerDisplayName = record ? getSaleHandoverBuyerDisplayName(record.buyer) : "Buyer";
   const canManage = hasAdminPermission(appUser, "manageVehicles");
+  const workspaceMode = isSaleHandoverWorkspaceMode(initialMode) ? initialMode : undefined;
+  const hasAnySignature = Boolean(record?.sellerSignature?.signatureStoragePath || record?.buyerSignature?.signatureStoragePath);
+  const hasBothSignatures = Boolean(record?.sellerSignature?.signatureStoragePath && record?.buyerSignature?.signatureStoragePath);
+  const correctedVersionAwaitingSignatures = Boolean(
+    record?.amendments?.some((amendment) => amendment.type === "buyer_correction" && amendment.documentVersion === record.documentVersion)
+    && !hasBothSignatures
+  );
+  const buyerFieldsLocked = Boolean(hasAnySignature || record?.status === "cancelled");
 
   useEffect(() => {
     if (authLoading || bootstrappedRef.current) return;
@@ -214,13 +248,24 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
       try {
         setLoading(true);
         setErrorMessage("");
+        if (initialRecordId) {
+          const selectedRecord = await getSaleHandoverRecordById(initialRecordId);
+          if (selectedRecord?.listingId === listingId) {
+            setRecord(selectedRecord);
+            applyInitialWorkspaceMode(selectedRecord);
+            return;
+          }
+        }
         const existing = await getSaleHandoverRecordsByListingId(listingId);
-        if (existing.items[0]) {
-          setRecord(existing.items[0]);
+        const currentRecord = existing.items.find((item) => item.status !== "cancelled");
+        if (currentRecord) {
+          setRecord(currentRecord);
+          applyInitialWorkspaceMode(currentRecord);
           return;
         }
         const result = await createSaleHandoverRecordForListing(listingId, actor);
         setRecord(result.record);
+        applyInitialWorkspaceMode(result.record);
         if (!result.record.storageContractId) {
           setNotice("Draft created. No linked Storage Contract was found, so seller and vehicle details must be verified manually.");
         }
@@ -232,7 +277,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     }
 
     void loadOrCreate();
-  }, [actor, authLoading, canManage, listingId]);
+  }, [actor, authLoading, canManage, initialRecordId, listingId, workspaceMode]);
 
   function updateRecord(updater: (current: SaleHandoverRecord) => SaleHandoverRecord) {
     setRecord((current) => (current ? updater(current) : current));
@@ -287,8 +332,34 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     });
   }
 
+  function openBuyerCorrectionModal(sourceRecord = record) {
+    if (!sourceRecord) return;
+    setBuyerCorrectionDraft({ ...sourceRecord.buyer });
+    setBuyerCorrectionReason("");
+    setBuyerCorrectionChoice("same");
+    setBuyerCorrectionUnderstood(false);
+    setCopyTransactionForNewBuyer(false);
+    setBuyerCorrectionOpen(true);
+  }
+
+  function applyInitialWorkspaceMode(loadedRecord: SaleHandoverRecord) {
+    if (workspaceMode === "buyer") {
+      setStepIndex(0);
+    }
+    if (workspaceMode === "correct-buyer") {
+      setStepIndex(0);
+      if (loadedRecord.sellerSignature?.signatureStoragePath || loadedRecord.buyerSignature?.signatureStoragePath) {
+        openBuyerCorrectionModal(loadedRecord);
+      }
+    }
+  }
+
   async function handleSave() {
     if (!record || !actor) return;
+    if (record.status === "cancelled") {
+      setErrorMessage("Cancelled sale and handover records are read-only. Create a new record for a new transaction.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -357,6 +428,10 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
 
   async function handleReadyForSignature() {
     if (!record || !actor) return;
+    if (record.status === "cancelled") {
+      setErrorMessage("Cancelled sale and handover records cannot be marked ready for signature.");
+      return;
+    }
     try {
       setSaving(true);
       setErrorMessage("");
@@ -432,8 +507,84 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     }
   }
 
+  function updateBuyerCorrection<K extends keyof SaleHandoverBuyerSnapshot>(key: K, value: SaleHandoverBuyerSnapshot[K]) {
+    setBuyerCorrectionDraft((current) => current ? { ...current, [key]: value } : current);
+  }
+
+  async function handleSubmitBuyerCorrection() {
+    if (!record || !actor || !buyerCorrectionDraft) return;
+
+    if (buyerCorrectionChoice === "new") {
+      setErrorMessage("This is a new buyer. Cancel the current transaction and create a new Sale & Handover Record.");
+      return;
+    }
+
+    if (!buyerCorrectionReason.trim()) {
+      setErrorMessage("Enter an amendment reason before correcting buyer details.");
+      return;
+    }
+
+    if (!buyerCorrectionUnderstood) {
+      setErrorMessage("Confirm that existing signatures cannot be reused on the corrected version.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      const result = await correctSaleHandoverBuyerDetails(record.id, buyerCorrectionDraft, buyerCorrectionReason, actor);
+      setRecord(result.record);
+      setBuyerCorrectionOpen(false);
+      setStepIndex(4);
+      setNotice("Corrected buyer details saved as a new document version. Both parties must review and sign again.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't correct the buyer details.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCancelAndCreateForNewBuyer() {
+    if (!record || !actor) return;
+    if (buyerCorrectionChoice !== "new") return;
+    if (!buyerCorrectionReason.trim()) {
+      setErrorMessage("Enter a cancellation reason before creating a record for a new buyer.");
+      return;
+    }
+
+    const confirmed = window.confirm("Cancel this transaction and create a new Sale & Handover Record for a different buyer?");
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+      setErrorMessage("");
+      const result = await cancelAndCreateSaleHandoverRecordForNewBuyer(
+        record.id,
+        buyerCorrectionReason,
+        copyTransactionForNewBuyer,
+        actor
+      );
+      setRecord(result.newRecord);
+      setBuyerCorrectionOpen(false);
+      setStepIndex(0);
+      setNotice("Previous transaction cancelled. A new Sale & Handover Record has been created with blank buyer details.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "We couldn't create a record for the new buyer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleGeneratePdf() {
     if (!record || !actor || !firebaseUser) return;
+    if (record.status === "cancelled") {
+      setErrorMessage("Cancelled sale and handover records cannot generate new PDFs.");
+      return;
+    }
+    if (correctedVersionAwaitingSignatures) {
+      setErrorMessage("Both parties must sign the corrected version before a new PDF can be generated.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -469,17 +620,17 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     }
   }
 
-  async function handleViewPdf(download = false) {
-    if (!record?.pdf?.storagePath || !firebaseUser) {
+  async function handleViewPdfSnapshot(pdf: SaleHandoverPdfSnapshot | null | undefined, download = false) {
+    if (!pdf?.storagePath || !firebaseUser) {
       setErrorMessage("No PDF has been generated for this record yet.");
       return;
     }
 
     try {
       const idToken = await firebaseUser.getIdToken();
-      const blob = await fetchAdminSaleHandoverFileBlob(record.pdf.storagePath, idToken, {
+      const blob = await fetchAdminSaleHandoverFileBlob(pdf.storagePath, idToken, {
         download,
-        name: record.pdf.fileName,
+        name: pdf.fileName,
       });
       const objectUrl = URL.createObjectURL(blob);
       window.open(objectUrl, "_blank", "noopener,noreferrer");
@@ -489,10 +640,56 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
     }
   }
 
+  async function handleViewPdf(download = false) {
+    await handleViewPdfSnapshot(record?.pdf, download);
+  }
+
   function renderBuyerDetails() {
     if (!record) return null;
+    if (buyerFieldsLocked) {
+      return (
+        <Card title="Buyer details" eyebrow={record.status === "cancelled" ? "Cancelled record" : "Signed fields locked"}>
+          <div className="rounded-[22px] border border-black/6 bg-shell p-5">
+            <p className="text-sm font-semibold text-ink">{buyerDisplayName}</p>
+            <div className="mt-3 grid gap-3 text-sm text-ink/65 md:grid-cols-2">
+              <p>Type: {record.buyer.buyerType === "company" ? "Company" : "Individual"}</p>
+              <p>Phone: {record.buyer.phone || "Not provided"}</p>
+              <p>Email: {record.buyer.email || "Not provided"}</p>
+              <p>Address: {buildAddressLine(record.buyer) || "Not provided"}</p>
+              <p>VicRoads customer number: {record.buyer.vicRoadsCustomerNumber ? maskSensitiveIdentifier(record.buyer.vicRoadsCustomerNumber) : "Not provided"}</p>
+            </div>
+          </div>
+          {record.status === "cancelled" ? (
+            <p className="mt-4 rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              This transaction has been cancelled. Buyer details are preserved for the cancelled record and cannot be edited.
+            </p>
+          ) : (
+            <div className="mt-5 rounded-[22px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">
+              <p className="font-semibold">Buyer details are printed in a signed document version.</p>
+              <p className="mt-2 leading-6">
+                Use the correction workflow to preserve the current signed version and create a corrected version for both parties to review and sign again.
+              </p>
+              <button
+                type="button"
+                onClick={() => openBuyerCorrectionModal(record)}
+                disabled={saving}
+                className="mt-4 rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30"
+              >
+                Correct Buyer Details
+              </button>
+            </div>
+          )}
+        </Card>
+      );
+    }
+
     return (
       <Card title="Buyer details" eyebrow="Step 1">
+        {record.status === "ready_for_signature" ? (
+          <div className="mb-5 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Editing buyer details before signature will return this record to Draft so the review checklist can be reconfirmed.
+          </div>
+        ) : null}
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Buyer type">
             <Select value={record.buyer.buyerType} onChange={(event) => updateBuyer("buyerType", event.target.value as SaleHandoverBuyerSnapshot["buyerType"])}>
@@ -860,6 +1057,16 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
             ))}
           </div>
         </div>
+
+        <div className="mt-6 rounded-[22px] border border-black/6 bg-shell p-5">
+          <Field label="Internal admin notes" hint="Operational notes only. These do not appear in the signed document or PDF.">
+            <Textarea
+              value={record.adminNotes || ""}
+              disabled={record.status === "cancelled"}
+              onChange={(event) => updateRecord((current) => ({ ...current, adminNotes: event.target.value }))}
+            />
+          </Field>
+        </div>
       </Card>
     );
   }
@@ -990,8 +1197,32 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
             </div>
           ) : null}
           {record.pdfHistory.length ? (
-            <p className="mt-3 text-xs text-ink/50">
-              {record.pdfHistory.length} historical PDF {record.pdfHistory.length === 1 ? "version is" : "versions are"} preserved.
+            <div className="mt-4 rounded-[18px] border border-black/6 bg-white p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Admin history</p>
+              <div className="mt-3 space-y-3">
+                {record.pdfHistory.map((pdf) => (
+                  <div key={pdf.storagePath} className="flex flex-col gap-3 rounded-2xl border border-black/6 bg-shell p-3 text-sm text-ink/65 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-ink">
+                        {pdf.status === "superseded" ? "Superseded — original signed version" : pdf.status === "signed" ? "Signed historical version" : "Draft historical version"}
+                      </p>
+                      <p className="mt-1 text-xs">Version {pdf.documentVersion} · Generated {formatAdminDateTime(pdf.generatedAt)}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleViewPdfSnapshot(pdf)}
+                      className="rounded-full border border-black/10 px-4 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                    >
+                      View PDF
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {correctedVersionAwaitingSignatures ? (
+            <p className="mt-4 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Both parties must sign the corrected version before a new PDF can be generated.
             </p>
           ) : null}
         </div>
@@ -999,7 +1230,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           <button
             type="button"
             onClick={() => void handleGeneratePdf()}
-            disabled={saving}
+            disabled={saving || record.status === "cancelled" || correctedVersionAwaitingSignatures}
             className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30"
           >
             Generate PDF
@@ -1022,6 +1253,147 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
           </button>
         </div>
       </Card>
+    );
+  }
+
+  function renderBuyerCorrectionModal() {
+    if (!buyerCorrectionOpen || !buyerCorrectionDraft || !record) return null;
+    const isDifferentBuyer = buyerCorrectionChoice === "new";
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/45 px-4 py-6 backdrop-blur-sm">
+        <div className="max-h-[calc(100vh-48px)] w-full max-w-3xl overflow-y-auto rounded-[30px] bg-white p-6 shadow-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-bronze">Correct buyer details</p>
+              <h2 className="mt-2 font-display text-3xl text-ink">Correct buyer details</h2>
+              <p className="mt-2 text-sm leading-6 text-ink/60">
+                The current signed version will be preserved. A corrected document version will be created, and both parties must review and sign the corrected version.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBuyerCorrectionOpen(false)}
+              className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+            >
+              Close
+            </button>
+          </div>
+
+          <div className="mt-6 space-y-4">
+            <Field label="Is this still the same buyer?">
+              <Select value={buyerCorrectionChoice} onChange={(event) => setBuyerCorrectionChoice(event.target.value as BuyerCorrectionChoice)}>
+                <option value="same">Yes — correcting the same buyer’s information</option>
+                <option value="new">No — this is a different buyer</option>
+              </Select>
+            </Field>
+
+            <Field label={isDifferentBuyer ? "Cancellation reason" : "Amendment reason"} hint="Use a short non-sensitive description. Do not include licence numbers or private identity details.">
+              <Textarea value={buyerCorrectionReason} onChange={(event) => setBuyerCorrectionReason(event.target.value)} />
+            </Field>
+
+            {isDifferentBuyer ? (
+              <div className="rounded-[22px] border border-red-200 bg-red-50 p-5 text-sm text-red-800">
+                <p className="font-semibold">This is a new buyer. Cancel the current transaction and create a new Sale & Handover Record.</p>
+                <p className="mt-2 leading-6">
+                  Existing signatures and PDFs will remain preserved on the cancelled transaction. The new record will receive a new record number and blank buyer details.
+                </p>
+                <div className="mt-4">
+                  <BooleanField checked={copyTransactionForNewBuyer} onChange={setCopyTransactionForNewBuyer}>
+                    Copy transaction details such as price, deposit and handover information into the new record.
+                  </BooleanField>
+                </div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => void handleCancelAndCreateForNewBuyer()}
+                  className="mt-4 w-full rounded-full bg-[#B42318] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#912018] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel and Create for New Buyer
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Buyer type">
+                    <Select value={buyerCorrectionDraft.buyerType} onChange={(event) => updateBuyerCorrection("buyerType", event.target.value as SaleHandoverBuyerSnapshot["buyerType"])}>
+                      <option value="individual">Individual</option>
+                      <option value="company">Company</option>
+                    </Select>
+                  </Field>
+                  {buyerCorrectionDraft.buyerType === "individual" ? (
+                    <>
+                      <Field label="Legal first name">
+                        <Input value={buyerCorrectionDraft.legalFirstName} onChange={(event) => updateBuyerCorrection("legalFirstName", event.target.value)} />
+                      </Field>
+                      <Field label="Legal family name">
+                        <Input value={buyerCorrectionDraft.legalFamilyName} onChange={(event) => updateBuyerCorrection("legalFamilyName", event.target.value)} />
+                      </Field>
+                    </>
+                  ) : (
+                    <>
+                      <Field label="Company legal name">
+                        <Input value={buyerCorrectionDraft.companyLegalName} onChange={(event) => updateBuyerCorrection("companyLegalName", event.target.value)} />
+                      </Field>
+                      <Field label="Authorised representative">
+                        <Input value={buyerCorrectionDraft.authorisedRepresentativeName} onChange={(event) => updateBuyerCorrection("authorisedRepresentativeName", event.target.value)} />
+                      </Field>
+                    </>
+                  )}
+                  <Field label="Phone">
+                    <Input type="tel" value={buyerCorrectionDraft.phone} onChange={(event) => updateBuyerCorrection("phone", event.target.value)} />
+                  </Field>
+                  <Field label="Email">
+                    <Input type="email" value={buyerCorrectionDraft.email} onChange={(event) => updateBuyerCorrection("email", event.target.value)} />
+                  </Field>
+                  <Field label={buyerCorrectionDraft.buyerType === "company" ? "Business address" : "Residential address"}>
+                    <Input value={buyerCorrectionDraft.address} onChange={(event) => updateBuyerCorrection("address", event.target.value)} />
+                  </Field>
+                  <Field label="Suburb">
+                    <Input value={buyerCorrectionDraft.suburb} onChange={(event) => updateBuyerCorrection("suburb", event.target.value)} />
+                  </Field>
+                  <Field label="State">
+                    <Input value={buyerCorrectionDraft.state} onChange={(event) => updateBuyerCorrection("state", event.target.value)} />
+                  </Field>
+                  <Field label="Postcode">
+                    <Input inputMode="numeric" value={buyerCorrectionDraft.postcode} onChange={(event) => updateBuyerCorrection("postcode", event.target.value)} />
+                  </Field>
+                  <Field label="VicRoads customer number" hint={buyerCorrectionDraft.vicRoadsCustomerNumber ? `Saved display: ${maskSensitiveIdentifier(buyerCorrectionDraft.vicRoadsCustomerNumber)}` : "Optional. Collect only when required."}>
+                    <Input value={buyerCorrectionDraft.vicRoadsCustomerNumber} onChange={(event) => updateBuyerCorrection("vicRoadsCustomerNumber", event.target.value)} />
+                  </Field>
+                  {buyerCorrectionDraft.buyerType === "individual" ? (
+                    <Field label="Driver licence number" hint={buyerCorrectionDraft.driverLicenceNumber ? `Saved display: ${maskSensitiveIdentifier(buyerCorrectionDraft.driverLicenceNumber)}` : "Optional. Do not upload a driver's licence photograph."}>
+                      <Input value={buyerCorrectionDraft.driverLicenceNumber} onChange={(event) => updateBuyerCorrection("driverLicenceNumber", event.target.value)} />
+                    </Field>
+                  ) : null}
+                </div>
+
+                <BooleanField checked={buyerCorrectionUnderstood} onChange={setBuyerCorrectionUnderstood}>
+                  I understand existing signatures cannot be reused on the corrected version.
+                </BooleanField>
+
+                <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setBuyerCorrectionOpen(false)}
+                    className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => void handleSubmitBuyerCorrection()}
+                    className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-bronze disabled:cursor-not-allowed disabled:bg-ink/30"
+                  >
+                    Create corrected version
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1086,6 +1458,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
       requiredPermission="manageVehicles"
     >
       <div className="space-y-6">
+        {renderBuyerCorrectionModal()}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <Link href="/admin/vehicles" className="text-sm font-medium text-ink/65 transition hover:text-bronze">
             ← Back to vehicles
@@ -1175,7 +1548,7 @@ export function SaleHandoverWorkspace({ listingId }: { listingId: string }) {
                   Refresh unsigned details
                 </button>
               ) : null}
-              <button type="button" onClick={() => void handleSave()} disabled={saving || !record} className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35">
+              <button type="button" onClick={() => void handleSave()} disabled={saving || !record || record.status === "cancelled"} className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:text-ink/35">
                 Save record
               </button>
               <button type="button" onClick={() => void handleReadyForSignature()} disabled={saving || !record || !readyForSignature || record.status !== "draft"} className="rounded-full bg-bronze px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink disabled:cursor-not-allowed disabled:bg-bronze/35">

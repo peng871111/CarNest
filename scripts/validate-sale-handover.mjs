@@ -170,6 +170,64 @@ const completeRecord = {
 };
 assert.equal(saleHandover.canSaleHandoverBeSigned(completeRecord), true, "Complete records should be signable.");
 assert.equal(saleHandover.getSaleHandoverBuyerDisplayName(completeRecord.buyer), "Amy Lee");
+assert.equal(
+  JSON.stringify(saleHandover.getSaleHandoverVehicleCardActions(incompleteRecord).map((action) => action.label)),
+  JSON.stringify(["Continue Sale & Handover Record", "Edit Buyer Details", "Cancel Draft"]),
+  "Draft warehouse records should expose continue, buyer edit and draft cancellation actions."
+);
+
+const readyUnsignedRecord = {
+  ...completeRecord,
+  status: "ready_for_signature",
+  sellerSignature: null,
+  buyerSignature: null,
+};
+assert.equal(
+  JSON.stringify(saleHandover.getSaleHandoverVehicleCardActions(readyUnsignedRecord).map((action) => action.label)),
+  JSON.stringify(["Review & Sign Record", "Edit Buyer Details", "Cancel Transaction"]),
+  "Unsigned ready records should allow buyer edits before any signature is collected."
+);
+
+const signedRecord = {
+  ...completeRecord,
+  status: "signed",
+  sellerSignature: {
+    signerRole: "seller",
+    signerName: "Fan Niu",
+    signatureStoragePath: "sale-handover-records/test/signatures/seller.png",
+    signedAt: "2026-08-02T10:00:00.000Z",
+    signedAtTimezone: "Australia/Melbourne",
+    documentVersion: 1,
+    agreementTermsVersion: completeRecord.agreementTermsVersion,
+    recordId: completeRecord.id,
+  },
+  buyerSignature: {
+    signerRole: "buyer",
+    signerName: "Amy Lee",
+    signatureStoragePath: "sale-handover-records/test/signatures/buyer.png",
+    signedAt: "2026-08-02T10:05:00.000Z",
+    signedAtTimezone: "Australia/Melbourne",
+    documentVersion: 1,
+    agreementTermsVersion: completeRecord.agreementTermsVersion,
+    recordId: completeRecord.id,
+  },
+};
+assert.equal(
+  JSON.stringify(saleHandover.getSaleHandoverVehicleCardActions(signedRecord).map((action) => action.label)),
+  JSON.stringify(["View Record / View PDF", "Correct Buyer Details", "Cancel Transaction"]),
+  "Signed records should expose view/correct/cancel actions instead of a vague edit action."
+);
+assert.equal(saleHandover.hasSaleHandoverSignature(signedRecord), true, "Signature detection should lock signed buyer fields.");
+
+const cancelledRecord = {
+  ...completeRecord,
+  status: "cancelled",
+};
+assert.equal(
+  JSON.stringify(saleHandover.getSaleHandoverVehicleCardActions(cancelledRecord).map((action) => action.label)),
+  JSON.stringify(["View Cancelled Record", "Create New Sale & Handover Record"]),
+  "Cancelled records should expose read-only viewing and a new-record path."
+);
 
 const helperSource = readProjectFile("lib/sale-handover.ts");
 const pdfSource = readProjectFile("lib/sale-handover-pdf.ts");
@@ -216,6 +274,26 @@ assert.ok(dataSource.includes("previousRecord.sellerSignature"), "Ordinary save 
 assert.ok(dataSource.includes("hadFinalSignedPdf"), "Finalised signature replacement should branch through version preservation.");
 assert.ok(dataSource.includes("documentVersion: hadFinalSignedPdf ? record.documentVersion + 1"), "Finalised signature replacement should create a new document version.");
 assert.ok(dataSource.includes("pdfHistory"), "Historical signed PDFs should remain preserved.");
+assert.ok(helperSource.includes("getChangedBuyerSaleHandoverFields"), "Buyer printed-field changes should be detected separately from internal notes.");
+assert.ok(dataSource.includes("Use Correct Buyer Details to amend buyer information"), "Signed buyer details should not be overwritten by ordinary saves.");
+assert.ok(dataSource.includes("buyerInformationReviewed: false"), "Unsigned ready records should require review reconfirmation after buyer edits.");
+assert.ok(dataSource.includes("correctSaleHandoverBuyerDetails"), "Data layer should provide a same-buyer correction workflow.");
+assert.ok(dataSource.includes("sellerSignature: null"), "Corrected buyer versions should clear seller signature on the new version.");
+assert.ok(dataSource.includes("buyerSignature: null"), "Corrected buyer versions should clear buyer signature on the new version.");
+assert.ok(dataSource.includes("cancelAndCreateSaleHandoverRecordForNewBuyer"), "Different-buyer flow should cancel and create a replacement record.");
+assert.ok(dataSource.includes("buyer: createEmptySaleHandoverBuyer()"), "Different-buyer replacement records must not copy the previous buyer.");
+assert.ok(dataSource.includes("copyTransactionDetails"), "Transaction details should only be copied when the admin explicitly chooses it.");
+assert.ok(workspaceSource.includes("Correct buyer details"), "Signed buyer changes should use the correction modal.");
+assert.ok(workspaceSource.includes("I understand existing signatures cannot be reused"), "Correction modal should require signature-reuse acknowledgement.");
+assert.ok(workspaceSource.includes("Cancel and Create for New Buyer"), "Different-buyer action should be clearly labelled.");
+assert.ok(workspaceSource.includes("Internal admin notes"), "Admin-only notes should be editable without becoming signed document fields.");
+assert.ok(workspaceSource.includes("Both parties must sign the corrected version before a new PDF can be generated."), "Corrected versions should not generate a new PDF until both signatures are collected.");
+assert.ok(pdfSource.includes("Corrected version"), "Corrected PDFs should show a corrected-version label.");
+assert.ok(verificationSource.includes("Previous version superseded"), "QR verification should expose safe superseded-version status.");
+assert.ok(vehicleHub.includes("getSaleHandoverVehicleCardActions"), "Admin Vehicles should use state-specific Sale & Handover actions.");
+assert.ok(vehicleHub.includes("Cancel Draft"), "Admin Vehicles should include draft cancellation wording.");
+assert.ok(helperSource.includes("Correct Buyer Details"), "Sale & Handover action helper should include signed buyer correction wording.");
+assert.ok(vehicleHub.includes("correct_buyer"), "Admin Vehicles should route signed buyer correction actions.");
 assert.ok(vehicleHub.includes("isWarehouseManagedListing(vehicle)"), "Admin Vehicles action should be warehouse-gated.");
 assert.ok(firestoreRules.includes("match /saleHandoverRecords/{id}"), "Firestore rules should include the isolated collection.");
 assert.ok(firestoreRules.includes('hasAdminPermission("manageVehicles")'), "Firestore rule should use the existing manageVehicles admin permission.");

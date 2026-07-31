@@ -220,6 +220,9 @@ export async function generateSaleHandoverPdf(
   const generatedAt = new Date().toISOString();
   const isFullySigned = Boolean(record.sellerSignature?.signatureStoragePath && record.buyerSignature?.signatureStoragePath);
   const statusLabel = isFullySigned ? "SIGNED PRIVATE SALE & HANDOVER RECORD" : "DRAFT — NOT SIGNED";
+  const latestBuyerCorrection = [...(record.amendments ?? [])]
+    .reverse()
+    .find((amendment) => amendment.type === "buyer_correction" && amendment.documentVersion === record.documentVersion);
   const verificationUrl = buildVerificationUrl(record);
   const qrImage = options?.documentHash
     ? await pdfDoc.embedPng(await QRCode.toDataURL(verificationUrl, {
@@ -271,6 +274,23 @@ export async function generateSaleHandoverPdf(
     font: bodyFont,
     color: rgb(0.25, 0.22, 0.18),
   });
+  if (latestBuyerCorrection) {
+    page1.drawText("Corrected version", {
+      x: PAGE_MARGIN,
+      y: PAGE_HEIGHT - 146,
+      size: 8,
+      font: boldFont,
+      color: rgb(0.58, 0.34, 0.18),
+    });
+    const amendmentReason = sanitizeText(latestBuyerCorrection.reason, "Not provided").slice(0, 90);
+    page1.drawText(`Amended: ${formatDateTime(latestBuyerCorrection.createdAt)} · Reason: ${amendmentReason}`, {
+      x: PAGE_MARGIN,
+      y: PAGE_HEIGHT - 159,
+      size: 7,
+      font: bodyFont,
+      color: rgb(0.35, 0.32, 0.27),
+    });
+  }
   if (qrImage) {
     page1.drawImage(qrImage, {
       x: PAGE_WIDTH - PAGE_MARGIN - 88,
@@ -287,7 +307,7 @@ export async function generateSaleHandoverPdf(
     });
   }
 
-  let cursorY = PAGE_HEIGHT - 162;
+  let cursorY = latestBuyerCorrection ? PAGE_HEIGHT - 182 : PAGE_HEIGHT - 162;
   const leftX = PAGE_MARGIN;
   const rightX = PAGE_MARGIN + CONTENT_WIDTH / 2 + 14;
   const columnWidth = CONTENT_WIDTH / 2 - 14;

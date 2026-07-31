@@ -44,7 +44,9 @@ import {
   createEmptySaleHandoverTransaction,
   createEmptySaleHandoverVehicle,
   createSaleHandoverRecordNumber,
+  getChangedBuyerSaleHandoverFields,
   getChangedMaterialSaleHandoverFields,
+  hasSaleHandoverSignature,
   importSaleHandoverSnapshots,
   isSaleHandoverSignedOrPartiallySigned,
   isWarehouseManagedListing,
@@ -4629,7 +4631,7 @@ export async function updateVehicleActivityImageUrls(
 }
 
 function normalizeSaleHandoverStatus(value: unknown): SaleHandoverRecordStatus {
-  return value === "ready_for_signature" || value === "partially_signed" || value === "signed" || value === "superseded"
+  return value === "ready_for_signature" || value === "partially_signed" || value === "signed" || value === "superseded" || value === "cancelled"
     ? value
     : "draft";
 }
@@ -4801,6 +4803,22 @@ function serializeSaleHandoverSourceSnapshot(input: unknown): SaleHandoverSource
   };
 }
 
+function serializeSaleHandoverAmendments(input: unknown): SaleHandoverRecord["amendments"] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      id: typeof item.id === "string" ? item.id : "",
+      type: item.type === "cancelled" || item.type === "new_buyer_replacement" ? item.type : "buyer_correction",
+      documentVersion: Number(item.documentVersion || 1),
+      previousDocumentVersion: item.previousDocumentVersion == null ? undefined : Number(item.previousDocumentVersion || 1),
+      reason: typeof item.reason === "string" ? item.reason : "",
+      createdAt: serializeDate(item.createdAt) || "",
+      createdByUid: typeof item.createdByUid === "string" ? item.createdByUid : "",
+      createdByName: typeof item.createdByName === "string" ? item.createdByName : ""
+    }));
+}
+
 function serializeSaleHandoverRecordDoc(id: string, data: Record<string, unknown>): SaleHandoverRecord {
   const pdf = serializeSaleHandoverPdf(data.pdf);
   const pdfHistory = Array.isArray(data.pdfHistory)
@@ -4841,6 +4859,14 @@ function serializeSaleHandoverRecordDoc(id: string, data: Record<string, unknown
             reason: typeof item.reason === "string" ? item.reason : ""
           }))
       : [],
+    amendments: serializeSaleHandoverAmendments(data.amendments),
+    adminNotes: typeof data.adminNotes === "string" ? data.adminNotes : "",
+    cancelledAt: serializeDate(data.cancelledAt) || "",
+    cancelledByUid: typeof data.cancelledByUid === "string" ? data.cancelledByUid : "",
+    cancelledByName: typeof data.cancelledByName === "string" ? data.cancelledByName : "",
+    cancellationReason: typeof data.cancellationReason === "string" ? data.cancellationReason : "",
+    replacementRecordId: typeof data.replacementRecordId === "string" ? data.replacementRecordId : "",
+    replacesRecordId: typeof data.replacesRecordId === "string" ? data.replacesRecordId : "",
     preparedByUid: typeof data.preparedByUid === "string" ? data.preparedByUid : "",
     preparedByName: typeof data.preparedByName === "string" ? data.preparedByName : "",
     lastEditedByUid: typeof data.lastEditedByUid === "string" ? data.lastEditedByUid : "",
@@ -4910,6 +4936,14 @@ function buildSaleHandoverWritePayload(input: SaleHandoverRecord | Omit<SaleHand
     pdf: normalized.pdf ?? null,
     pdfHistory: normalized.pdfHistory ?? [],
     previousVersions: normalized.previousVersions ?? [],
+    amendments: normalized.amendments ?? [],
+    adminNotes: normalized.adminNotes || "",
+    cancelledAt: normalized.cancelledAt || "",
+    cancelledByUid: normalized.cancelledByUid || "",
+    cancelledByName: normalized.cancelledByName || "",
+    cancellationReason: normalized.cancellationReason || "",
+    replacementRecordId: normalized.replacementRecordId || "",
+    replacesRecordId: normalized.replacesRecordId || "",
     preparedByUid: normalized.preparedByUid || actor.id,
     preparedByName: normalized.preparedByName || getActorDisplayName(actor),
     lastEditedByUid: actor.id,
@@ -5030,6 +5064,26 @@ async function getWarehouseIntakeByVehicleRecordId(vehicleRecordId: string) {
   }
 }
 
+async function getSaleHandoverImportSourcesForListing(listingId: string) {
+  const listing = await getVehicleById(listingId);
+  if (!listing) {
+    throw new Error("Vehicle listing not found.");
+  }
+
+  const vehicleRecord = await getVehicleRecordByPublicListingId(listing.id).catch(() => null);
+  const byListing = await getWarehouseIntakeByVehicleId(listing.id);
+  const byVehicleRecord = vehicleRecord?.id ? await getWarehouseIntakeByVehicleRecordId(vehicleRecord.id) : { items: [] as WarehouseIntakeRecord[] };
+  const storageContract = [...byListing.items, ...byVehicleRecord.items]
+    .filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index)
+    .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""))[0] ?? null;
+
+  return {
+    listing,
+    vehicleRecord,
+    storageContract
+  };
+}
+
 export async function getSaleHandoverRecordsData() {
   if (!isFirebaseConfigured) {
     return {
@@ -5107,31 +5161,22 @@ export async function createSaleHandoverRecordForListing(listingId: string, acto
     throw new Error("A vehicle listing is required before creating a sale and handover record.");
   }
 
-  const listing = await getVehicleById(listingId.trim());
-  if (!listing) {
-    throw new Error("Vehicle listing not found.");
-  }
+  const { listing, vehicleRecord, storageContract } = await getSaleHandoverImportSourcesForListing(listingId.trim());
 
   if (!isWarehouseManagedListing(listing)) {
     throw new Error("Sale and handover records are only available for warehouse-managed listings.");
   }
 
   const existing = await getSaleHandoverRecordsByListingId(listing.id);
-  if (existing.items[0]) {
+  const reusableExisting = existing.items.find((record) => record.status !== "cancelled");
+  if (reusableExisting) {
     return {
-      record: existing.items[0],
+      record: reusableExisting,
       source: existing.source,
       writeSucceeded: false,
       reusedExisting: true
     };
   }
-
-  const vehicleRecord = await getVehicleRecordByPublicListingId(listing.id).catch(() => null);
-  const byListing = await getWarehouseIntakeByVehicleId(listing.id);
-  const byVehicleRecord = vehicleRecord?.id ? await getWarehouseIntakeByVehicleRecordId(vehicleRecord.id) : { items: [] as WarehouseIntakeRecord[] };
-  const storageContract = [...byListing.items, ...byVehicleRecord.items]
-    .filter((item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index)
-    .sort((left, right) => (right.updatedAt ?? right.createdAt ?? "").localeCompare(left.updatedAt ?? left.createdAt ?? ""))[0] ?? null;
   const recordId = isFirebaseConfigured ? doc(collection(db, "saleHandoverRecords")).id : `mock-sale-handover-${Date.now()}`;
   const now = new Date().toISOString();
   const draft = importSaleHandoverSnapshots({
@@ -5219,6 +5264,10 @@ export async function saveSaleHandoverRecord(input: SaleHandoverRecord, actor: V
   let createdNewVersion = false;
 
   if (previousRecord) {
+    if (previousRecord.status === "cancelled") {
+      throw new Error("Cancelled sale and handover records are read-only. Create a new record for a new transaction.");
+    }
+
     nextRecord = {
       ...nextRecord,
       sellerSignature: nextRecord.sellerSignature ?? previousRecord.sellerSignature ?? null,
@@ -5228,6 +5277,23 @@ export async function saveSaleHandoverRecord(input: SaleHandoverRecord, actor: V
       previousVersions: nextRecord.previousVersions?.length ? nextRecord.previousVersions : previousRecord.previousVersions,
       createdAt: previousRecord.createdAt
     };
+
+    const changedBuyerFields = getChangedBuyerSaleHandoverFields(previousRecord, nextRecord);
+    if (hasSaleHandoverSignature(previousRecord) && changedBuyerFields.length) {
+      throw new Error("Use Correct Buyer Details to amend buyer information after a signature has been collected.");
+    }
+    if (previousRecord.status === "ready_for_signature" && !hasSaleHandoverSignature(previousRecord) && changedBuyerFields.length) {
+      nextRecord = {
+        ...nextRecord,
+        status: "draft",
+        readyForSignatureAt: "",
+        readyForSignatureByUid: "",
+        confirmations: {
+          ...nextRecord.confirmations,
+          buyerInformationReviewed: false
+        }
+      };
+    }
 
     const changedMaterialFields = getChangedMaterialSaleHandoverFields(previousRecord, nextRecord);
     if (isSaleHandoverSignedOrPartiallySigned(previousRecord) && changedMaterialFields.length) {
@@ -5452,6 +5518,9 @@ export async function clearSaleHandoverSignature(
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
   const record = await getSaleHandoverRecordById(recordId);
   if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status === "cancelled") {
+    throw new Error("Cancelled sale and handover records are read-only.");
+  }
 
   const existingSignature = signerRole === "seller" ? record.sellerSignature : record.buyerSignature;
   if (!existingSignature?.signatureStoragePath) {
@@ -5553,6 +5622,380 @@ export async function clearSaleHandoverSignature(
   };
 }
 
+export async function correctSaleHandoverBuyerDetails(
+  recordId: string,
+  correctedBuyer: SaleHandoverBuyerSnapshot,
+  amendmentReason: string,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status === "cancelled") {
+    throw new Error("Cancelled sale and handover records cannot be amended.");
+  }
+  if (!hasSaleHandoverSignature(record)) {
+    throw new Error("Buyer details can be edited directly before signatures are collected.");
+  }
+
+  const reason = amendmentReason.trim();
+  if (!reason) {
+    throw new Error("Enter a short non-sensitive reason for the buyer correction.");
+  }
+
+  const buyer = {
+    ...createEmptySaleHandoverBuyer(),
+    ...record.buyer,
+    ...correctedBuyer
+  };
+  const changedBuyerFields = getChangedBuyerSaleHandoverFields(record, {
+    ...record,
+    buyer,
+    buyerCustomerId: buyer.buyerCustomerId || ""
+  });
+  if (!changedBuyerFields.length) {
+    throw new Error("No buyer detail changes were provided.");
+  }
+
+  const now = new Date().toISOString();
+  const actorName = getActorDisplayName(actor);
+  const nextVersion = record.documentVersion + 1;
+  const supersededPdf = record.pdf ? { ...record.pdf, status: "superseded" as const } : null;
+  const pdfHistory = supersededPdf && !record.pdfHistory.some((item) => item.storagePath === supersededPdf.storagePath)
+    ? record.pdfHistory.concat(supersededPdf)
+    : record.pdfHistory;
+  const amendment = {
+    id: `buyer-correction-${Date.now()}`,
+    type: "buyer_correction" as const,
+    documentVersion: nextVersion,
+    previousDocumentVersion: record.documentVersion,
+    reason,
+    createdAt: now,
+    createdByUid: actor.id,
+    createdByName: actorName
+  };
+  const nextRecord: SaleHandoverRecord = {
+    ...record,
+    status: "draft",
+    buyer,
+    buyerCustomerId: buyer.buyerCustomerId || record.buyerCustomerId || "",
+    sellerSignature: null,
+    buyerSignature: null,
+    signedAt: "",
+    documentVersion: nextVersion,
+    pdf: null,
+    pdfHistory,
+    previousVersions: record.previousVersions.concat({
+      documentVersion: record.documentVersion,
+      supersededAt: now,
+      supersededByUid: actor.id,
+      supersededByName: actorName,
+      reason: `Buyer details corrected: ${reason}`
+    }),
+    amendments: record.amendments.concat(amendment),
+    confirmations: {
+      ...record.confirmations,
+      sellerInformationReviewed: false,
+      buyerInformationReviewed: false,
+      termsProvided: false
+    },
+    readyForSignatureAt: "",
+    readyForSignatureByUid: "",
+    updatedAt: now,
+    lastEditedAt: now,
+    lastEditedByUid: actor.id,
+    lastEditedByName: actorName
+  };
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: nextRecord,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  await setDoc(
+    doc(db, "saleHandoverRecords", recordId),
+    buildSaleHandoverWritePayload(nextRecord, actor),
+    { merge: true }
+  );
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "new_version_created",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} moved to version ${nextVersion} for same-buyer detail correction.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? nextRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function cancelSaleHandoverRecord(
+  recordId: string,
+  cancellationReason: string,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status === "cancelled") {
+    return {
+      record,
+      source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
+      writeSucceeded: false
+    };
+  }
+
+  const now = new Date().toISOString();
+  const actorName = getActorDisplayName(actor);
+  const reason = cancellationReason.trim();
+  const amendment = {
+    id: `cancelled-${Date.now()}`,
+    type: "cancelled" as const,
+    documentVersion: record.documentVersion,
+    reason,
+    createdAt: now,
+    createdByUid: actor.id,
+    createdByName: actorName
+  };
+  const nextRecord: SaleHandoverRecord = {
+    ...record,
+    status: "cancelled",
+    amendments: record.amendments.concat(amendment),
+    cancelledAt: now,
+    cancelledByUid: actor.id,
+    cancelledByName: actorName,
+    cancellationReason: reason,
+    updatedAt: now,
+    lastEditedAt: now,
+    lastEditedByUid: actor.id,
+    lastEditedByName: actorName
+  };
+
+  if (!isFirebaseConfigured) {
+    return {
+      record: nextRecord,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const listing = record.listingId ? await getVehicleById(record.listingId).catch(() => null) : null;
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, "saleHandoverRecords", recordId),
+    buildSaleHandoverWritePayload(nextRecord, actor),
+    { merge: true }
+  );
+  if (listing) {
+    batch.update(doc(db, "vehicles", record.listingId), {
+      sellerStatus: "ACTIVE",
+      updatedAt: serverTimestamp()
+    });
+  }
+  await batch.commit();
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "cancelled",
+    affectedRecordId: recordId,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} cancelled.`
+  }).catch(() => undefined);
+
+  const saved = await getSaleHandoverRecordById(recordId);
+  return {
+    record: saved ?? nextRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
+export async function cancelAndCreateSaleHandoverRecordForNewBuyer(
+  recordId: string,
+  cancellationReason: string,
+  copyTransactionDetails: boolean,
+  actor: VehicleActor
+) {
+  assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
+  const record = await getSaleHandoverRecordById(recordId);
+  if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status === "cancelled" && record.replacementRecordId) {
+    const replacement = await getSaleHandoverRecordById(record.replacementRecordId);
+    if (replacement) {
+      return {
+        cancelledRecord: record,
+        newRecord: replacement,
+        source: isFirebaseConfigured ? ("firestore" as const) : ("mock" as const),
+        writeSucceeded: false
+      };
+    }
+  }
+
+  const reason = cancellationReason.trim();
+  if (!reason) {
+    throw new Error("Enter a cancellation reason before creating a record for a new buyer.");
+  }
+
+  const { listing, vehicleRecord, storageContract } = await getSaleHandoverImportSourcesForListing(record.listingId);
+  if (!isWarehouseManagedListing(listing)) {
+    throw new Error("Sale and handover records are only available for warehouse-managed listings.");
+  }
+
+  const now = new Date().toISOString();
+  const actorName = getActorDisplayName(actor);
+  const newRecordId = isFirebaseConfigured ? doc(collection(db, "saleHandoverRecords")).id : `mock-sale-handover-${Date.now()}`;
+  const imported = importSaleHandoverSnapshots({
+    recordId: newRecordId,
+    listing,
+    storageContract,
+    vehicleRecord,
+    actor,
+    now
+  });
+  const replacementAmendment = {
+    id: `new-buyer-replacement-${Date.now()}`,
+    type: "new_buyer_replacement" as const,
+    documentVersion: 1,
+    reason,
+    createdAt: now,
+    createdByUid: actor.id,
+    createdByName: actorName
+  };
+  const hasExistingSeller = Boolean(record.seller.legalName || record.seller.phone || record.seller.email || record.seller.address);
+  const hasExistingVehicle = Boolean(
+    record.vehicle.year
+    || record.vehicle.make
+    || record.vehicle.model
+    || record.vehicle.vinOrChassis
+    || record.vehicle.registrationNumber
+  );
+  const newRecord: SaleHandoverRecord = {
+    id: newRecordId,
+    ...imported,
+    seller: hasExistingSeller ? record.seller : imported.seller,
+    sellerCustomerId: record.sellerCustomerId || imported.sellerCustomerId,
+    vehicle: hasExistingVehicle ? record.vehicle : imported.vehicle,
+    vehicleRecordId: record.vehicleRecordId || imported.vehicleRecordId,
+    storageContractId: record.storageContractId || imported.storageContractId,
+    transaction: copyTransactionDetails
+      ? {
+          ...record.transaction,
+          balance: calculateSaleHandoverBalance(record.transaction)
+        }
+      : imported.transaction,
+    buyer: createEmptySaleHandoverBuyer(),
+    buyerCustomerId: "",
+    sellerSignature: null,
+    buyerSignature: null,
+    pdf: null,
+    pdfHistory: [],
+    previousVersions: [],
+    amendments: [replacementAmendment],
+    replacesRecordId: record.id
+  };
+  const cancellationAmendment = {
+    id: `cancelled-new-buyer-${Date.now()}`,
+    type: "cancelled" as const,
+    documentVersion: record.documentVersion,
+    reason,
+    createdAt: now,
+    createdByUid: actor.id,
+    createdByName: actorName
+  };
+  const cancelledRecord: SaleHandoverRecord = {
+    ...record,
+    status: "cancelled",
+    amendments: record.amendments.concat(cancellationAmendment),
+    cancelledAt: now,
+    cancelledByUid: actor.id,
+    cancelledByName: actorName,
+    cancellationReason: reason,
+    replacementRecordId: newRecordId,
+    updatedAt: now,
+    lastEditedAt: now,
+    lastEditedByUid: actor.id,
+    lastEditedByName: actorName
+  };
+
+  if (!isFirebaseConfigured) {
+    return {
+      cancelledRecord,
+      newRecord,
+      source: "mock" as const,
+      writeSucceeded: false
+    };
+  }
+
+  const batch = writeBatch(db);
+  batch.set(
+    doc(db, "saleHandoverRecords", record.id),
+    buildSaleHandoverWritePayload(cancelledRecord, actor),
+    { merge: true }
+  );
+  batch.set(
+    doc(db, "saleHandoverRecords", newRecordId),
+    sanitizeFirestoreWriteData({
+      ...buildSaleHandoverWritePayload(newRecord, actor),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+  );
+  batch.update(doc(db, "vehicles", listing.id), {
+    sellerStatus: "ACTIVE",
+    updatedAt: serverTimestamp()
+  });
+  await batch.commit();
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "cancelled",
+    affectedRecordId: record.id,
+    customerProfileId: record.sellerCustomerId,
+    vehicleRecordId: record.vehicleRecordId,
+    intakeEventId: record.storageContractId,
+    publicListingId: record.listingId,
+    summary: `${record.recordNumber} cancelled for new buyer transaction.`
+  }).catch(() => undefined);
+
+  await writeAdminOperationalEvent({
+    actor,
+    recordType: "sale_handover",
+    actionType: "created",
+    affectedRecordId: newRecordId,
+    customerProfileId: newRecord.sellerCustomerId,
+    vehicleRecordId: newRecord.vehicleRecordId,
+    intakeEventId: newRecord.storageContractId,
+    publicListingId: newRecord.listingId,
+    summary: `${newRecord.recordNumber} created for a new buyer after cancelling ${record.recordNumber}.`
+  }).catch(() => undefined);
+
+  const savedCancelled = await getSaleHandoverRecordById(record.id);
+  const savedNew = await getSaleHandoverRecordById(newRecordId);
+  return {
+    cancelledRecord: savedCancelled ?? cancelledRecord,
+    newRecord: savedNew ?? newRecord,
+    source: "firestore" as const,
+    writeSucceeded: true
+  };
+}
+
 export async function markSaleHandoverPdfGenerated(
   recordId: string,
   pdf: SaleHandoverPdfSnapshot,
@@ -5561,6 +6004,9 @@ export async function markSaleHandoverPdfGenerated(
   assertAdminPermissionForActor(actor, "manageVehicles", "Only authorized admins can manage sale and handover records.");
   const record = await getSaleHandoverRecordById(recordId);
   if (!record) throw new Error("Sale and handover record not found.");
+  if (record.status === "cancelled") {
+    throw new Error("Cancelled sale and handover records cannot generate new PDFs.");
+  }
 
   const nextHistory = record.pdf?.storagePath && record.pdf.storagePath !== pdf.storagePath
     ? record.pdfHistory.concat({ ...record.pdf, status: "superseded" as const })

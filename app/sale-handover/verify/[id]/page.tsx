@@ -59,6 +59,7 @@ export default async function SaleHandoverVerificationPage({
     ? data.buyerSignature as Record<string, unknown>
     : {};
   const pdf = data.pdf && typeof data.pdf === "object" ? data.pdf as Record<string, unknown> : {};
+  const previousVersions = Array.isArray(data.previousVersions) ? data.previousVersions : [];
   const fullySigned = Boolean(sellerSignature.signatureStoragePath && buyerSignature.signatureStoragePath);
   const storedHash = typeof pdf.documentHash === "string" ? pdf.documentHash : "";
   const vehicle = {
@@ -66,7 +67,7 @@ export default async function SaleHandoverVerificationPage({
     ...(data.vehicle && typeof data.vehicle === "object" ? data.vehicle as Record<string, unknown> : {}),
   } as ReturnType<typeof createEmptySaleHandoverVehicle>;
   const status: SaleHandoverRecordStatus =
-    data.status === "ready_for_signature" || data.status === "partially_signed" || data.status === "signed" || data.status === "superseded"
+    data.status === "ready_for_signature" || data.status === "partially_signed" || data.status === "signed" || data.status === "superseded" || data.status === "cancelled"
       ? data.status
       : "draft";
   const computedHash = await calculateSaleHandoverDocumentHash({
@@ -136,14 +137,24 @@ export default async function SaleHandoverVerificationPage({
     },
     pdf: null,
     pdfHistory: [],
-    previousVersions: [],
+    previousVersions: previousVersions
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => ({
+        documentVersion: Number(item.documentVersion || 1),
+        supersededAt: serializeDate(item.supersededAt),
+        supersededByUid: "",
+        supersededByName: "",
+        reason: "",
+      })),
+    amendments: [],
     preparedByUid: "",
     preparedByName: "",
   });
   const hashValid = Boolean(storedHash && storedHash === computedHash);
   const signedDate = serializeDate(data.signedAt) || serializeDate(sellerSignature.signedAt) || serializeDate(buyerSignature.signedAt);
-  const documentStatus = status === "superseded" ? "Superseded" : fullySigned && status === "signed" ? "Signed" : "Draft";
+  const documentStatus = status === "cancelled" ? "Cancelled" : status === "superseded" ? "Superseded" : fullySigned && status === "signed" ? "Signed" : "Draft";
   const vehicleTitle = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ") || "Not available";
+  const previousVersionSuperseded = previousVersions.length > 0 || (Array.isArray(data.pdfHistory) && data.pdfHistory.length > 0);
 
   return (
     <main className="min-h-screen bg-shell px-5 py-12 text-ink">
@@ -174,6 +185,10 @@ export default async function SaleHandoverVerificationPage({
           <div className="rounded-[22px] border border-black/6 bg-shell p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Signed date</p>
             <p className="mt-2 font-semibold">{formatDate(signedDate)}</p>
+          </div>
+          <div className="rounded-[22px] border border-black/6 bg-shell p-4">
+            <p className="text-xs uppercase tracking-[0.2em] text-ink/45">Previous version superseded</p>
+            <p className="mt-2 font-semibold">{previousVersionSuperseded ? "Yes" : "No"}</p>
           </div>
         </div>
 
