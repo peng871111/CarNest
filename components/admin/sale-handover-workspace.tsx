@@ -592,8 +592,12 @@ export function SaleHandoverWorkspace({
       const idToken = await firebaseUser.getIdToken();
       const saved = await saveSaleHandoverRecord(record, actor);
       const documentHash = await calculateSaleHandoverDocumentHash(saved.record);
+      const generatedAt = new Date().toISOString();
+      const generatedByName = actor.displayName || actor.name || actor.email || "CarNest Admin";
       const pdfBytes = await generateSaleHandoverPdf(saved.record, {
         documentHash,
+        preparedByName: generatedByName,
+        preparedAt: generatedAt,
         resolveStorageBytes: (storagePath) => fetchAdminSaleHandoverFileBytes(storagePath, idToken),
       });
       const fileName = buildSaleHandoverPdfFileName(saved.record);
@@ -601,9 +605,9 @@ export function SaleHandoverWorkspace({
       const pdf = {
         storagePath,
         fileName,
-        generatedAt: new Date().toISOString(),
+        generatedAt,
         generatedByUid: actor.id,
-        generatedByName: actor.displayName || actor.name || actor.email || "CarNest Admin",
+        generatedByName,
         documentVersion: saved.record.documentVersion,
         agreementTermsVersion: saved.record.agreementTermsVersion,
         documentHash,

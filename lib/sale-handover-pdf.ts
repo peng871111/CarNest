@@ -17,6 +17,10 @@ const PAGE_MARGIN = 34;
 const CONTENT_WIDTH = PAGE_WIDTH - PAGE_MARGIN * 2;
 const UNICODE_FONT_URL = "/fonts/arial-unicode.ttf";
 const PUBLIC_SITE_ORIGIN = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") || "https://www.carnest.au";
+const FIREBASE_STYLE_IDENTIFIER_PATTERN = /^[A-Za-z0-9_-]{20,}$/;
+const HASH_STYLE_IDENTIFIER_PATTERN = /^[a-fA-F0-9]{32,}$/;
+const BRACKETED_INTERNAL_IDENTIFIER_PATTERN = /\s*[\[(]\s*(?:(?:firebase|admin|internal|user|auth|document|firestore|createdByAdminId|updatedByAdminId|subject|uid|id)[\s_-]*(?:uid|id|subject)?\s*[:#-]?\s*)?[A-Za-z0-9_-]{20,}\s*[\])]\s*/gi;
+const STANDALONE_INTERNAL_IDENTIFIER_PATTERN = /\b[A-Za-z0-9_-]{20,}\b/g;
 
 let unicodeFontBytesPromise: Promise<Uint8Array> | null = null;
 
@@ -38,6 +42,45 @@ function sanitizeText(value?: string | number | null, fallback = "Not provided")
   return normalized || fallback;
 }
 
+function isInternalIdentifier(value?: string | number | null) {
+  const normalized = String(value ?? "").trim();
+  return FIREBASE_STYLE_IDENTIFIER_PATTERN.test(normalized) || HASH_STYLE_IDENTIFIER_PATTERN.test(normalized);
+}
+
+function stripInternalIdentifiers(value?: string | number | null) {
+  return String(value ?? "")
+    .replace(BRACKETED_INTERNAL_IDENTIFIER_PATTERN, " ")
+    .replace(STANDALONE_INTERNAL_IDENTIFIER_PATTERN, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function getSaleHandoverPdfPreparedByDisplayName(
+  record: Pick<SaleHandoverRecord, "preparedByName" | "lastEditedByName" | "pdf">,
+  preferredName?: string | null
+) {
+  const candidates = [
+    preferredName,
+    record.preparedByName,
+    record.lastEditedByName,
+    record.pdf?.generatedByName,
+  ];
+
+  for (const candidate of candidates) {
+    const cleaned = stripInternalIdentifiers(candidate);
+    if (cleaned && !isInternalIdentifier(cleaned)) {
+      return cleaned;
+    }
+  }
+
+  return "CarNest Admin";
+}
+
+function sanitizePublicReference(value?: string | number | null, fallback = "Not provided") {
+  const cleaned = stripInternalIdentifiers(value);
+  return cleaned && !isInternalIdentifier(cleaned) ? cleaned : fallback;
+}
+
 function formatMoney(value: number) {
   return new Intl.NumberFormat("en-AU", {
     style: "currency",
@@ -51,7 +94,7 @@ function formatDateTime(value?: string | null) {
   if (!value) return "Not provided";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-AU", {
+  const parts = new Intl.DateTimeFormat("en-AU", {
     day: "numeric",
     month: "long",
     year: "numeric",
@@ -59,7 +102,9 @@ function formatDateTime(value?: string | null) {
     minute: "2-digit",
     timeZone: "Australia/Melbourne",
     timeZoneName: "short",
-  }).format(date);
+  }).formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${getPart("day")} ${getPart("month")} ${getPart("year")}, ${getPart("hour")}:${getPart("minute")} ${getPart("dayPeriod")} ${getPart("timeZoneName")}`.replace(/\s+/g, " ").trim();
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
@@ -191,14 +236,12 @@ function buildVerificationUrl(record: SaleHandoverRecord) {
   return `${PUBLIC_SITE_ORIGIN}${buildSaleHandoverVerificationUrl(record)}`;
 }
 
-function getPreparedByDisplayName(record: SaleHandoverRecord) {
-  return sanitizeText(record.preparedByName || record.lastEditedByName || record.pdf?.generatedByName, "CarNest Admin");
-}
-
 export async function generateSaleHandoverPdf(
   record: SaleHandoverRecord,
   options?: {
     documentHash?: string;
+    preparedByName?: string;
+    preparedAt?: string;
     resolveStorageBytes?: (storagePath: string) => Promise<Uint8Array>;
   }
 ) {
@@ -218,6 +261,7 @@ export async function generateSaleHandoverPdf(
   const page1 = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const page2 = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   const generatedAt = new Date().toISOString();
+  const preparedAt = options?.preparedAt || generatedAt;
   const isFullySigned = Boolean(record.sellerSignature?.signatureStoragePath && record.buyerSignature?.signatureStoragePath);
   const statusLabel = isFullySigned ? "SIGNED PRIVATE SALE & HANDOVER RECORD" : "DRAFT — NOT SIGNED";
   const latestBuyerCorrection = [...(record.amendments ?? [])]
@@ -316,7 +360,7 @@ export async function generateSaleHandoverPdf(
   const sellerY = drawRows({
     page: page1,
     rows: [
-      ["Customer ID", sanitizeText(record.seller.customerId)],
+      ["Customer ID", sanitizePublicReference(record.seller.customerId)],
       ["Name", sanitizeText(record.seller.legalName)],
       ["Phone", sanitizeText(record.seller.phone)],
       ["Email", sanitizeText(record.seller.email)],
@@ -333,7 +377,7 @@ export async function generateSaleHandoverPdf(
   rightCursorY = drawRows({
     page: page1,
     rows: [
-      ["Customer ID", sanitizeText(record.buyer.buyerCustomerId)],
+      ["Customer ID", sanitizePublicReference(record.buyer.buyerCustomerId)],
       ["Name / company", sanitizeText(getSaleHandoverBuyerDisplayName(record.buyer))],
       ["Phone", sanitizeText(record.buyer.phone)],
       ["Email", sanitizeText(record.buyer.email)],
@@ -487,14 +531,14 @@ export async function generateSaleHandoverPdf(
     font: bodyFont,
     color: rgb(0.35, 0.32, 0.27),
   });
-  page1.drawText(`Prepared by CarNest: ${getPreparedByDisplayName(record)}`, {
+  page1.drawText(`Prepared by CarNest: ${getSaleHandoverPdfPreparedByDisplayName(record, options?.preparedByName)}`, {
     x: leftX,
     y: 40,
     size: 7.2,
     font: bodyFont,
     color: rgb(0.35, 0.32, 0.27),
   });
-  page1.drawText(`Prepared on: ${formatDateTime(record.createdAt || generatedAt)}`, {
+  page1.drawText(`Prepared on: ${formatDateTime(preparedAt)}`, {
     x: leftX,
     y: 28,
     size: 7.2,

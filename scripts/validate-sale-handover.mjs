@@ -2,11 +2,14 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
+import { inflateRawSync, inflateSync } from "node:zlib";
 import vm from "node:vm";
 import ts from "typescript";
 
 const projectRoot = process.cwd();
+const nodeRequire = createRequire(import.meta.url);
 
 function readProjectFile(pathname) {
   return readFileSync(join(projectRoot, pathname), "utf8");
@@ -45,7 +48,102 @@ function loadSaleHandoverModule() {
   return module.exports;
 }
 
+function loadSaleHandoverPdfModule(saleHandoverModule) {
+  const source = readProjectFile("lib/sale-handover-pdf.ts");
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+      esModuleInterop: true,
+    },
+  }).outputText;
+  const Module = nodeRequire("node:module");
+  const filename = join(projectRoot, "lib/sale-handover-pdf.ts");
+  const compiledModule = new Module(filename);
+  compiledModule.filename = filename;
+  compiledModule.paths = Module._nodeModulePaths(projectRoot);
+  const originalLoad = Module._load;
+
+  Module._load = function loadWithTestAliases(request, parent, isMain) {
+    if (request === "@/types") return {};
+    if (request === "@/lib/sale-handover") return saleHandoverModule;
+    return originalLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    compiledModule._compile(transpiled, filename);
+  } finally {
+    Module._load = originalLoad;
+  }
+
+  return compiledModule.exports;
+}
+
+function decodeUtf16Be(buffer) {
+  let output = "";
+  for (let index = 2; index + 1 < buffer.length; index += 2) {
+    output += String.fromCharCode(buffer.readUInt16BE(index));
+  }
+  return output;
+}
+
+function decodePdfHexString(hex) {
+  const bytes = Buffer.from(hex.replace(/\s+/g, ""), "hex");
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return decodeUtf16Be(bytes);
+  }
+  return bytes.toString("utf8");
+}
+
+function collectPdfTextOperators(streamText) {
+  const text = [];
+  const hexTextPattern = /<([0-9A-Fa-f\s]+)>\s*Tj/g;
+  const literalTextPattern = /\(([^()]*)\)\s*Tj/g;
+  let match;
+
+  while ((match = hexTextPattern.exec(streamText))) {
+    text.push(decodePdfHexString(match[1]));
+  }
+
+  while ((match = literalTextPattern.exec(streamText))) {
+    text.push(match[1].replace(/\\([()\\])/g, "$1"));
+  }
+
+  return text;
+}
+
+function extractGeneratedPdfText(pdfBytes) {
+  const source = Buffer.from(pdfBytes).toString("latin1");
+  const streamPattern = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  const text = [];
+  let match;
+
+  while ((match = streamPattern.exec(source))) {
+    const streamBytes = Buffer.from(match[1], "latin1");
+    const candidates = [streamBytes];
+
+    try {
+      candidates.push(inflateSync(streamBytes));
+    } catch {
+      // Some PDF streams are not zlib-compressed.
+    }
+
+    try {
+      candidates.push(inflateRawSync(streamBytes));
+    } catch {
+      // Some PDF streams are not raw deflate streams.
+    }
+
+    for (const candidate of candidates) {
+      text.push(...collectPdfTextOperators(candidate.toString("latin1")));
+    }
+  }
+
+  return text.join("\n");
+}
+
 const saleHandover = loadSaleHandoverModule();
+const saleHandoverPdf = loadSaleHandoverPdfModule(saleHandover);
 
 const warehouseListing = {
   id: "listing-warehouse-1",
@@ -308,5 +406,57 @@ assert.ok(verificationSource.includes("Unable to verify"), "Verification page sh
 assert.ok(verificationSource.includes("Document status"), "Verification page should show Draft, Signed or Superseded status.");
 assert.ok(verificationSource.includes("Vehicle"), "Verification page should show the safe vehicle year, make and model summary.");
 assert.equal(verificationSource.includes("signatureStoragePath}</p>"), false, "Public verification page must not render signature paths.");
+
+const unsafeAdminUid = "AyJJGR2jr2XRoApgzS8kozZrHna2";
+const unsafeDocumentHash = "14401fe75e2bd5d7435c32a4aaaabbbbccccddddeeeeffff1111222233334444";
+assert.equal(
+  saleHandoverPdf.getSaleHandoverPdfPreparedByDisplayName(
+    { preparedByName: `P Z (${unsafeAdminUid})`, lastEditedByName: "", pdf: null },
+    null
+  ),
+  "P Z",
+  "PDF staff display should strip bracketed Firebase UIDs."
+);
+assert.equal(
+  saleHandoverPdf.getSaleHandoverPdfPreparedByDisplayName(
+    { preparedByName: unsafeAdminUid, lastEditedByName: "", pdf: { generatedByName: "" } },
+    null
+  ),
+  "CarNest Admin",
+  "PDF staff display should never fall back to a raw UID."
+);
+
+const generatedPdfText = extractGeneratedPdfText(await saleHandoverPdf.generateSaleHandoverPdf(
+  {
+    ...completeRecord,
+    preparedByName: `P Z (${unsafeAdminUid})`,
+    preparedByUid: unsafeAdminUid,
+    lastEditedByName: unsafeAdminUid,
+    seller: { ...completeRecord.seller, customerId: unsafeAdminUid },
+    buyer: { ...completeRecord.buyer, buyerCustomerId: unsafeAdminUid },
+    pdf: {
+      storagePath: "sale-handover-records/test/pdf/test.pdf",
+      fileName: "test.pdf",
+      generatedAt: "2026-07-31T11:36:00.000Z",
+      generatedByUid: unsafeAdminUid,
+      generatedByName: unsafeAdminUid,
+      documentVersion: 1,
+      agreementTermsVersion: completeRecord.agreementTermsVersion,
+      documentHash: unsafeDocumentHash,
+      status: "draft",
+    },
+  },
+  {
+    documentHash: unsafeDocumentHash,
+    preparedByName: `P Z (${unsafeAdminUid})`,
+    preparedAt: "2026-07-31T11:36:00.000Z",
+  }
+));
+assert.ok(generatedPdfText.includes("Prepared by CarNest: P Z"), "Generated PDF should render the clean staff display name.");
+assert.ok(generatedPdfText.includes("Prepared on: 31 July 2026, 9:36 pm AEST"), "Generated PDF should render the requested prepared-on format.");
+assert.ok(generatedPdfText.includes("Prepared using CarNest administrative template"), "Generated PDF should keep the administrative-template footer.");
+assert.equal(generatedPdfText.includes(unsafeAdminUid), false, "Generated PDF text must not contain the admin UID.");
+assert.equal(generatedPdfText.includes("Document hash:"), false, "Generated PDF text must not contain a raw Document hash line.");
+assert.equal(generatedPdfText.includes(unsafeDocumentHash), false, "Generated PDF text must not contain the raw document hash.");
 
 console.log("Sale & Handover validation passed.");
