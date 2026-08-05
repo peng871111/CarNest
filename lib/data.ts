@@ -22,6 +22,10 @@ import { extractFirebaseStoragePath } from "@/lib/firebase-storage-paths";
 import { deleteVehicleImageFiles } from "@/lib/storage";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import {
+  buildPublicVehicleIdentitySnapshot,
+  buildPublicVehicleIdentityUpdatePayload,
+} from "@/lib/public-vehicle-details";
+import {
   createEmptyVehicleServiceHistoryRecord,
   isVehicleServiceHistoryRecordMeaningful,
   sortVehicleServiceHistoryRecords,
@@ -714,6 +718,51 @@ async function syncVehicleRecordFromPublicListing(
   }).catch(() => undefined);
 
   return ref.id;
+}
+
+function getWarehouseIntakeIdentitySortDate(intake: WarehouseIntakeRecord) {
+  return intake.updatedAt || intake.completedAt || intake.pdfGeneratedAt || intake.createdAt || intake.intakeDate || "";
+}
+
+function selectLatestWarehouseIntake(candidates: WarehouseIntakeRecord[]) {
+  return candidates
+    .filter(Boolean)
+    .sort((left, right) => getWarehouseIntakeIdentitySortDate(right).localeCompare(getWarehouseIntakeIdentitySortDate(left)))[0] ?? null;
+}
+
+async function syncPublicListingVehicleIdentityFromLinkedSources(vehicleId: string) {
+  if (!vehicleId.trim() || !isFirebaseConfigured) return;
+
+  const listing = await getVehicleById(vehicleId).catch(() => null);
+  if (!listing) return;
+
+  const vehicleRecord = await getVehicleRecordByPublicListingId(vehicleId).catch(() => null);
+  const byListing = await getWarehouseIntakeByVehicleId(vehicleId).catch(() => ({ items: [] as WarehouseIntakeRecord[] }));
+  const byVehicleRecord = vehicleRecord?.id
+    ? await getWarehouseIntakeByVehicleRecordId(vehicleRecord.id).catch(() => ({ items: [] as WarehouseIntakeRecord[] }))
+    : { items: [] as WarehouseIntakeRecord[] };
+  const intakeCandidates = [
+    ...byListing.items,
+    ...byVehicleRecord.items.filter((candidate) => !byListing.items.some((item) => item.id === candidate.id)),
+  ];
+  const storageContract = selectLatestWarehouseIntake(intakeCandidates);
+  const identitySnapshot = buildPublicVehicleIdentitySnapshot({
+    listing,
+    vehicleRecord,
+    storageContract,
+  });
+  const updatePayload = buildPublicVehicleIdentityUpdatePayload(listing, identitySnapshot);
+
+  if (!Object.keys(updatePayload).length) return;
+
+  await setDoc(
+    doc(db, "vehicles", vehicleId),
+    sanitizeFirestoreWriteData({
+      ...updatePayload,
+      updatedAt: serverTimestamp(),
+    }),
+    { merge: true }
+  );
 }
 
 function normalizeVehicleStatus(status: unknown): VehicleStatus {
@@ -7022,10 +7071,7 @@ export async function saveVehicleRecord(
   await setDoc(ref, payload, { merge: true });
   await syncVehicleRecordReportingSnapshot(ref.id).catch(() => undefined);
   if (input.publicListingId) {
-    const linkedListing = await getVehicleById(input.publicListingId).catch(() => null);
-    if (linkedListing) {
-      await syncVehicleRecordFromPublicListing(linkedListing, actor, "linked_listing_synced").catch(() => undefined);
-    }
+    await syncPublicListingVehicleIdentityFromLinkedSources(input.publicListingId).catch(() => undefined);
   }
   await writeAdminOperationalEvent({
     actor,
@@ -7772,6 +7818,7 @@ export async function saveWarehouseIntake(
     );
 
     await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+    await syncPublicListingVehicleIdentityFromLinkedSources(payload.vehicleId || "").catch(() => undefined);
     await Promise.all(
       affectedVehicleIds.map((vehicleId) =>
         reconcileVehicleReportMetadataForPublicListing(vehicleId).catch(() => undefined)
@@ -7825,6 +7872,7 @@ export async function saveWarehouseIntake(
   );
 
   await syncVehicleRecordReportingSnapshot(vehicleRecordId);
+  await syncPublicListingVehicleIdentityFromLinkedSources(payload.vehicleId || "").catch(() => undefined);
   await Promise.all(
     affectedVehicleIds.map((vehicleId) =>
       reconcileVehicleReportMetadataForPublicListing(vehicleId).catch(() => undefined)

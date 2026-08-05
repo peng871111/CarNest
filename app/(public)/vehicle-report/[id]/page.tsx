@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { VehicleReportPage } from "@/components/vehicles/vehicle-report-page";
-import { getVehicleById } from "@/lib/data";
+import { getPublicVehicleById } from "@/lib/public-vehicle-data-server";
 import { hasBuyerFacingConditionSummary } from "@/lib/vehicle-public-report";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function VehicleReportRoute({ params }: { params: Promise<{
   let vehicle = null;
 
   try {
-    vehicle = await getVehicleById(id);
+    vehicle = await getPublicVehicleById(id);
   } catch {
     return (
       <main className="mx-auto max-w-4xl px-6 py-16">

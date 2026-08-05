@@ -3,7 +3,8 @@ import { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import ReactDOM from "react-dom";
-import { getSellerTrustInfo, getVehicleById, listPublishedVehicles } from "@/lib/data";
+import { getSellerTrustInfo, listPublishedVehicles } from "@/lib/data";
+import { getPublicVehicleById } from "@/lib/public-vehicle-data-server";
 import { formatCalendarDate, formatCurrency, formatMonthYear, getVehicleDisplayReference } from "@/lib/utils";
 import { getListingLabel, getVehicleDetailImage, getVehicleGallery, getVehicleGalleryThumbnails } from "@/lib/permissions";
 import { buildAbsoluteUrl, getVehicleSeoDescription, getVehicleSeoTitle } from "@/lib/seo";
@@ -25,7 +26,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
 
   try {
-    const vehicle = await getVehicleById(id);
+    const vehicle = await getPublicVehicleById(id);
     if (!vehicle || vehicle.deleted) {
       return {
         title: "Vehicle for sale",
@@ -79,7 +80,7 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
   let headerStore: Awaited<ReturnType<typeof headers>> | null = null;
 
   try {
-    vehicle = await getVehicleById(id);
+    vehicle = await getPublicVehicleById(id);
     headerStore = await headers();
   } catch {
     return (
@@ -137,10 +138,13 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
     ["Year", String(vehicle.year)],
     ["Make", vehicle.make],
     ["Model", vehicle.model],
+    ["Variant", vehicle.variant],
     ["Price", formatCurrency(vehicle.price)],
     ["Mileage", `${vehicle.mileage.toLocaleString()} km`]
   ];
   const listingDetails = [
+    ["Registration", vehicle.rego],
+    ["VIN", vehicle.vin],
     ["Transmission", vehicle.transmission],
     ["Fuel type", vehicle.fuelType],
     ["Drivetrain", vehicle.drivetrain],
