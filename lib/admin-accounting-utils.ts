@@ -240,6 +240,31 @@ export function isOutstandingPayable(entry: AdminAccountingEntry) {
   return entry.type === "payable" && entry.status !== "paid";
 }
 
+export function getAccountingUnlinkedVehicleLabel(type: AdminAccountingEntry["type"]) {
+  if (type === "income") return "General income (not linked to a vehicle)";
+  if (type === "expense") return "Business expense (not linked to a vehicle)";
+  return "Not linked to a vehicle";
+}
+
+export function getAccountingRelatedVehicleDisplayLabel(
+  entry: Pick<
+    AdminAccountingEntry,
+    "type" | "relatedDisplayReference" | "relatedVehicleTitle" | "relatedCustomerName"
+  >
+) {
+  const relatedParts = [
+    entry.relatedDisplayReference,
+    entry.relatedVehicleTitle,
+    entry.relatedCustomerName
+  ].map((value) => (value ?? "").trim()).filter(Boolean);
+
+  if (relatedParts.length > 0) {
+    return relatedParts.join(" · ");
+  }
+
+  return getAccountingUnlinkedVehicleLabel(entry.type);
+}
+
 export function buildAccountingCashSummary(entries: AdminAccountingEntry[]): AccountingCashSummary {
   const totalIncome = entries
     .filter((entry) => entry.type === "income" && entry.status === "paid")

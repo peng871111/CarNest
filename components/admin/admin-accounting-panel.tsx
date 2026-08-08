@@ -10,6 +10,8 @@ import {
   getAccountingEntryNetPortion,
   getAccountingPaymentMethodLabel,
   getAccountingPeriodLabel,
+  getAccountingRelatedVehicleDisplayLabel,
+  getAccountingUnlinkedVehicleLabel,
   getMelbourneDateRangeForPeriod,
   getEntryMelbourneDateKey,
   getMelbourneMonthKeyFromDate,
@@ -1023,7 +1025,7 @@ export function AdminAccountingPanel() {
                   <p className="text-xs text-ink/58">
                     {selectedVehicleOption
                       ? `${selectedVehicleOption.subtitle || "Linked vehicle selected"}`
-                      : "Business expense (not linked to a vehicle)"}
+                      : getAccountingUnlinkedVehicleLabel(draft.type)}
                   </p>
                   {(draft.relatedVehicleId || vehicleSearch) ? (
                     <button
@@ -1042,7 +1044,7 @@ export function AdminAccountingPanel() {
                       onClick={clearVehicleSelection}
                       className="w-full rounded-2xl border border-dashed border-black/10 px-3 py-3 text-left text-sm text-ink/60 transition hover:border-[#C6A87D] hover:text-ink"
                     >
-                      Business expense (not linked to a vehicle)
+                      {getAccountingUnlinkedVehicleLabel(draft.type)}
                     </button>
                     {filteredVehicleOptions.map((option) => (
                       <button
@@ -1190,7 +1192,7 @@ export function AdminAccountingPanel() {
                                   {getAccountingPaymentMethodLabel(entry.paymentMethod)} · {entry.status.replace(/_/g, " ")}
                                 </p>
                                 <p className="mt-1 text-xs text-ink/56">
-                                  {entry.relatedDisplayReference || "Business expense"}{entry.relatedVehicleTitle ? ` · ${entry.relatedVehicleTitle}` : ""}{entry.relatedCustomerName ? ` · ${entry.relatedCustomerName}` : ""}
+                                  {getAccountingRelatedVehicleDisplayLabel(entry)}
                                 </p>
                                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink/62">
                                   <span>Gross {formatAccountingCurrency(entry.amount)}</span>
