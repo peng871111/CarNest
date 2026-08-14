@@ -30,6 +30,13 @@ function getMomentLabel(moment: CommunityMoment) {
   return moment.title || COMMUNITY_CATEGORY_LABELS[moment.category];
 }
 
+function getMomentCaptionParagraphs(caption?: string) {
+  return (caption ?? "")
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
 export function CommunityGallery() {
   const [moments, setMoments] = useState<CommunityMoment[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<"all" | CommunityMomentCategoryId>("all");
@@ -101,6 +108,10 @@ export function CommunityGallery() {
 
   const selectedImage = selectedImages[activeImageIndex] ?? getCommunityMomentCoverImage(selectedMoment);
   const hasMultipleSelectedImages = selectedImages.length > 1;
+  const selectedCaptionParagraphs = useMemo(
+    () => getMomentCaptionParagraphs(selectedMoment?.caption),
+    [selectedMoment?.caption]
+  );
 
   function openMoment(moment: CommunityMoment) {
     setActiveImageIndex(0);
@@ -259,14 +270,14 @@ export function CommunityGallery() {
           role="dialog"
           aria-modal="true"
           aria-label={getMomentLabel(selectedMoment)}
-          className="fixed inset-0 z-50 overflow-y-auto bg-black/86 px-4 py-5 backdrop-blur-sm md:px-8"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/86 px-4 py-4 backdrop-blur-sm sm:py-6 md:px-8"
           onClick={() => setSelectedMoment(null)}
         >
           <div
-            className="mx-auto max-w-6xl overflow-hidden rounded-[34px] border border-white/12 bg-[#0B0B0B] shadow-[0_30px_90px_rgba(0,0,0,0.5)]"
+            className="mx-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-[34px] border border-white/12 bg-[#0B0B0B] shadow-[0_30px_90px_rgba(0,0,0,0.5)] sm:max-h-[calc(100dvh-3rem)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+            <div className="shrink-0 flex items-center justify-between gap-4 border-b border-white/10 px-5 py-4">
               <p className="text-xs uppercase tracking-[0.24em] text-[#D9B36A]">
                 {COMMUNITY_CATEGORY_LABELS[selectedMoment.category]}
               </p>
@@ -278,96 +289,106 @@ export function CommunityGallery() {
                 Close
               </button>
             </div>
-            <div className="grid gap-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
-              <div
-                className="bg-black"
-                onTouchStart={(event) => setTouchStartX(event.changedTouches[0]?.clientX ?? null)}
-                onTouchEnd={(event) => {
-                  if (touchStartX === null || !hasMultipleSelectedImages) return;
-                  const endX = event.changedTouches[0]?.clientX ?? touchStartX;
-                  const distance = endX - touchStartX;
-                  setTouchStartX(null);
-                  if (Math.abs(distance) < 42) return;
-                  showRelativeImage(distance < 0 ? 1 : -1);
-                }}
-              >
-                <div className="relative flex min-h-[320px] items-center justify-center">
-                <img
-                  src={selectedImage.displayUrl}
-                  alt={`${getMomentLabel(selectedMoment)}${hasMultipleSelectedImages ? ` - photo ${activeImageIndex + 1} of ${selectedImages.length}` : ""}`}
-                  aria-label={hasMultipleSelectedImages ? `Photo ${activeImageIndex + 1} of ${selectedImages.length}` : undefined}
-                  className="max-h-[82vh] w-full object-contain"
-                />
+            <div className="min-h-0 overflow-y-auto">
+              <div className="grid gap-0 lg:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
+                <div
+                  className="bg-black"
+                  onTouchStart={(event) => setTouchStartX(event.changedTouches[0]?.clientX ?? null)}
+                  onTouchEnd={(event) => {
+                    if (touchStartX === null || !hasMultipleSelectedImages) return;
+                    const endX = event.changedTouches[0]?.clientX ?? touchStartX;
+                    const distance = endX - touchStartX;
+                    setTouchStartX(null);
+                    if (Math.abs(distance) < 42) return;
+                    showRelativeImage(distance < 0 ? 1 : -1);
+                  }}
+                >
+                  <div className="relative flex min-h-[320px] items-center justify-center">
+                    <img
+                      src={selectedImage.displayUrl}
+                      alt={`${getMomentLabel(selectedMoment)}${hasMultipleSelectedImages ? ` - photo ${activeImageIndex + 1} of ${selectedImages.length}` : ""}`}
+                      aria-label={hasMultipleSelectedImages ? `Photo ${activeImageIndex + 1} of ${selectedImages.length}` : undefined}
+                      className="max-h-[72dvh] w-full object-contain lg:max-h-[calc(100dvh-8.5rem)]"
+                    />
+                    {hasMultipleSelectedImages ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => showRelativeImage(-1)}
+                          className="absolute left-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
+                          aria-label="Previous Community photo"
+                        >
+                          ‹
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => showRelativeImage(1)}
+                          className="absolute right-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
+                          aria-label="Next Community photo"
+                        >
+                          ›
+                        </button>
+                        <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white/86 backdrop-blur">
+                          {activeImageIndex + 1} / {selectedImages.length}
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
                   {hasMultipleSelectedImages ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => showRelativeImage(-1)}
-                        className="absolute left-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
-                        aria-label="Previous Community photo"
-                      >
-                        ‹
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => showRelativeImage(1)}
-                        className="absolute right-3 top-1/2 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-black/50 text-2xl font-light text-white shadow-lg backdrop-blur transition hover:bg-black/75"
-                        aria-label="Next Community photo"
-                      >
-                        ›
-                      </button>
-                      <span className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white/86 backdrop-blur">
-                        {activeImageIndex + 1} / {selectedImages.length}
-                      </span>
-                    </>
+                    <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-[#080808] px-4 py-3">
+                      {selectedImages.map((image, index) => (
+                        <button
+                          key={image.id}
+                          type="button"
+                          onClick={() => setActiveImageIndex(index)}
+                          aria-label={`Show photo ${index + 1} of ${selectedImages.length}`}
+                          className={`h-16 w-20 shrink-0 overflow-hidden rounded-2xl border transition ${
+                            index === activeImageIndex ? "border-[#D9B36A]" : "border-white/12 opacity-65 hover:opacity-100"
+                          }`}
+                        >
+                          <img
+                            src={image.thumbnailUrl}
+                            alt=""
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
                   ) : null}
                 </div>
-                {hasMultipleSelectedImages ? (
-                  <div className="flex gap-2 overflow-x-auto border-t border-white/10 bg-[#080808] px-4 py-3">
-                    {selectedImages.map((image, index) => (
-                      <button
-                        key={image.id}
-                        type="button"
-                        onClick={() => setActiveImageIndex(index)}
-                        aria-label={`Show photo ${index + 1} of ${selectedImages.length}`}
-                        className={`h-16 w-20 shrink-0 overflow-hidden rounded-2xl border transition ${
-                          index === activeImageIndex ? "border-[#D9B36A]" : "border-white/12 opacity-65 hover:opacity-100"
-                        }`}
+                <aside className="space-y-5 p-6 md:p-8">
+                  {selectedMoment.title ? <h2 className="text-3xl font-semibold text-white">{selectedMoment.title}</h2> : null}
+                  {selectedCaptionParagraphs.length ? (
+                    <div className="space-y-4">
+                      {selectedCaptionParagraphs.map((paragraph, index) => (
+                        <p key={`${index}-${paragraph.slice(0, 24)}`} className="text-base leading-7 text-white/68">
+                          {paragraph}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="space-y-2 text-sm text-white/58">
+                    {selectedMoment.momentDate ? <p>{formatMomentDate(selectedMoment.momentDate)}</p> : null}
+                    {selectedMoment.location ? <p>{selectedMoment.location}</p> : null}
+                  </div>
+                  {linkedVehicle ? (
+                    <div className="rounded-[24px] border border-[#D9B36A]/20 bg-[#D9B36A]/10 p-5">
+                      <p className="text-xs uppercase tracking-[0.2em] text-[#D9B36A]">Featured vehicle</p>
+                      <h3 className="mt-2 text-lg font-semibold text-white">
+                        {linkedVehicle.year} {linkedVehicle.make} {linkedVehicle.model}
+                      </h3>
+                      <p className="mt-1 text-sm text-white/55">{getVehicleDisplayReference(linkedVehicle)}</p>
+                      <Link
+                        href={`/inventory/${linkedVehicle.id}`}
+                        className="mt-4 inline-flex rounded-full bg-[#D9B36A] px-5 py-3 text-sm font-semibold text-[#141414] transition hover:bg-[#e3bf78]"
                       >
-                        <img
-                          src={image.thumbnailUrl}
-                          alt=""
-                          loading="lazy"
-                          className="h-full w-full object-cover"
-                        />
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                        View this car →
+                      </Link>
+                    </div>
+                  ) : null}
+                </aside>
               </div>
-              <aside className="space-y-5 p-6 md:p-8">
-                {selectedMoment.title ? <h2 className="text-3xl font-semibold text-white">{selectedMoment.title}</h2> : null}
-                {selectedMoment.caption ? <p className="text-base leading-7 text-white/68">{selectedMoment.caption}</p> : null}
-                <div className="space-y-2 text-sm text-white/58">
-                  {selectedMoment.momentDate ? <p>{formatMomentDate(selectedMoment.momentDate)}</p> : null}
-                  {selectedMoment.location ? <p>{selectedMoment.location}</p> : null}
-                </div>
-                {linkedVehicle ? (
-                  <div className="rounded-[24px] border border-[#D9B36A]/20 bg-[#D9B36A]/10 p-5">
-                    <p className="text-xs uppercase tracking-[0.2em] text-[#D9B36A]">Featured vehicle</p>
-                    <h3 className="mt-2 text-lg font-semibold text-white">
-                      {linkedVehicle.year} {linkedVehicle.make} {linkedVehicle.model}
-                    </h3>
-                    <p className="mt-1 text-sm text-white/55">{getVehicleDisplayReference(linkedVehicle)}</p>
-                    <Link
-                      href={`/inventory/${linkedVehicle.id}`}
-                      className="mt-4 inline-flex rounded-full bg-[#D9B36A] px-5 py-3 text-sm font-semibold text-[#141414] transition hover:bg-[#e3bf78]"
-                    >
-                      View this car →
-                    </Link>
-                  </div>
-                ) : null}
-              </aside>
             </div>
           </div>
         </div>

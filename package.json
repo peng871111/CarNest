@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test:accounting-classification": "node scripts/validate-accounting-classification.mjs",
+    "test:community-article-modal": "node scripts/validate-community-article-modal.mjs",
     "test:public-vehicle-details": "node scripts/validate-public-vehicle-details.mjs",
     "test:share-metadata": "node scripts/validate-public-share-metadata.mjs",
     "test:sale-handover": "node scripts/validate-sale-handover.mjs",
