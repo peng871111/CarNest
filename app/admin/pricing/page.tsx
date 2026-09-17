@@ -2,7 +2,8 @@ import Link from "next/link";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { PricingRequestAdminEditor } from "@/components/pricing/pricing-request-admin-editor";
 import { PricingRequestStatusBadge } from "@/components/pricing/pricing-request-status-badge";
-import { getAppUserById, getPricingRequestsData } from "@/lib/data";
+import { getAdminPricingRequestsData } from "@/lib/admin-pricing-server";
+import { getAppUserById } from "@/lib/data";
 import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import { formatAdminDateTime, formatCurrency, getAccountDisplayReference, getVehicleDisplayReference } from "@/lib/utils";
 
@@ -13,7 +14,7 @@ export default async function AdminPricingPage({
 }: {
   searchParams?: Promise<{ write?: string; status?: string; pricingId?: string }>;
 }) {
-  const { items: pricingRequests, error } = await getPricingRequestsData();
+  const { items: pricingRequests, error } = await getAdminPricingRequestsData();
   const params = searchParams ? await searchParams : undefined;
   const writeStatus =
     params?.write === "success"
@@ -34,6 +35,7 @@ export default async function AdminPricingPage({
     <AdminShell
       title="Pricing"
       description="Review manual pricing advice requests, respond with human guidance, and move each lead through the CarNest follow-up process."
+      requiredPermission="managePricing"
     >
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[24px] bg-shell px-4 py-3 text-sm text-ink/70">Pricing requests loaded: {pricingRequests.length}</div>
