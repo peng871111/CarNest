@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { PricingRequestUpdateInput, updatePricingRequest } from "@/lib/data";
 import { PricingLeadRating, PricingNextAction, PricingRequest, PricingRequestStatus } from "@/types";
 
 const STATUS_OPTIONS: PricingRequestStatus[] = ["NEW", "REPLIED", "CLOSED"];
@@ -12,8 +11,9 @@ const NEXT_ACTION_OPTIONS: PricingNextAction[] = ["Recommend warehouse", "Follow
 
 export function PricingRequestAdminEditor({ pricingRequest }: { pricingRequest: PricingRequest }) {
   const router = useRouter();
-  const { appUser } = useAuth();
+  const { firebaseUser } = useAuth();
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [status, setStatus] = useState<PricingRequestStatus>(pricingRequest.status);
   const [leadRating, setLeadRating] = useState<PricingLeadRating | "">(pricingRequest.leadRating ?? "");
   const [nextAction, setNextAction] = useState<PricingNextAction | "">(pricingRequest.nextAction ?? "");
@@ -24,25 +24,50 @@ export function PricingRequestAdminEditor({ pricingRequest }: { pricingRequest: 
     setLeadRating(pricingRequest.leadRating ?? "");
     setNextAction(pricingRequest.nextAction ?? "");
     setResponse(pricingRequest.response ?? "");
+    setMessage(null);
   }, [pricingRequest]);
 
   async function handleSave() {
-    if (!appUser) return;
+    if (busy) return;
+    if (!firebaseUser) {
+      setMessage({ type: "error", text: "Please sign in again before saving pricing actions." });
+      return;
+    }
+
     setBusy(true);
+    setMessage(null);
 
     try {
-      const update: PricingRequestUpdateInput = {
-        status,
-        response,
-        leadRating: leadRating || undefined,
-        nextAction: nextAction || undefined
-      };
+      const idToken = await firebaseUser.getIdToken(true);
+      const updateResponse = await fetch(`/api/admin/pricing/${encodeURIComponent(pricingRequest.id)}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${idToken}`
+        },
+        body: JSON.stringify({
+          status,
+          response,
+          leadRating: leadRating || undefined,
+          nextAction: nextAction || undefined
+        })
+      });
 
-      const result = await updatePricingRequest(pricingRequest.id, update, appUser, pricingRequest);
+      const payload = await updateResponse.json().catch(() => ({} as { error?: string }));
+      if (!updateResponse.ok) {
+        throw new Error(typeof payload.error === "string" ? payload.error : "Unable to save pricing request.");
+      }
+
+      setMessage({ type: "success", text: "Pricing request saved." });
       router.replace(
-        `/admin/pricing?write=${result.writeSucceeded ? "success" : "mock"}&status=${status}&pricingId=${pricingRequest.id}`
+        `/admin/pricing?write=success&status=${status}&pricingId=${pricingRequest.id}`
       );
       router.refresh();
+    } catch (error) {
+      setMessage({
+        type: "error",
+        text: error instanceof Error ? error.message : "Unable to save pricing request."
+      });
     } finally {
       setBusy(false);
     }
@@ -112,6 +137,11 @@ export function PricingRequestAdminEditor({ pricingRequest }: { pricingRequest: 
       >
         {busy ? "Saving..." : "Save"}
       </button>
+      {message ? (
+        <p className={`text-sm ${message.type === "error" ? "text-red-700" : "text-emerald-700"}`} role={message.type === "error" ? "alert" : "status"}>
+          {message.text}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -30,11 +30,14 @@ function loadTypescriptModule(filePath) {
 const helperPath = path.join(repoRoot, "lib/admin-pricing.ts");
 const serverLoaderPath = path.join(repoRoot, "lib/admin-pricing-server.ts");
 const pagePath = path.join(repoRoot, "app/admin/pricing/page.tsx");
+const editorPath = path.join(repoRoot, "components/pricing/pricing-request-admin-editor.tsx");
+const actionRoutePath = path.join(repoRoot, "app/api/admin/pricing/[id]/route.ts");
 
 const {
   buildAdminPricingCollectionResult,
   hasAdminPricingSessionAccess,
   parseAdminPricingPermissionsCookie,
+  sanitizeAdminPricingUpdateInput,
   serializeAdminPricingRequestDoc
 } = loadTypescriptModule(helperPath);
 
@@ -99,6 +102,23 @@ assert.equal(result.source, "firestore");
 assert.equal(JSON.stringify(result.items.map((item) => item.id)), JSON.stringify(["newer", "older"]));
 assert.match(result.error ?? "", /Skipped 1 malformed pricing request record/);
 
+assert.deepEqual(
+  JSON.parse(JSON.stringify(sanitizeAdminPricingUpdateInput({
+    status: "REPLIED",
+    response: "  Sent a response.  ",
+    leadRating: "HOT",
+    nextAction: "Follow up later"
+  }))),
+  {
+    status: "REPLIED",
+    response: "Sent a response.",
+    leadRating: "HOT",
+    nextAction: "Follow up later"
+  }
+);
+assert.throws(() => sanitizeAdminPricingUpdateInput({ status: "BROKEN", response: "" }), /valid pricing status/);
+assert.throws(() => sanitizeAdminPricingUpdateInput({ status: "NEW", leadRating: "BOILING" }), /valid lead rating/);
+
 const serverSource = fs.readFileSync(serverLoaderPath, "utf8");
 assert.match(serverSource, /import "server-only";/);
 assert.match(serverSource, /getAdminDb\(\)\.collection\("pricingRequests"\)\.get\(\)/);
@@ -112,4 +132,23 @@ assert.match(pageSource, /getAdminPricingRequestsData/);
 assert.doesNotMatch(pageSource, /getPricingRequestsData/);
 assert.match(pageSource, /requiredPermission="managePricing"/);
 
-console.log("Admin Pricing loader validation passed.");
+const routeSource = fs.readFileSync(actionRoutePath, "utf8");
+assert.match(routeSource, /requireVerifiedAdminApiAccess\(request,\s*"managePricing"\)/);
+assert.match(routeSource, /getAdminDb\(\)\.collection\("pricingRequests"\)\.doc\(id\)/);
+assert.match(routeSource, /FieldValue\.serverTimestamp\(\)/);
+assert.match(routeSource, /FieldValue\.delete\(\)/);
+assert.ok(
+  routeSource.indexOf("requireVerifiedAdminApiAccess") < routeSource.indexOf("getAdminDb().collection(\"pricingRequests\").doc(id)"),
+  "Admin Pricing action route must verify access before using Admin SDK"
+);
+
+const editorSource = fs.readFileSync(editorPath, "utf8");
+assert.doesNotMatch(editorSource, /updatePricingRequest/);
+assert.match(editorSource, /firebaseUser\.getIdToken\(true\)/);
+assert.match(editorSource, /fetch\(`\/api\/admin\/pricing\/\$\{encodeURIComponent\(pricingRequest\.id\)\}`/);
+assert.match(editorSource, /authorization:\s*`Bearer \$\{idToken\}`/);
+assert.match(editorSource, /disabled=\{busy \|\| unchanged\}/);
+assert.match(editorSource, /Pricing request saved\./);
+assert.match(editorSource, /role=\{message\.type === "error" \? "alert" : "status"\}/);
+
+console.log("Admin Pricing loader/action validation passed.");

@@ -19,10 +19,17 @@ export interface AdminPricingCollectionResult {
   error?: string;
 }
 
-const PRICING_STATUSES = ["NEW", "REPLIED", "CLOSED"] as const satisfies readonly PricingRequestStatus[];
-const PRICING_TIMELINES = ["ASAP (within 2 weeks)", "2–4 weeks", "1–2 months", "Just exploring"] as const satisfies readonly PricingRequestTimeline[];
-const PRICING_LEAD_RATINGS = ["HOT", "WARM", "COLD"] as const satisfies readonly PricingLeadRating[];
-const PRICING_NEXT_ACTIONS = ["Recommend warehouse", "Follow up later", "Not suitable"] as const satisfies readonly PricingNextAction[];
+export interface AdminPricingUpdateInput {
+  status: PricingRequestStatus;
+  response: string;
+  leadRating?: PricingLeadRating;
+  nextAction?: PricingNextAction;
+}
+
+export const PRICING_STATUSES = ["NEW", "REPLIED", "CLOSED"] as const satisfies readonly PricingRequestStatus[];
+export const PRICING_TIMELINES = ["ASAP (within 2 weeks)", "2–4 weeks", "1–2 months", "Just exploring"] as const satisfies readonly PricingRequestTimeline[];
+export const PRICING_LEAD_RATINGS = ["HOT", "WARM", "COLD"] as const satisfies readonly PricingLeadRating[];
+export const PRICING_NEXT_ACTIONS = ["Recommend warehouse", "Follow up later", "Not suitable"] as const satisfies readonly PricingNextAction[];
 
 export function parseAdminPricingPermissionsCookie(value?: string) {
   if (!value) return {} as Partial<Record<keyof AdminPermissions, boolean>>;
@@ -130,6 +137,40 @@ export function serializeAdminPricingRequestDoc(id: string, data: PricingDocumen
 
 export function sortAdminPricingRequests(items: PricingRequest[]) {
   return [...items].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+function readOptionalSubmittedString(data: PricingDocumentData, field: string) {
+  const value = data[field];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function sanitizeAdminPricingUpdateInput(value: unknown): AdminPricingUpdateInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid pricing update.");
+  }
+
+  const data = value as PricingDocumentData;
+  const status = data.status;
+  if (typeof status !== "string" || !PRICING_STATUSES.includes(status as PricingRequestStatus)) {
+    throw new Error("Select a valid pricing status.");
+  }
+
+  const leadRating = readOptionalSubmittedString(data, "leadRating");
+  if (leadRating && !PRICING_LEAD_RATINGS.includes(leadRating as PricingLeadRating)) {
+    throw new Error("Select a valid lead rating.");
+  }
+
+  const nextAction = readOptionalSubmittedString(data, "nextAction");
+  if (nextAction && !PRICING_NEXT_ACTIONS.includes(nextAction as PricingNextAction)) {
+    throw new Error("Select a valid next action.");
+  }
+
+  return {
+    status: status as PricingRequestStatus,
+    response: typeof data.response === "string" ? data.response.trim() : "",
+    ...(leadRating ? { leadRating: leadRating as PricingLeadRating } : {}),
+    ...(nextAction ? { nextAction: nextAction as PricingNextAction } : {})
+  };
 }
 
 export function buildAdminPricingCollectionResult(docs: Iterable<AdminPricingDocumentSnapshotLike>): AdminPricingCollectionResult {
