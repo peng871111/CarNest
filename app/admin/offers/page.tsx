@@ -19,6 +19,10 @@ export default function AdminOffersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [vehicleMap, setVehicleMap] = useState<Map<string, Vehicle | null>>(new Map());
 
+  function handleOfferUpdated(updatedOffer: Offer) {
+    setOffers((current) => current.map((offer) => (offer.id === updatedOffer.id ? updatedOffer : offer)));
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -151,7 +155,7 @@ export default function AdminOffersPage() {
                     <OfferStatusBadge status={offer.status} />
                   </div>
                   <div>
-                    <OfferStatusActions offer={offer} basePath="/admin/offers" />
+                    <OfferStatusActions offer={offer} basePath="/admin/offers" onUpdated={handleOfferUpdated} />
                   </div>
                 </div>
               );
