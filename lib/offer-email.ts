@@ -41,7 +41,7 @@ export type OfferEmailSendResult =
   | {
       sent: false;
       skipped: false;
-      reason: "provider_error";
+      reason: "resend_error";
       providerErrorName: string | null;
       providerStatusCode: number | null;
     };
@@ -203,7 +203,7 @@ export async function sendOfferEmail(payload: OfferEmailPayload) {
     return {
       sent: false as const,
       skipped: false as const,
-      reason: "provider_error" as const,
+      reason: "resend_error" as const,
       providerErrorName: error.name ?? null,
       providerStatusCode: error.statusCode ?? null
     };

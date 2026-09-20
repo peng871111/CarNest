@@ -132,7 +132,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             attempted: true,
             sent: false,
             recipientEmail: recipient.email,
-            reason: "provider_error"
+            reason: "resend_error"
           };
         }
       } else {
@@ -142,6 +142,21 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           reason: "missing_buyer_email"
         };
       }
+    }
+
+    if (emailStatus.attempted) {
+      const emailResultCategory = emailStatus.sent
+        ? "sent"
+        : emailStatus.reason === "missing_buyer_email"
+          ? "missing_buyer_email"
+          : emailStatus.reason === "missing_env"
+            ? "missing_env"
+            : "resend_error";
+      console.info("[admin-offers] Counter offer email result", {
+        offerId: updatedOffer.id,
+        event: transactionResult.emailEvent,
+        result: emailResultCategory
+      });
     }
 
     return NextResponse.json({

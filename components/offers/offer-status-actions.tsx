@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
-import { getAdminOfferSaveMessage, type AdminOfferEmailStatus } from "@/lib/admin-offers";
+import {
+  getAdminOfferEmailQueryValue,
+  getAdminOfferSaveMessage,
+  type AdminOfferEmailStatus
+} from "@/lib/admin-offers";
 import { updateOfferStatus } from "@/lib/data";
 import { Offer, OfferStatus } from "@/types";
 
@@ -99,12 +103,13 @@ export function OfferStatusActions({
       setStatus(payload.offer.status);
       setCounterAmount("");
       const isCounterOfferSave = trimmedCounterAmount || payload.offer.status === "countered";
+      const emailQueryValue = getAdminOfferEmailQueryValue(Boolean(isCounterOfferSave), payload.emailStatus);
       setMessage({
         type: payload.emailStatus?.attempted && !payload.emailStatus.sent ? "error" : "success",
         text: getAdminOfferSaveMessage(Boolean(isCounterOfferSave), payload.emailStatus)
       });
       router.replace(
-        `${basePath}?write=success&status=${payload.offer.status}&offerId=${offer.id}`
+        `${basePath}?write=success&status=${payload.offer.status}&offerId=${offer.id}&email=${emailQueryValue}`
       );
       router.refresh();
     } catch (error) {

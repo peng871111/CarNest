@@ -42,7 +42,9 @@ const {
   buildAdminOfferEmailStatusFromSendResult,
   buildAdminOfferUpdatePlan,
   getAdminOfferEmailFailureReason,
+  getAdminOfferEmailQueryValue,
   getAdminOfferSaveMessage,
+  getAdminOfferSaveMessageFromQuery,
   resolveAdminOfferBuyerEmailRecipient,
   sanitizeAdminOfferUpdateInput,
   serializeAdminOfferDoc
@@ -174,6 +176,41 @@ assert.equal(counterPlan.sellerViewed, true);
 assert.equal(counterPlan.lastUpdatedBy, "seller");
 assert.equal(counterPlan.emailEvent, "seller_countered_offer");
 assert.equal(counterPlan.shouldTouchRespondedAt, true);
+
+const changedAlreadyCounteredPlan = buildAdminOfferUpdatePlan(
+  { status: "countered", counterAmount: 67000 },
+  { ...registeredOffer, status: "countered", amount: 65000, offerAmount: 65000 },
+  "2026-09-19T01:02:03.000Z"
+);
+assert.equal(changedAlreadyCounteredPlan.status, "countered");
+assert.equal(changedAlreadyCounteredPlan.amount, 67000);
+assert.equal(changedAlreadyCounteredPlan.offerAmount, 67000);
+assert.equal(changedAlreadyCounteredPlan.appendMessage?.amount, 67000);
+assert.equal(changedAlreadyCounteredPlan.emailEvent, "seller_countered_offer");
+assert.equal(changedAlreadyCounteredPlan.counterOfferUnchanged, false);
+
+const identicalAlreadyCounteredPlan = buildAdminOfferUpdatePlan(
+  { status: "countered", counterAmount: 65000 },
+  { ...registeredOffer, status: "countered", amount: 65000, offerAmount: 65000 },
+  "2026-09-19T01:02:03.000Z"
+);
+assert.equal(identicalAlreadyCounteredPlan.status, "countered");
+assert.equal(identicalAlreadyCounteredPlan.amount, undefined);
+assert.equal(identicalAlreadyCounteredPlan.offerAmount, undefined);
+assert.equal(identicalAlreadyCounteredPlan.appendMessage, undefined);
+assert.equal(identicalAlreadyCounteredPlan.emailEvent, undefined);
+assert.equal(identicalAlreadyCounteredPlan.counterOfferUnchanged, true);
+assert.equal(identicalAlreadyCounteredPlan.shouldTouchRespondedAt, false);
+
+const declinedToCounteredPlan = buildAdminOfferUpdatePlan(
+  { status: "countered", counterAmount: 65000 },
+  { ...registeredOffer, status: "declined", amount: 65000, offerAmount: 65000 },
+  "2026-09-19T01:02:03.000Z"
+);
+assert.equal(declinedToCounteredPlan.status, "countered");
+assert.equal(declinedToCounteredPlan.emailEvent, "seller_countered_offer");
+assert.equal(declinedToCounteredPlan.appendMessage?.amount, 65000);
+
 const statusOnlyCounterPlan = buildAdminOfferUpdatePlan(
   { status: "countered" },
   registeredOffer,
@@ -187,10 +224,6 @@ const alreadyCounteredPlan = buildAdminOfferUpdatePlan(
   "2026-09-19T01:02:03.000Z"
 );
 assert.equal(alreadyCounteredPlan.emailEvent, undefined);
-assert.throws(
-  () => buildAdminOfferUpdatePlan({ status: "accepted", counterAmount: 65000 }, { ...registeredOffer, status: "accepted" }),
-  /only available while a buyer offer is still pending/
-);
 assert.throws(
   () => buildAdminOfferUpdatePlan({ status: "pending", counterAmount: 20000 }, registeredOffer),
   /realistic offer amount/
@@ -217,19 +250,20 @@ assert.deepEqual(
     attempted: true,
     sent: false,
     recipientEmail: "buyer@example.com",
-    reason: "missing_email_configuration"
+    reason: "missing_env"
   }
 );
 assert.deepEqual(
-  plain(buildAdminOfferEmailStatusFromSendResult("buyer@example.com", { sent: false, reason: "provider_error" })),
+  plain(buildAdminOfferEmailStatusFromSendResult("buyer@example.com", { sent: false, reason: "resend_error" })),
   {
     attempted: true,
     sent: false,
     recipientEmail: "buyer@example.com",
-    reason: "provider_error"
+    reason: "resend_error"
   }
 );
 assert.equal(getAdminOfferEmailFailureReason("unexpected"), "email_not_sent");
+assert.equal(getAdminOfferEmailFailureReason("provider_error"), "resend_error");
 assert.equal(
   getAdminOfferSaveMessage(true, { attempted: true, sent: true, recipientEmail: "buyer@example.com" }),
   "Counteroffer saved and emailed to buyer."
@@ -237,14 +271,39 @@ assert.equal(
 assert.equal(
   getAdminOfferSaveMessage(
     true,
-    { attempted: true, sent: false, recipientEmail: "buyer@example.com", reason: "provider_error" }
+    { attempted: true, sent: false, recipientEmail: "buyer@example.com", reason: "resend_error" }
   ),
   "Counteroffer saved, but buyer email could not be sent."
+);
+assert.equal(
+  getAdminOfferSaveMessage(true, { attempted: false, sent: false }),
+  "Counteroffer unchanged."
 );
 assert.equal(
   getAdminOfferSaveMessage(false, { attempted: true, sent: true, recipientEmail: "buyer@example.com" }),
   "Offer saved."
 );
+assert.equal(
+  getAdminOfferEmailQueryValue(true, { attempted: true, sent: true, recipientEmail: "buyer@example.com" }),
+  "sent"
+);
+assert.equal(
+  getAdminOfferEmailQueryValue(
+    true,
+    { attempted: true, sent: false, recipientEmail: "buyer@example.com", reason: "resend_error" }
+  ),
+  "failed"
+);
+assert.equal(getAdminOfferEmailQueryValue(true, { attempted: false, sent: false }), "unchanged");
+assert.equal(
+  getAdminOfferSaveMessageFromQuery("countered", "sent"),
+  "Counteroffer saved and emailed to buyer."
+);
+assert.equal(
+  getAdminOfferSaveMessageFromQuery("countered", "failed"),
+  "Counteroffer saved, but buyer email could not be sent."
+);
+assert.equal(getAdminOfferSaveMessageFromQuery("countered", "unchanged"), "Counteroffer unchanged.");
 
 const successfulSends = [];
 const successOfferEmail = loadOfferEmailModule({
@@ -300,7 +359,7 @@ assert.deepEqual(
   {
     sent: false,
     skipped: false,
-    reason: "provider_error",
+    reason: "resend_error",
     providerErrorName: "validation_error",
     providerStatusCode: 400
   }
@@ -343,7 +402,8 @@ assert.match(routeSource, /sendOfferEmail/);
 assert.match(routeSource, /resolveAdminOfferBuyerEmailRecipient/);
 assert.match(routeSource, /buildAdminOfferEmailStatusFromSendResult/);
 assert.match(routeSource, /reason:\s*"missing_buyer_email"/);
-assert.match(routeSource, /reason:\s*"provider_error"/);
+assert.match(routeSource, /reason:\s*"resend_error"/);
+assert.match(routeSource, /result:\s*emailResultCategory/);
 assert.match(routeSource, /buyerOriginalAmount:\s*transactionResult\.previousOffer\.amount/);
 assert.match(routeSource, /counterAmount:\s*updatedOffer\.amount/);
 assert.match(routeSource, /buyerAccess:\s*recipient\.buyerAccess/);
@@ -365,13 +425,16 @@ assert.match(actionsSource, /authorization:\s*`Bearer \$\{idToken\}`/);
 assert.match(actionsSource, /counterAmount/);
 assert.match(actionsSource, /Counter price/);
 assert.match(actionsSource, /getAdminOfferSaveMessage/);
+assert.match(actionsSource, /getAdminOfferEmailQueryValue/);
+assert.match(actionsSource, /&email=\$\{emailQueryValue\}/);
 assert.match(actionsSource, /role=\{message\.type === "error" \? "alert" : "status"\}/);
 assert.match(actionsSource, /disabled=\{busy \|\| \(status === offer\.status && !counterAmountChanged\)\}/);
 
 const adminPageSource = fs.readFileSync(adminPagePath, "utf8");
 assert.match(adminPageSource, /handleOfferUpdated/);
 assert.match(adminPageSource, /onUpdated=\{handleOfferUpdated\}/);
-assert.match(adminPageSource, /Counteroffer saved/);
+assert.match(adminPageSource, /getAdminOfferSaveMessageFromQuery/);
+assert.match(adminPageSource, /searchParams\.get\("email"\)/);
 assert.doesNotMatch(adminPageSource, /Counteroffer sent/);
 
 const buyerPageSource = fs.readFileSync(buyerPagePath, "utf8");

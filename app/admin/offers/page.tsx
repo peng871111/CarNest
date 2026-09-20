@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { OfferStatusActions } from "@/components/offers/offer-status-actions";
 import { OfferStatusBadge } from "@/components/offers/offer-status-badge";
+import { getAdminOfferSaveMessageFromQuery } from "@/lib/admin-offers";
 import { useAuth } from "@/lib/auth";
 import { getOffersData, getVehicleById } from "@/lib/data";
 import { canAccessRole } from "@/lib/permissions";
@@ -61,23 +62,10 @@ export default function AdminOffersPage() {
   const writeStatus = useMemo(() => {
     const write = searchParams.get("write");
     const status = searchParams.get("status");
+    const email = searchParams.get("email");
 
     return write === "success"
-      ? status === "accepted"
-        ? "Offer accepted"
-        : status === "declined"
-          ? "Offer declined"
-          : status === "countered"
-            ? "Counteroffer saved"
-            : status === "accepted_pending_buyer_confirmation"
-              ? "Offer accepted and vehicle moved under offer"
-              : status === "rejected"
-                ? "Offer rejected"
-                : status === "buyer_confirmed"
-                  ? "Buyer confirmed the accepted offer"
-                  : status === "buyer_declined"
-                    ? "Buyer declined the accepted offer"
-                    : "Offer updated"
+      ? getAdminOfferSaveMessageFromQuery(status, email)
       : write === "mock"
         ? "Offer update recorded"
         : "No recent updates";

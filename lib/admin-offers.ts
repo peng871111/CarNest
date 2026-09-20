@@ -22,12 +22,13 @@ export interface AdminOfferUpdatePlan {
   respondedAt?: string | null;
   shouldTouchRespondedAt: boolean;
   emailEvent?: "seller_countered_offer" | "seller_accepted_offer";
+  counterOfferUnchanged?: boolean;
 }
 
 export type AdminOfferEmailFailureReason =
   | "missing_buyer_email"
-  | "missing_email_configuration"
-  | "provider_error"
+  | "missing_env"
+  | "resend_error"
   | "email_not_sent";
 
 export type AdminOfferEmailStatus =
@@ -80,8 +81,8 @@ export async function resolveAdminOfferBuyerEmailRecipient(
 }
 
 export function getAdminOfferEmailFailureReason(reason?: string): AdminOfferEmailFailureReason {
-  if (reason === "missing_env") return "missing_email_configuration";
-  if (reason === "provider_error") return "provider_error";
+  if (reason === "missing_env") return "missing_env";
+  if (reason === "resend_error" || reason === "provider_error") return "resend_error";
   if (reason === "missing_buyer_email") return "missing_buyer_email";
   return "email_not_sent";
 }
@@ -111,7 +112,34 @@ export function getAdminOfferSaveMessage(isCounterOfferSave: boolean, emailStatu
     return "Counteroffer saved, but buyer email could not be sent.";
   }
 
-  return "Counter offer saved.";
+  return "Counteroffer unchanged.";
+}
+
+export function getAdminOfferEmailQueryValue(
+  isCounterOfferSave: boolean,
+  emailStatus?: AdminOfferEmailStatus
+) {
+  if (!isCounterOfferSave) return "none";
+  if (emailStatus?.attempted && emailStatus.sent) return "sent";
+  if (emailStatus?.attempted) return "failed";
+  return "unchanged";
+}
+
+export function getAdminOfferSaveMessageFromQuery(status: string | null, email: string | null) {
+  if (status === "countered") {
+    if (email === "sent") return "Counteroffer saved and emailed to buyer.";
+    if (email === "failed") return "Counteroffer saved, but buyer email could not be sent.";
+    if (email === "unchanged") return "Counteroffer unchanged.";
+    return "Counteroffer saved";
+  }
+
+  if (status === "accepted") return "Offer accepted";
+  if (status === "declined") return "Offer declined";
+  if (status === "accepted_pending_buyer_confirmation") return "Offer accepted and vehicle moved under offer";
+  if (status === "rejected") return "Offer rejected";
+  if (status === "buyer_confirmed") return "Buyer confirmed the accepted offer";
+  if (status === "buyer_declined") return "Buyer declined the accepted offer";
+  return "Offer updated";
 }
 
 function serializeAdminOfferDate(value: unknown) {
@@ -296,35 +324,39 @@ export function buildAdminOfferUpdatePlan(input: AdminOfferUpdateInput, offer: O
   const contactVisibilityState = offer.contactVisibilityState ?? (offer.contactUnlocked ? "shared_after_accept" : "hidden");
 
   if (typeof input.counterAmount === "number") {
-    if (offer.status !== "pending") {
-      throw new Error("Counteroffers are only available while a buyer offer is still pending.");
-    }
-
     const minimumOffer = Math.max(1000, Math.round(offer.vehiclePrice * 0.5));
     if (input.counterAmount < minimumOffer) {
       throw new Error("Please enter a realistic offer amount.");
     }
 
+    const currentCounterAmount = offer.offerAmount ?? offer.amount;
+    const counterAmountChanged = input.counterAmount !== currentCounterAmount;
+    const statusChangedToCountered = offer.status !== "countered";
+    const shouldSendCounterEmail = statusChangedToCountered || counterAmountChanged;
+
     return {
       status: "countered",
-      amount: input.counterAmount,
-      offerAmount: input.counterAmount,
-      appendMessage: {
+      ...(counterAmountChanged ? {
+        amount: input.counterAmount,
+        offerAmount: input.counterAmount
+      } : {}),
+      ...(shouldSendCounterEmail ? { appendMessage: {
         type: "offer_update",
         sender: "seller",
         amount: input.counterAmount,
         createdAt: nowIso
-      },
-      buyerViewed: false,
+      } } : {}),
+      buyerViewed: shouldSendCounterEmail ? false : offer.buyerViewed,
       sellerViewed: true,
       contactUnlocked: false,
       contactUnlockedAt: null,
       contactUnlockedBy: null,
       contactVisibilityState: "hidden",
-      lastUpdatedBy: "seller",
-      respondedAt: nowIso,
-      shouldTouchRespondedAt: true,
-      emailEvent: "seller_countered_offer"
+      lastUpdatedBy: shouldSendCounterEmail ? "seller" : offer.lastUpdatedBy,
+      respondedAt: shouldSendCounterEmail ? nowIso : offer.respondedAt ?? null,
+      shouldTouchRespondedAt: shouldSendCounterEmail,
+      ...(shouldSendCounterEmail ? { emailEvent: "seller_countered_offer" as const } : {}),
+      counterOfferUnchanged: !shouldSendCounterEmail
     };
   }
 
