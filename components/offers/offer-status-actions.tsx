@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { getAdminOfferSaveMessage, type AdminOfferEmailStatus } from "@/lib/admin-offers";
 import { updateOfferStatus } from "@/lib/data";
 import { Offer, OfferStatus } from "@/types";
 
@@ -20,12 +21,7 @@ const OFFER_STATUS_OPTIONS: OfferStatus[] = [
 type AdminOfferUpdateResponse = {
   offer?: Offer;
   error?: string;
-  emailStatus?: {
-    attempted: boolean;
-    sent: boolean;
-    recipientEmail?: string;
-    reason?: string;
-  };
+  emailStatus?: AdminOfferEmailStatus;
 };
 
 export function OfferStatusActions({
@@ -105,13 +101,7 @@ export function OfferStatusActions({
       const isCounterOfferSave = trimmedCounterAmount || payload.offer.status === "countered";
       setMessage({
         type: payload.emailStatus?.attempted && !payload.emailStatus.sent ? "error" : "success",
-        text: isCounterOfferSave
-          ? payload.emailStatus?.attempted && payload.emailStatus.sent
-            ? "Counteroffer saved and emailed to buyer."
-            : payload.emailStatus?.attempted
-              ? "Counteroffer saved, but buyer email could not be sent."
-              : "Counter offer saved."
-          : "Offer saved."
+        text: getAdminOfferSaveMessage(Boolean(isCounterOfferSave), payload.emailStatus)
       });
       router.replace(
         `${basePath}?write=success&status=${payload.offer.status}&offerId=${offer.id}`

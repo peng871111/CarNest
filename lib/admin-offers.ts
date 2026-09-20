@@ -24,6 +24,22 @@ export interface AdminOfferUpdatePlan {
   emailEvent?: "seller_countered_offer" | "seller_accepted_offer";
 }
 
+export type AdminOfferEmailFailureReason =
+  | "missing_buyer_email"
+  | "missing_email_configuration"
+  | "provider_error"
+  | "email_not_sent";
+
+export type AdminOfferEmailStatus =
+  | { attempted: false; sent: false }
+  | { attempted: true; sent: true; recipientEmail: string }
+  | { attempted: true; sent: false; recipientEmail?: string; reason: AdminOfferEmailFailureReason };
+
+export interface AdminOfferBuyerEmailRecipient {
+  email: string;
+  buyerAccess: "guest" | "registered";
+}
+
 export const ADMIN_OFFER_STATUSES = [
   "pending",
   "countered",
@@ -34,6 +50,69 @@ export const ADMIN_OFFER_STATUSES = [
   "buyer_declined",
   "rejected"
 ] as const satisfies readonly OfferStatus[];
+
+export async function resolveAdminOfferBuyerEmailRecipient(
+  offer: Pick<Offer, "source" | "buyerEmail" | "buyerUid">,
+  getProfileEmail: (buyerUid: string) => Promise<string>
+): Promise<AdminOfferBuyerEmailRecipient> {
+  if (offer.source === "guest") {
+    return {
+      email: offer.buyerEmail.trim().toLowerCase(),
+      buyerAccess: "guest"
+    };
+  }
+
+  const fallbackEmail = offer.buyerEmail.trim().toLowerCase();
+  if (offer.buyerUid) {
+    const email = (await getProfileEmail(offer.buyerUid)).trim().toLowerCase();
+    if (email) {
+      return {
+        email,
+        buyerAccess: "registered"
+      };
+    }
+  }
+
+  return {
+    email: fallbackEmail,
+    buyerAccess: "registered"
+  };
+}
+
+export function getAdminOfferEmailFailureReason(reason?: string): AdminOfferEmailFailureReason {
+  if (reason === "missing_env") return "missing_email_configuration";
+  if (reason === "provider_error") return "provider_error";
+  if (reason === "missing_buyer_email") return "missing_buyer_email";
+  return "email_not_sent";
+}
+
+export function buildAdminOfferEmailStatusFromSendResult(
+  recipientEmail: string,
+  result: { sent: boolean; reason?: string }
+): AdminOfferEmailStatus {
+  return result.sent
+    ? { attempted: true, sent: true, recipientEmail }
+    : {
+        attempted: true,
+        sent: false,
+        recipientEmail,
+        reason: getAdminOfferEmailFailureReason(result.reason)
+      };
+}
+
+export function getAdminOfferSaveMessage(isCounterOfferSave: boolean, emailStatus?: AdminOfferEmailStatus) {
+  if (!isCounterOfferSave) return "Offer saved.";
+
+  if (emailStatus?.attempted && emailStatus.sent) {
+    return "Counteroffer saved and emailed to buyer.";
+  }
+
+  if (emailStatus?.attempted) {
+    return "Counteroffer saved, but buyer email could not be sent.";
+  }
+
+  return "Counter offer saved.";
+}
 
 function serializeAdminOfferDate(value: unknown) {
   try {

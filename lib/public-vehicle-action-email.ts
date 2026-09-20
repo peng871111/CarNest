@@ -7,7 +7,7 @@ import { EMAIL_OTP_EXPIRY_MINUTES } from "@/lib/public-vehicle-action-validation
 import { buildAbsoluteUrl } from "@/lib/seo";
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM = "CarNest <verification@mail.carnest.au>";
+export const DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM = "CarNest <verification@mail.carnest.au>";
 const DEFAULT_VERIFIED_CARNEST_ADMIN_FROM = "CarNest <offers@mail.carnest.au>";
 const ADMIN_EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? DEFAULT_VERIFIED_CARNEST_ADMIN_FROM;
 const ADMIN_NOTIFICATION_RECIPIENT = "info@carnest.au";
@@ -37,7 +37,7 @@ function isResendTestingSender(value: string) {
   return /@resend\.dev/i.test(value) || /onboarding@resend\.dev/i.test(value);
 }
 
-function getVerificationEmailFrom() {
+export function getVerificationEmailFrom() {
   const configuredSender =
     process.env.VEHICLE_ACTION_VERIFICATION_EMAIL_FROM?.trim()
     || process.env.VEHICLE_ACTION_EMAIL_FROM?.trim()
@@ -56,16 +56,21 @@ function getVerificationEmailFrom() {
   return DEFAULT_VERIFIED_CARNEST_VERIFICATION_FROM;
 }
 
-function requireResendConfiguration(from: string) {
-  if (!RESEND_API_KEY || !from) {
-    throw new Error([
-      !RESEND_API_KEY ? "RESEND_API_KEY" : null,
-      !from ? "EMAIL_FROM" : null
-    ].filter(Boolean).join(", ") || "Resend configuration is missing.");
+export function getVehicleActionEmailMissingEnvVars(from: string) {
+  return [
+    !RESEND_API_KEY ? "RESEND_API_KEY" : null,
+    !from ? "EMAIL_FROM" : null
+  ].filter((value): value is string => Boolean(value));
+}
+
+export function requireResendConfiguration(from: string) {
+  const missingEnvVars = getVehicleActionEmailMissingEnvVars(from);
+  if (missingEnvVars.length) {
+    throw new Error(missingEnvVars.join(", ") || "Resend configuration is missing.");
   }
 }
 
-function createResendClient(from: string) {
+export function createResendClient(from: string) {
   requireResendConfiguration(from);
   return new Resend(RESEND_API_KEY);
 }

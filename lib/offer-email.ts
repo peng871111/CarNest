@@ -1,6 +1,10 @@
 import "server-only";
 
-import { Resend } from "resend";
+import {
+  createResendClient,
+  getVerificationEmailFrom,
+  getVehicleActionEmailMissingEnvVars
+} from "@/lib/public-vehicle-action-email";
 import { buildAbsoluteUrl } from "@/lib/seo";
 
 export type OfferEmailEvent =
@@ -21,8 +25,26 @@ export interface OfferEmailPayload {
   counterAmount?: number;
 }
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
-const EMAIL_FROM = process.env.EMAIL_FROM ?? process.env.RESEND_FROM_EMAIL ?? "CarNest <offers@mail.carnest.au>";
+export type OfferEmailSendResult =
+  | {
+      sent: true;
+      skipped: false;
+      subject: string;
+      providerMessageId: string | null;
+    }
+  | {
+      sent: false;
+      skipped: true;
+      reason: "missing_env";
+      missingEnvVars: string[];
+    }
+  | {
+      sent: false;
+      skipped: false;
+      reason: "provider_error";
+      providerErrorName: string | null;
+      providerStatusCode: number | null;
+    };
 
 function formatCurrency(amount: number) {
   return new Intl.NumberFormat("en-AU", {
@@ -133,31 +155,36 @@ function renderOfferEmailText(payload: OfferEmailPayload) {
 
 export async function sendOfferEmail(payload: OfferEmailPayload) {
   const content = getOfferEmailContent(payload);
+  const from = getVerificationEmailFrom();
+  const missingEnvVars = getVehicleActionEmailMissingEnvVars(from);
 
-  if (!RESEND_API_KEY || !EMAIL_FROM) {
+  if (missingEnvVars.length) {
     console.warn("[offer-email] Transactional email is not configured. Skipping email send.", {
       event: payload.event,
       offerId: payload.offerId,
       recipientEmail: payload.to,
       subject: content.subject,
-      missingEnvVars: [
-        !RESEND_API_KEY ? "RESEND_API_KEY" : null,
-        !EMAIL_FROM ? "EMAIL_FROM" : null
-      ].filter(Boolean)
+      missingEnvVars
     });
-    return { sent: false as const, skipped: true as const, reason: "missing_env" as const };
+    return {
+      sent: false as const,
+      skipped: true as const,
+      reason: "missing_env" as const,
+      missingEnvVars
+    };
   }
 
-  const resend = new Resend(RESEND_API_KEY);
+  const resend = createResendClient(from);
   console.log("[offer-email] Executing resend.emails.send()", {
     event: payload.event,
     offerId: payload.offerId,
     recipientEmail: payload.to,
-    subject: content.subject
+    subject: content.subject,
+    from
   });
 
   const { data, error } = await resend.emails.send({
-    from: EMAIL_FROM,
+    from,
     to: payload.to,
     subject: content.subject,
     html: renderOfferEmailHtml(payload),
@@ -171,9 +198,15 @@ export async function sendOfferEmail(payload: OfferEmailPayload) {
       recipientEmail: payload.to,
       subject: content.subject,
       errorName: error.name,
-      errorMessage: error.message
+      statusCode: error.statusCode ?? null
     });
-    throw new Error(error.message || "Transactional email send failed.");
+    return {
+      sent: false as const,
+      skipped: false as const,
+      reason: "provider_error" as const,
+      providerErrorName: error.name ?? null,
+      providerStatusCode: error.statusCode ?? null
+    };
   }
 
   return {

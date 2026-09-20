@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { AdminApiAuthError, requireVerifiedAdminApiAccess } from "@/lib/admin-api-auth";
-import { buildAdminOfferUpdatePlan, sanitizeAdminOfferUpdateInput, serializeAdminOfferDoc } from "@/lib/admin-offers";
+import {
+  buildAdminOfferEmailStatusFromSendResult,
+  buildAdminOfferUpdatePlan,
+  resolveAdminOfferBuyerEmailRecipient,
+  sanitizeAdminOfferUpdateInput,
+  serializeAdminOfferDoc,
+  type AdminOfferEmailStatus
+} from "@/lib/admin-offers";
 import { getAdminDb } from "@/lib/firebase-admin-server";
 import { sendOfferEmail } from "@/lib/offer-email";
-import type { Offer, OfferThreadEntry } from "@/types";
+import type { OfferThreadEntry } from "@/types";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -23,35 +30,6 @@ function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
     ...(entry.text ? { text: entry.text } : {}),
     ...(typeof entry.amount === "number" ? { amount: entry.amount } : {}),
     createdAt: createdAt && Number.isFinite(createdAt.getTime()) ? Timestamp.fromDate(createdAt) : Timestamp.now()
-  };
-}
-
-async function resolveBuyerEmailRecipient(offer: Offer) {
-  if (offer.source === "guest") {
-    return {
-      email: offer.buyerEmail.trim().toLowerCase(),
-      buyerAccess: "guest" as const
-    };
-  }
-
-  const fallbackEmail = offer.buyerEmail.trim().toLowerCase();
-  const normalizedFallback = fallbackEmail.trim().toLowerCase();
-  if (offer.buyerUid) {
-    const snapshot = await getAdminDb().collection("users").doc(offer.buyerUid).get();
-    const email = snapshot.exists && typeof snapshot.data()?.email === "string"
-      ? String(snapshot.data()?.email).trim().toLowerCase()
-      : "";
-    if (email) {
-      return {
-        email,
-        buyerAccess: "registered" as const
-      };
-    }
-  }
-
-  return {
-    email: normalizedFallback,
-    buyerAccess: "registered" as const
   };
 }
 
@@ -116,14 +94,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
     const updated = await ref.get();
     const updatedOffer = serializeAdminOfferDoc(updated.id, updated.data() ?? {});
-    let emailStatus:
-      | { attempted: false; sent: false }
-      | { attempted: true; sent: true; recipientEmail: string }
-      | { attempted: true; sent: false; recipientEmail?: string; reason: string }
-      = { attempted: false, sent: false };
+    let emailStatus: AdminOfferEmailStatus = { attempted: false, sent: false };
 
     if (transactionResult.emailEvent) {
-      const recipient = await resolveBuyerEmailRecipient(updatedOffer);
+      const recipient = await resolveAdminOfferBuyerEmailRecipient(updatedOffer, async (buyerUid) => {
+        const snapshot = await getAdminDb().collection("users").doc(buyerUid).get();
+        return snapshot.exists && typeof snapshot.data()?.email === "string"
+          ? String(snapshot.data()?.email)
+          : "";
+      });
       if (recipient.email) {
         try {
           const result = await sendOfferEmail({
@@ -138,14 +117,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             offerId: updatedOffer.id
           });
 
-          emailStatus = result.sent
-            ? { attempted: true, sent: true, recipientEmail: recipient.email }
-            : {
-                attempted: true,
-                sent: false,
-                recipientEmail: recipient.email,
-                reason: "reason" in result ? result.reason : "email_not_sent"
-              };
+          emailStatus = buildAdminOfferEmailStatusFromSendResult(
+            recipient.email,
+            result
+          );
         } catch (emailError) {
           console.error("[admin-offers] Offer notification email failed after offer update.", {
             offerId: updatedOffer.id,
@@ -157,7 +132,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
             attempted: true,
             sent: false,
             recipientEmail: recipient.email,
-            reason: emailError instanceof Error ? emailError.message : "email_send_failed"
+            reason: "provider_error"
           };
         }
       } else {

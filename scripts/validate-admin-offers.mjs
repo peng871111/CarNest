@@ -5,8 +5,9 @@ import vm from "node:vm";
 import ts from "typescript";
 
 const repoRoot = process.cwd();
+const plain = (value) => JSON.parse(JSON.stringify(value));
 
-function loadTypescriptModule(filePath) {
+function loadTypescriptModule(filePath, customRequire) {
   const source = fs.readFileSync(filePath, "utf8");
   const output = ts.transpileModule(source, {
     compilerOptions: {
@@ -18,9 +19,11 @@ function loadTypescriptModule(filePath) {
 
   const module = { exports: {} };
   vm.runInNewContext(output, {
+    console,
     module,
     exports: module.exports,
     require(specifier) {
+      if (customRequire) return customRequire(specifier);
       throw new Error(`Unexpected runtime import while testing ${filePath}: ${specifier}`);
     }
   }, { filename: filePath });
@@ -36,10 +39,31 @@ const offerEmailPath = path.join(repoRoot, "lib/offer-email.ts");
 
 const {
   ADMIN_OFFER_STATUSES,
+  buildAdminOfferEmailStatusFromSendResult,
   buildAdminOfferUpdatePlan,
+  getAdminOfferEmailFailureReason,
+  getAdminOfferSaveMessage,
+  resolveAdminOfferBuyerEmailRecipient,
   sanitizeAdminOfferUpdateInput,
   serializeAdminOfferDoc
 } = loadTypescriptModule(helperPath);
+
+function loadOfferEmailModule(publicEmailMock) {
+  return loadTypescriptModule(offerEmailPath, (specifier) => {
+    if (specifier === "server-only") return {};
+    if (specifier === "@/lib/seo") {
+      return {
+        buildAbsoluteUrl(pathname) {
+          return `https://www.carnest.au${pathname}`;
+        }
+      };
+    }
+    if (specifier === "@/lib/public-vehicle-action-email") {
+      return publicEmailMock;
+    }
+    throw new Error(`Unexpected offer-email test import: ${specifier}`);
+  });
+}
 
 assert.equal(JSON.stringify(ADMIN_OFFER_STATUSES), JSON.stringify([
   "pending",
@@ -100,6 +124,40 @@ const registeredOffer = serializeAdminOfferDoc("offer-auth-123", {
   source: "authenticated"
 });
 
+let guestLookupCount = 0;
+assert.deepEqual(
+  plain(await resolveAdminOfferBuyerEmailRecipient(guestOffer, async () => {
+    guestLookupCount += 1;
+    return "profile@example.com";
+  })),
+  { email: "guest@example.com", buyerAccess: "guest" }
+);
+assert.equal(guestLookupCount, 0);
+
+assert.deepEqual(
+  plain(await resolveAdminOfferBuyerEmailRecipient(
+    { ...registeredOffer, buyerEmail: "fallback@example.com" },
+    async () => "Preferred.Profile@Example.com "
+  )),
+  { email: "preferred.profile@example.com", buyerAccess: "registered" }
+);
+
+assert.deepEqual(
+  plain(await resolveAdminOfferBuyerEmailRecipient(
+    { ...registeredOffer, buyerEmail: "Fallback@Example.com " },
+    async () => ""
+  )),
+  { email: "fallback@example.com", buyerAccess: "registered" }
+);
+
+assert.deepEqual(
+  plain(await resolveAdminOfferBuyerEmailRecipient(
+    { ...registeredOffer, buyerEmail: "" },
+    async () => ""
+  )),
+  { email: "", buyerAccess: "registered" }
+);
+
 const counterPlan = buildAdminOfferUpdatePlan(
   { status: "pending", counterAmount: 65000 },
   registeredOffer,
@@ -149,6 +207,131 @@ assert.equal(acceptedPlan.contactUnlockedBy, "seller_accept");
 assert.equal(acceptedPlan.contactVisibilityState, "shared_after_accept");
 assert.equal(acceptedPlan.emailEvent, "seller_accepted_offer");
 
+assert.deepEqual(
+  plain(buildAdminOfferEmailStatusFromSendResult("buyer@example.com", { sent: true })),
+  { attempted: true, sent: true, recipientEmail: "buyer@example.com" }
+);
+assert.deepEqual(
+  plain(buildAdminOfferEmailStatusFromSendResult("buyer@example.com", { sent: false, reason: "missing_env" })),
+  {
+    attempted: true,
+    sent: false,
+    recipientEmail: "buyer@example.com",
+    reason: "missing_email_configuration"
+  }
+);
+assert.deepEqual(
+  plain(buildAdminOfferEmailStatusFromSendResult("buyer@example.com", { sent: false, reason: "provider_error" })),
+  {
+    attempted: true,
+    sent: false,
+    recipientEmail: "buyer@example.com",
+    reason: "provider_error"
+  }
+);
+assert.equal(getAdminOfferEmailFailureReason("unexpected"), "email_not_sent");
+assert.equal(
+  getAdminOfferSaveMessage(true, { attempted: true, sent: true, recipientEmail: "buyer@example.com" }),
+  "Counteroffer saved and emailed to buyer."
+);
+assert.equal(
+  getAdminOfferSaveMessage(
+    true,
+    { attempted: true, sent: false, recipientEmail: "buyer@example.com", reason: "provider_error" }
+  ),
+  "Counteroffer saved, but buyer email could not be sent."
+);
+assert.equal(
+  getAdminOfferSaveMessage(false, { attempted: true, sent: true, recipientEmail: "buyer@example.com" }),
+  "Offer saved."
+);
+
+const successfulSends = [];
+const successOfferEmail = loadOfferEmailModule({
+  getVerificationEmailFrom: () => "CarNest <verification@mail.carnest.au>",
+  getVehicleActionEmailMissingEnvVars: () => [],
+  createResendClient: () => ({
+    emails: {
+      async send(payload) {
+        successfulSends.push(payload);
+        return { data: { id: "resend-message-1" }, error: null };
+      }
+    }
+  })
+});
+const successfulEmailResult = await successOfferEmail.sendOfferEmail({
+  event: "seller_countered_offer",
+  to: "buyer@example.com",
+  vehicleTitle: "1998 Nissan Skyline",
+  amount: 65000,
+  buyerOriginalAmount: 50000,
+  counterAmount: 65000,
+  offerId: "offer-auth-123",
+  vehicleId: "vehicle-1",
+  buyerAccess: "registered"
+});
+assert.equal(successfulEmailResult.sent, true);
+assert.equal(successfulEmailResult.providerMessageId, "resend-message-1");
+assert.equal(successfulSends[0].from, "CarNest <verification@mail.carnest.au>");
+assert.equal(successfulSends[0].to, "buyer@example.com");
+
+const failedOfferEmail = loadOfferEmailModule({
+  getVerificationEmailFrom: () => "CarNest <verification@mail.carnest.au>",
+  getVehicleActionEmailMissingEnvVars: () => [],
+  createResendClient: () => ({
+    emails: {
+      async send() {
+        return {
+          data: null,
+          error: { name: "validation_error", message: "Provider rejected request", statusCode: 400 }
+        };
+      }
+    }
+  })
+});
+assert.deepEqual(
+  plain(await failedOfferEmail.sendOfferEmail({
+    event: "seller_countered_offer",
+    to: "buyer@example.com",
+    vehicleTitle: "1998 Nissan Skyline",
+    amount: 65000,
+    offerId: "offer-auth-123"
+  })),
+  {
+    sent: false,
+    skipped: false,
+    reason: "provider_error",
+    providerErrorName: "validation_error",
+    providerStatusCode: 400
+  }
+);
+
+let createClientCalledForMissingConfig = false;
+const missingConfigOfferEmail = loadOfferEmailModule({
+  getVerificationEmailFrom: () => "CarNest <verification@mail.carnest.au>",
+  getVehicleActionEmailMissingEnvVars: () => ["RESEND_API_KEY"],
+  createResendClient: () => {
+    createClientCalledForMissingConfig = true;
+    throw new Error("Should not create Resend client when config is missing.");
+  }
+});
+assert.deepEqual(
+  plain(await missingConfigOfferEmail.sendOfferEmail({
+    event: "seller_countered_offer",
+    to: "buyer@example.com",
+    vehicleTitle: "1998 Nissan Skyline",
+    amount: 65000,
+    offerId: "offer-auth-123"
+  })),
+  {
+    sent: false,
+    skipped: true,
+    reason: "missing_env",
+    missingEnvVars: ["RESEND_API_KEY"]
+  }
+);
+assert.equal(createClientCalledForMissingConfig, false);
+
 const routeSource = fs.readFileSync(routePath, "utf8");
 assert.match(routeSource, /requireVerifiedAdminApiAccess\(request,\s*"manageOffers"\)/);
 assert.match(routeSource, /const db = getAdminDb\(\)/);
@@ -157,8 +340,10 @@ assert.match(routeSource, /db\.runTransaction/);
 assert.match(routeSource, /transaction\.get\(ref\)/);
 assert.match(routeSource, /transaction\.update\(ref,\s*patch\)/);
 assert.match(routeSource, /sendOfferEmail/);
-assert.match(routeSource, /resolveBuyerEmailRecipient/);
-assert.match(routeSource, /offer\.source === "guest"/);
+assert.match(routeSource, /resolveAdminOfferBuyerEmailRecipient/);
+assert.match(routeSource, /buildAdminOfferEmailStatusFromSendResult/);
+assert.match(routeSource, /reason:\s*"missing_buyer_email"/);
+assert.match(routeSource, /reason:\s*"provider_error"/);
 assert.match(routeSource, /buyerOriginalAmount:\s*transactionResult\.previousOffer\.amount/);
 assert.match(routeSource, /counterAmount:\s*updatedOffer\.amount/);
 assert.match(routeSource, /buyerAccess:\s*recipient\.buyerAccess/);
@@ -179,8 +364,7 @@ assert.match(actionsSource, /fetch\(`\/api\/admin\/offers\/\$\{encodeURIComponen
 assert.match(actionsSource, /authorization:\s*`Bearer \$\{idToken\}`/);
 assert.match(actionsSource, /counterAmount/);
 assert.match(actionsSource, /Counter price/);
-assert.match(actionsSource, /Counteroffer saved and emailed to buyer\./);
-assert.match(actionsSource, /Counteroffer saved, but buyer email could not be sent\./);
+assert.match(actionsSource, /getAdminOfferSaveMessage/);
 assert.match(actionsSource, /role=\{message\.type === "error" \? "alert" : "status"\}/);
 assert.match(actionsSource, /disabled=\{busy \|\| \(status === offer\.status && !counterAmountChanged\)\}/);
 
@@ -197,6 +381,9 @@ assert.match(buyerPageSource, /currentAmount=\{offer\.amount\}/);
 assert.match(buyerPageSource, /updateOfferAmount\(offer\.id,\s*amount,\s*"buyer"/);
 
 const offerEmailSource = fs.readFileSync(offerEmailPath, "utf8");
+assert.match(offerEmailSource, /getVerificationEmailFrom/);
+assert.match(offerEmailSource, /getVehicleActionEmailMissingEnvVars/);
+assert.doesNotMatch(offerEmailSource, /RESEND_FROM_EMAIL/);
 assert.match(offerEmailSource, /buyerOriginalAmount/);
 assert.match(offerEmailSource, /counterAmount/);
 assert.match(offerEmailSource, /buyerAccess\?: "guest" \| "registered"/);
