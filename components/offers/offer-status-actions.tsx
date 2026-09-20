@@ -17,6 +17,17 @@ const OFFER_STATUS_OPTIONS: OfferStatus[] = [
   "rejected"
 ];
 
+type AdminOfferUpdateResponse = {
+  offer?: Offer;
+  error?: string;
+  emailStatus?: {
+    attempted: boolean;
+    sent: boolean;
+    recipientEmail?: string;
+    reason?: string;
+  };
+};
+
 export function OfferStatusActions({
   offer,
   basePath,
@@ -80,7 +91,7 @@ export function OfferStatusActions({
         })
       });
 
-      const payload = await updateResponse.json().catch(() => ({} as { error?: string; offer?: Offer }));
+      const payload = await updateResponse.json().catch(() => ({} as AdminOfferUpdateResponse));
       if (!updateResponse.ok) {
         throw new Error(typeof payload.error === "string" ? payload.error : "Unable to save offer.");
       }
@@ -91,7 +102,17 @@ export function OfferStatusActions({
       onUpdated?.(payload.offer);
       setStatus(payload.offer.status);
       setCounterAmount("");
-      setMessage({ type: "success", text: trimmedCounterAmount ? "Counter offer saved." : "Offer saved." });
+      const isCounterOfferSave = trimmedCounterAmount || payload.offer.status === "countered";
+      setMessage({
+        type: payload.emailStatus?.attempted && !payload.emailStatus.sent ? "error" : "success",
+        text: isCounterOfferSave
+          ? payload.emailStatus?.attempted && payload.emailStatus.sent
+            ? "Counteroffer saved and emailed to buyer."
+            : payload.emailStatus?.attempted
+              ? "Counteroffer saved, but buyer email could not be sent."
+              : "Counter offer saved."
+          : "Offer saved."
+      });
       router.replace(
         `${basePath}?write=success&status=${payload.offer.status}&offerId=${offer.id}`
       );

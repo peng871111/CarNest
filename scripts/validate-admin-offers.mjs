@@ -32,6 +32,7 @@ const routePath = path.join(repoRoot, "app/api/admin/offers/[id]/route.ts");
 const actionsPath = path.join(repoRoot, "components/offers/offer-status-actions.tsx");
 const adminPagePath = path.join(repoRoot, "app/admin/offers/page.tsx");
 const buyerPagePath = path.join(repoRoot, "components/offers/buyer-offers-page.tsx");
+const offerEmailPath = path.join(repoRoot, "lib/offer-email.ts");
 
 const {
   ADMIN_OFFER_STATUSES,
@@ -115,6 +116,19 @@ assert.equal(counterPlan.sellerViewed, true);
 assert.equal(counterPlan.lastUpdatedBy, "seller");
 assert.equal(counterPlan.emailEvent, "seller_countered_offer");
 assert.equal(counterPlan.shouldTouchRespondedAt, true);
+const statusOnlyCounterPlan = buildAdminOfferUpdatePlan(
+  { status: "countered" },
+  registeredOffer,
+  "2026-09-19T01:02:03.000Z"
+);
+assert.equal(statusOnlyCounterPlan.emailEvent, "seller_countered_offer");
+assert.equal(statusOnlyCounterPlan.amount, undefined);
+const alreadyCounteredPlan = buildAdminOfferUpdatePlan(
+  { status: "countered" },
+  { ...registeredOffer, status: "countered" },
+  "2026-09-19T01:02:03.000Z"
+);
+assert.equal(alreadyCounteredPlan.emailEvent, undefined);
 assert.throws(
   () => buildAdminOfferUpdatePlan({ status: "accepted", counterAmount: 65000 }, { ...registeredOffer, status: "accepted" }),
   /only available while a buyer offer is still pending/
@@ -137,13 +151,26 @@ assert.equal(acceptedPlan.emailEvent, "seller_accepted_offer");
 
 const routeSource = fs.readFileSync(routePath, "utf8");
 assert.match(routeSource, /requireVerifiedAdminApiAccess\(request,\s*"manageOffers"\)/);
-assert.match(routeSource, /getAdminDb\(\)\.collection\("offers"\)\.doc\(id\)/);
-assert.match(routeSource, /ref\.update\(patch\)/);
+assert.match(routeSource, /const db = getAdminDb\(\)/);
+assert.match(routeSource, /db\.collection\("offers"\)\.doc\(id\)/);
+assert.match(routeSource, /db\.runTransaction/);
+assert.match(routeSource, /transaction\.get\(ref\)/);
+assert.match(routeSource, /transaction\.update\(ref,\s*patch\)/);
 assert.match(routeSource, /sendOfferEmail/);
+assert.match(routeSource, /resolveBuyerEmailRecipient/);
+assert.match(routeSource, /offer\.source === "guest"/);
+assert.match(routeSource, /buyerOriginalAmount:\s*transactionResult\.previousOffer\.amount/);
+assert.match(routeSource, /counterAmount:\s*updatedOffer\.amount/);
+assert.match(routeSource, /buyerAccess:\s*recipient\.buyerAccess/);
+assert.match(routeSource, /emailStatus/);
 assert.match(routeSource, /writeSucceeded:\s*true/);
 assert.ok(
-  routeSource.indexOf("requireVerifiedAdminApiAccess") < routeSource.indexOf("getAdminDb().collection(\"offers\").doc(id)"),
+  routeSource.indexOf("requireVerifiedAdminApiAccess") < routeSource.indexOf("db.runTransaction"),
   "Admin Offers route must verify access before using Admin SDK"
+);
+assert.ok(
+  routeSource.indexOf("transaction.update(ref, patch)") < routeSource.indexOf("const result = await sendOfferEmail"),
+  "Counter offer email must be sent after the offer update transaction"
 );
 
 const actionsSource = fs.readFileSync(actionsPath, "utf8");
@@ -152,18 +179,31 @@ assert.match(actionsSource, /fetch\(`\/api\/admin\/offers\/\$\{encodeURIComponen
 assert.match(actionsSource, /authorization:\s*`Bearer \$\{idToken\}`/);
 assert.match(actionsSource, /counterAmount/);
 assert.match(actionsSource, /Counter price/);
-assert.match(actionsSource, /Counter offer saved\./);
+assert.match(actionsSource, /Counteroffer saved and emailed to buyer\./);
+assert.match(actionsSource, /Counteroffer saved, but buyer email could not be sent\./);
 assert.match(actionsSource, /role=\{message\.type === "error" \? "alert" : "status"\}/);
 assert.match(actionsSource, /disabled=\{busy \|\| \(status === offer\.status && !counterAmountChanged\)\}/);
 
 const adminPageSource = fs.readFileSync(adminPagePath, "utf8");
 assert.match(adminPageSource, /handleOfferUpdated/);
 assert.match(adminPageSource, /onUpdated=\{handleOfferUpdated\}/);
+assert.match(adminPageSource, /Counteroffer saved/);
+assert.doesNotMatch(adminPageSource, /Counteroffer sent/);
 
 const buyerPageSource = fs.readFileSync(buyerPagePath, "utf8");
 assert.match(buyerPageSource, /offer\.status === "countered"/);
 assert.match(buyerPageSource, /Accept counteroffer/);
 assert.match(buyerPageSource, /currentAmount=\{offer\.amount\}/);
 assert.match(buyerPageSource, /updateOfferAmount\(offer\.id,\s*amount,\s*"buyer"/);
+
+const offerEmailSource = fs.readFileSync(offerEmailPath, "utf8");
+assert.match(offerEmailSource, /buyerOriginalAmount/);
+assert.match(offerEmailSource, /counterAmount/);
+assert.match(offerEmailSource, /buyerAccess\?: "guest" \| "registered"/);
+assert.match(offerEmailSource, /buildAbsoluteUrl\(`\/inventory\/\$\{payload\.vehicleId\}`\)/);
+assert.match(offerEmailSource, /Your original offer:/);
+assert.match(offerEmailSource, /CarNest counter offer:/);
+assert.match(offerEmailSource, /View vehicle listing/);
+assert.match(offerEmailSource, /Review counteroffer/);
 
 console.log("Admin Offers status and counter-offer validation passed.");

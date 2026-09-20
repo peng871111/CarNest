@@ -300,7 +300,8 @@ export function buildAdminOfferUpdatePlan(input: AdminOfferUpdateInput, offer: O
       sellerViewed: true,
       lastUpdatedBy: "seller",
       respondedAt: nowIso,
-      shouldTouchRespondedAt: true
+      shouldTouchRespondedAt: true,
+      ...(input.status === "countered" && offer.status !== "countered" ? { emailEvent: "seller_countered_offer" as const } : {})
     };
   }
 

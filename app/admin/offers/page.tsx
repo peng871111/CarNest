@@ -68,7 +68,7 @@ export default function AdminOffersPage() {
         : status === "declined"
           ? "Offer declined"
           : status === "countered"
-            ? "Counteroffer sent"
+            ? "Counteroffer saved"
             : status === "accepted_pending_buyer_confirmation"
               ? "Offer accepted and vehicle moved under offer"
               : status === "rejected"

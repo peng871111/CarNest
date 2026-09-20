@@ -4,7 +4,7 @@ import { AdminApiAuthError, requireVerifiedAdminApiAccess } from "@/lib/admin-ap
 import { buildAdminOfferUpdatePlan, sanitizeAdminOfferUpdateInput, serializeAdminOfferDoc } from "@/lib/admin-offers";
 import { getAdminDb } from "@/lib/firebase-admin-server";
 import { sendOfferEmail } from "@/lib/offer-email";
-import type { OfferThreadEntry } from "@/types";
+import type { Offer, OfferThreadEntry } from "@/types";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
@@ -26,17 +26,33 @@ function toStoredOfferThreadEntry(entry: OfferThreadEntry) {
   };
 }
 
-async function getUserNotificationEmail(userId: string, fallbackEmail = "") {
+async function resolveBuyerEmailRecipient(offer: Offer) {
+  if (offer.source === "guest") {
+    return {
+      email: offer.buyerEmail.trim().toLowerCase(),
+      buyerAccess: "guest" as const
+    };
+  }
+
+  const fallbackEmail = offer.buyerEmail.trim().toLowerCase();
   const normalizedFallback = fallbackEmail.trim().toLowerCase();
-  if (userId) {
-    const snapshot = await getAdminDb().collection("users").doc(userId).get();
+  if (offer.buyerUid) {
+    const snapshot = await getAdminDb().collection("users").doc(offer.buyerUid).get();
     const email = snapshot.exists && typeof snapshot.data()?.email === "string"
       ? String(snapshot.data()?.email).trim().toLowerCase()
       : "";
-    if (email) return email;
+    if (email) {
+      return {
+        email,
+        buyerAccess: "registered" as const
+      };
+    }
   }
 
-  return normalizedFallback;
+  return {
+    email: normalizedFallback,
+    buyerAccess: "registered" as const
+  };
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -49,73 +65,114 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
 
     const input = sanitizeAdminOfferUpdateInput(await request.json().catch(() => null));
-    const ref = getAdminDb().collection("offers").doc(id);
-    const existing = await ref.get();
-    if (!existing.exists) {
-      return jsonError("Offer not found.", 404);
-    }
+    const db = getAdminDb();
+    const ref = db.collection("offers").doc(id);
+    const transactionResult = await db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (!existing.exists) {
+        throw new Error("Offer not found.");
+      }
 
-    const offer = serializeAdminOfferDoc(existing.id, existing.data() ?? {});
-    const plan = buildAdminOfferUpdatePlan(input, offer);
-    const patch: Record<string, unknown> = {
-      status: plan.status,
-      buyerViewed: plan.buyerViewed,
-      sellerViewed: plan.sellerViewed,
-      contactUnlocked: plan.contactUnlocked,
-      contactUnlockedBy: plan.contactUnlockedBy,
-      contactVisibilityState: plan.contactVisibilityState,
-      lastUpdatedBy: plan.lastUpdatedBy ?? null,
-      updatedAt: FieldValue.serverTimestamp()
-    };
+      const offer = serializeAdminOfferDoc(existing.id, existing.data() ?? {});
+      const plan = buildAdminOfferUpdatePlan(input, offer);
+      const patch: Record<string, unknown> = {
+        status: plan.status,
+        buyerViewed: plan.buyerViewed,
+        sellerViewed: plan.sellerViewed,
+        contactUnlocked: plan.contactUnlocked,
+        contactUnlockedBy: plan.contactUnlockedBy,
+        contactVisibilityState: plan.contactVisibilityState,
+        lastUpdatedBy: plan.lastUpdatedBy ?? null,
+        updatedAt: FieldValue.serverTimestamp()
+      };
 
-    if ((plan.contactUnlockedAt ?? null) !== (offer.contactUnlockedAt ?? null)) {
-      patch.contactUnlockedAt = plan.contactUnlockedAt ? FieldValue.serverTimestamp() : null;
-    }
+      if ((plan.contactUnlockedAt ?? null) !== (offer.contactUnlockedAt ?? null)) {
+        patch.contactUnlockedAt = plan.contactUnlockedAt ? FieldValue.serverTimestamp() : null;
+      }
 
-    if (typeof plan.amount === "number") {
-      patch.amount = plan.amount;
-      patch.offerAmount = plan.offerAmount ?? plan.amount;
-    }
+      if (typeof plan.amount === "number") {
+        patch.amount = plan.amount;
+        patch.offerAmount = plan.offerAmount ?? plan.amount;
+      }
 
-    if (plan.appendMessage) {
-      patch.messages = [
-        ...offer.messages.map(toStoredOfferThreadEntry),
-        toStoredOfferThreadEntry(plan.appendMessage)
-      ];
-    }
+      if (plan.appendMessage) {
+        patch.messages = [
+          ...offer.messages.map(toStoredOfferThreadEntry),
+          toStoredOfferThreadEntry(plan.appendMessage)
+        ];
+      }
 
-    if (plan.shouldTouchRespondedAt) {
-      patch.respondedAt = plan.respondedAt ? FieldValue.serverTimestamp() : null;
-    }
+      if (plan.shouldTouchRespondedAt) {
+        patch.respondedAt = plan.respondedAt ? FieldValue.serverTimestamp() : null;
+      }
 
-    await ref.update(patch);
+      transaction.update(ref, patch);
+
+      return {
+        previousOffer: offer,
+        emailEvent: plan.emailEvent ?? null
+      };
+    });
 
     const updated = await ref.get();
     const updatedOffer = serializeAdminOfferDoc(updated.id, updated.data() ?? {});
+    let emailStatus:
+      | { attempted: false; sent: false }
+      | { attempted: true; sent: true; recipientEmail: string }
+      | { attempted: true; sent: false; recipientEmail?: string; reason: string }
+      = { attempted: false, sent: false };
 
-    if (plan.emailEvent) {
-      const recipientEmail = await getUserNotificationEmail(updatedOffer.buyerUid, updatedOffer.buyerEmail);
-      if (recipientEmail) {
-        await sendOfferEmail({
-          event: plan.emailEvent,
-          to: recipientEmail,
-          vehicleTitle: updatedOffer.vehicleTitle,
-          amount: updatedOffer.amount,
-          offerId: updatedOffer.id
-        }).catch((emailError) => {
+    if (transactionResult.emailEvent) {
+      const recipient = await resolveBuyerEmailRecipient(updatedOffer);
+      if (recipient.email) {
+        try {
+          const result = await sendOfferEmail({
+            event: transactionResult.emailEvent,
+            to: recipient.email,
+            vehicleTitle: updatedOffer.vehicleTitle,
+            vehicleId: updatedOffer.vehicleId,
+            amount: updatedOffer.amount,
+            buyerOriginalAmount: transactionResult.previousOffer.amount,
+            counterAmount: updatedOffer.amount,
+            buyerAccess: recipient.buyerAccess,
+            offerId: updatedOffer.id
+          });
+
+          emailStatus = result.sent
+            ? { attempted: true, sent: true, recipientEmail: recipient.email }
+            : {
+                attempted: true,
+                sent: false,
+                recipientEmail: recipient.email,
+                reason: "reason" in result ? result.reason : "email_not_sent"
+              };
+        } catch (emailError) {
           console.error("[admin-offers] Offer notification email failed after offer update.", {
             offerId: updatedOffer.id,
-            event: plan.emailEvent,
-            recipientEmail,
+            event: transactionResult.emailEvent,
+            recipientEmail: recipient.email,
             error: emailError instanceof Error ? emailError.message : String(emailError)
           });
-        });
+          emailStatus = {
+            attempted: true,
+            sent: false,
+            recipientEmail: recipient.email,
+            reason: emailError instanceof Error ? emailError.message : "email_send_failed"
+          };
+        }
+      } else {
+        emailStatus = {
+          attempted: true,
+          sent: false,
+          reason: "missing_buyer_email"
+        };
       }
     }
 
     return NextResponse.json({
       offer: updatedOffer,
-      writeSucceeded: true
+      writeSucceeded: true,
+      emailStatus
     });
   } catch (error) {
     if (error instanceof AdminApiAuthError) {

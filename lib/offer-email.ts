@@ -15,6 +15,10 @@ export interface OfferEmailPayload {
   vehicleTitle: string;
   amount: number;
   offerId: string;
+  vehicleId?: string;
+  buyerAccess?: "guest" | "registered";
+  buyerOriginalAmount?: number;
+  counterAmount?: number;
 }
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY ?? "";
@@ -31,6 +35,15 @@ function formatCurrency(amount: number) {
 export function getOfferEmailContent(payload: OfferEmailPayload) {
   const sellerOfferUrl = buildAbsoluteUrl(`/seller/offers/${payload.offerId}`);
   const buyerOfferUrl = buildAbsoluteUrl("/dashboard/offers");
+  const publicVehicleUrl = payload.vehicleId ? buildAbsoluteUrl(`/inventory/${payload.vehicleId}`) : buildAbsoluteUrl("/inventory");
+  const buyerOriginalAmount =
+    typeof payload.buyerOriginalAmount === "number" && Number.isFinite(payload.buyerOriginalAmount)
+      ? payload.buyerOriginalAmount
+      : undefined;
+  const counterAmount =
+    typeof payload.counterAmount === "number" && Number.isFinite(payload.counterAmount)
+      ? payload.counterAmount
+      : payload.amount;
 
   if (payload.event === "new_offer_to_seller") {
     return {
@@ -43,12 +56,21 @@ export function getOfferEmailContent(payload: OfferEmailPayload) {
   }
 
   if (payload.event === "seller_countered_offer") {
+    const isGuestBuyer = payload.buyerAccess === "guest";
     return {
       subject: "You’ve received a counteroffer",
-      ctaUrl: buyerOfferUrl,
-      ctaLabel: "Review counteroffer",
-      intro: `The seller sent a counteroffer on ${payload.vehicleTitle}.`,
-      detail: `Current negotiation amount: ${formatCurrency(payload.amount)}`
+      ctaUrl: isGuestBuyer ? publicVehicleUrl : buyerOfferUrl,
+      ctaLabel: isGuestBuyer ? "View vehicle listing" : "Review counteroffer",
+      intro: `CarNest has reviewed your offer on ${payload.vehicleTitle} and sent a counter offer.`,
+      detail: "You can review the key numbers below and reply through the CarNest offer flow where available.",
+      details: [
+        `Vehicle: ${payload.vehicleTitle}`,
+        ...(buyerOriginalAmount ? [`Your original offer: ${formatCurrency(buyerOriginalAmount)}`] : []),
+        `CarNest counter offer: ${formatCurrency(counterAmount)}`,
+        isGuestBuyer
+          ? "This email includes the counter offer amount for your records. Use the listing link below if you would like to continue with this vehicle."
+          : "Sign in to your CarNest account to accept, decline, or continue the negotiation."
+      ]
     };
   }
 
@@ -73,12 +95,18 @@ export function getOfferEmailContent(payload: OfferEmailPayload) {
 
 function renderOfferEmailHtml(payload: OfferEmailPayload) {
   const content = getOfferEmailContent(payload);
+  const details = "details" in content && Array.isArray(content.details) ? content.details : [];
   return `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b1b18;">
       <p style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#9d6b2f;margin:0 0 12px;">CarNest</p>
       <h1 style="font-size:24px;line-height:1.3;margin:0 0 16px;">${content.subject}</h1>
       <p style="font-size:16px;line-height:1.6;margin:0 0 12px;">${content.intro}</p>
       <p style="font-size:15px;line-height:1.6;margin:0 0 24px;color:#4b4b44;">${content.detail}</p>
+      ${details.length ? `
+        <div style="background:#fbf6ef;border:1px solid #ead8c2;border-radius:18px;padding:16px;margin:0 0 24px;">
+          ${details.map((detail) => `<p style="font-size:14px;line-height:1.6;margin:0 0 8px;color:#1b1b18;">${detail}</p>`).join("")}
+        </div>
+      ` : ""}
       <a href="${content.ctaUrl}" style="display:inline-block;background:#1b1b18;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600;">
         ${content.ctaLabel}
       </a>
@@ -89,6 +117,7 @@ function renderOfferEmailHtml(payload: OfferEmailPayload) {
 
 function renderOfferEmailText(payload: OfferEmailPayload) {
   const content = getOfferEmailContent(payload);
+  const details = "details" in content && Array.isArray(content.details) ? content.details : [];
   return [
     "CarNest",
     "",
@@ -96,6 +125,7 @@ function renderOfferEmailText(payload: OfferEmailPayload) {
     "",
     content.intro,
     content.detail,
+    ...(details.length ? ["", ...details] : []),
     "",
     `${content.ctaLabel}: ${content.ctaUrl}`
   ].join("\n");
