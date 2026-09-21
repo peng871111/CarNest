@@ -118,6 +118,21 @@ export function getOfferEmailContent(payload: OfferEmailPayload) {
 function renderOfferEmailHtml(payload: OfferEmailPayload) {
   const content = getOfferEmailContent(payload);
   const details = "details" in content && Array.isArray(content.details) ? content.details : [];
+  const counterOfferAssistanceHtml = payload.event === "seller_countered_offer"
+    ? `
+      <div style="border-top:1px solid #ead8c2;margin:24px 0 0;padding:18px 0 0;color:#6a6a63;">
+        <p style="font-size:14px;line-height:1.6;margin:0 0 8px;font-weight:700;color:#4b4b44;">Questions or need assistance?</p>
+        <p style="font-size:13px;line-height:1.6;margin:0 0 12px;">
+          If you have any questions about this offer, the vehicle or arranging an inspection, please contact us at
+          <a href="mailto:info@carnest.au" style="color:#1b1b18;text-decoration:underline;">info@carnest.au</a>.
+        </p>
+        <p style="font-size:12px;line-height:1.6;margin:0 0 6px;font-weight:700;color:#4b4b44;">Please note:</p>
+        <p style="font-size:12px;line-height:1.6;margin:0;">
+          CarNest is not a broker or agent and does not represent either the buyer or the vehicle owner. We assist with arranging inspections and facilitating communication by passing your offer to the vehicle owner and relaying the vehicle owner&rsquo;s counteroffer back to you. Any decision to proceed with a transaction is made directly between you and the vehicle owner.
+        </p>
+      </div>
+    `
+    : "";
   return `
     <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#1b1b18;">
       <p style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#9d6b2f;margin:0 0 12px;">CarNest</p>
@@ -132,6 +147,7 @@ function renderOfferEmailHtml(payload: OfferEmailPayload) {
       <a href="${content.ctaUrl}" style="display:inline-block;background:#1b1b18;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:600;">
         ${content.ctaLabel}
       </a>
+      ${counterOfferAssistanceHtml}
       <p style="font-size:13px;line-height:1.6;margin:24px 0 0;color:#6a6a63;">If the button does not open, use this link: ${content.ctaUrl}</p>
     </div>
   `;
@@ -140,6 +156,17 @@ function renderOfferEmailHtml(payload: OfferEmailPayload) {
 function renderOfferEmailText(payload: OfferEmailPayload) {
   const content = getOfferEmailContent(payload);
   const details = "details" in content && Array.isArray(content.details) ? content.details : [];
+  const counterOfferAssistanceText = payload.event === "seller_countered_offer"
+    ? [
+        "",
+        "Questions or need assistance?",
+        "",
+        "If you have any questions about this offer, the vehicle or arranging an inspection, please contact us at info@carnest.au.",
+        "",
+        "Please note:",
+        "CarNest is not a broker or agent and does not represent either the buyer or the vehicle owner. We assist with arranging inspections and facilitating communication by passing your offer to the vehicle owner and relaying the vehicle owner's counteroffer back to you. Any decision to proceed with a transaction is made directly between you and the vehicle owner."
+      ]
+    : [];
   return [
     "CarNest",
     "",
@@ -149,7 +176,8 @@ function renderOfferEmailText(payload: OfferEmailPayload) {
     content.detail,
     ...(details.length ? ["", ...details] : []),
     "",
-    `${content.ctaLabel}: ${content.ctaUrl}`
+    `${content.ctaLabel}: ${content.ctaUrl}`,
+    ...counterOfferAssistanceText
   ].join("\n");
 }
 
