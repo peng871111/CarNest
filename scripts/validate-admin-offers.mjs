@@ -452,7 +452,7 @@ assert.match(offerEmailSource, /counterAmount/);
 assert.match(offerEmailSource, /buyerAccess\?: "guest" \| "registered"/);
 assert.match(offerEmailSource, /buildAbsoluteUrl\(`\/inventory\/\$\{payload\.vehicleId\}`\)/);
 assert.match(offerEmailSource, /Your original offer:/);
-assert.match(offerEmailSource, /CarNest counter offer:/);
+assert.match(offerEmailSource, /Vehicle owner’s counteroffer:/);
 assert.match(offerEmailSource, /View vehicle listing/);
 assert.match(offerEmailSource, /Review counteroffer/);
 

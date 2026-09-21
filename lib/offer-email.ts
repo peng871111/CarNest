@@ -83,12 +83,12 @@ export function getOfferEmailContent(payload: OfferEmailPayload) {
       subject: "You’ve received a counteroffer",
       ctaUrl: isGuestBuyer ? publicVehicleUrl : buyerOfferUrl,
       ctaLabel: isGuestBuyer ? "View vehicle listing" : "Review counteroffer",
-      intro: `CarNest has reviewed your offer on ${payload.vehicleTitle} and sent a counter offer.`,
+      intro: `The vehicle owner has reviewed your offer on ${payload.vehicleTitle} and has provided a counteroffer. CarNest is passing the owner’s response on to you.`,
       detail: "You can review the key numbers below and reply through the CarNest offer flow where available.",
       details: [
         `Vehicle: ${payload.vehicleTitle}`,
         ...(buyerOriginalAmount ? [`Your original offer: ${formatCurrency(buyerOriginalAmount)}`] : []),
-        `CarNest counter offer: ${formatCurrency(counterAmount)}`,
+        `Vehicle owner’s counteroffer: ${formatCurrency(counterAmount)}`,
         isGuestBuyer
           ? "This email includes the counter offer amount for your records. Use the listing link below if you would like to continue with this vehicle."
           : "Sign in to your CarNest account to accept, decline, or continue the negotiation."
