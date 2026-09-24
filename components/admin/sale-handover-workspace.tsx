@@ -601,7 +601,7 @@ export function SaleHandoverWorkspace({
         resolveStorageBytes: (storagePath) => fetchAdminSaleHandoverFileBytes(storagePath, idToken),
       });
       const fileName = buildSaleHandoverPdfFileName(saved.record);
-      const storagePath = await uploadSaleHandoverPdf(pdfBytes, saved.record.id, fileName);
+      const storagePath = await uploadSaleHandoverPdf(pdfBytes, saved.record.id, fileName, idToken);
       const pdf = {
         storagePath,
         fileName,

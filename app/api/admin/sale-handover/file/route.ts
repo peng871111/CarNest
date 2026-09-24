@@ -16,6 +16,10 @@ function sanitizeDownloadName(value: string) {
   return value.replace(/["\r\n\\/]/g, "").trim().slice(0, 180);
 }
 
+function sanitizeStorageName(fileName: string) {
+  return fileName.replace(/\s+/g, "-").replace(/[^a-zA-Z0-9._-]/g, "").toLowerCase();
+}
+
 function getFallbackFileName(storagePath: string) {
   return sanitizeDownloadName(storagePath.split("/").pop() || "sale-handover-file");
 }
@@ -37,6 +41,10 @@ function isSafeSaleHandoverStoragePath(storagePath: string) {
 
 function getRecordIdFromStoragePath(storagePath: string) {
   return storagePath.split("/")[1] ?? "";
+}
+
+function isSafeSaleHandoverRecordId(recordId: string) {
+  return /^[A-Za-z0-9_-]{8,120}$/.test(recordId);
 }
 
 function collectAllowedRecordPaths(data: Record<string, unknown>) {
@@ -81,6 +89,78 @@ async function writePdfAccessAuditEvent(input: {
     summary: `${typeof input.data.recordNumber === "string" ? input.data.recordNumber : "Sale and handover record"} PDF ${input.download ? "downloaded" : "viewed"}.`,
     createdAt: new Date()
   }).catch(() => undefined);
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    await requireVerifiedAdminApiAccess(request, "manageVehicles");
+
+    const formData = await request.formData();
+    const recordId = String(formData.get("recordId") ?? "").trim();
+    const fileName = sanitizeStorageName(String(formData.get("fileName") ?? "") || `carnest-sale-handover-${recordId}.pdf`);
+    const file = formData.get("file");
+
+    if (!isSafeSaleHandoverRecordId(recordId)) {
+      return NextResponse.json({ success: false, error: "Invalid sale and handover record ID." }, { status: 400 });
+    }
+
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json({ success: false, error: "Sale and handover PDF is required." }, { status: 400 });
+    }
+
+    if (file.type && file.type !== "application/pdf") {
+      return NextResponse.json({ success: false, error: "Sale and handover upload must be a PDF." }, { status: 400 });
+    }
+
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    if (!fileBuffer.length) {
+      return NextResponse.json({ success: false, error: "Sale and handover PDF is empty." }, { status: 400 });
+    }
+
+    if (!fileBuffer.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+      return NextResponse.json({ success: false, error: "Sale and handover upload must be a valid PDF." }, { status: 400 });
+    }
+
+    const recordSnapshot = await getAdminDb().collection("saleHandoverRecords").doc(recordId).get();
+    if (!recordSnapshot.exists) {
+      return NextResponse.json({ success: false, error: "Sale and handover record not found." }, { status: 404 });
+    }
+
+    const recordData = recordSnapshot.data() ?? {};
+    if (recordData.status === "cancelled") {
+      return NextResponse.json({ success: false, error: "Cancelled sale and handover records cannot generate new PDFs." }, { status: 409 });
+    }
+
+    const storagePath = `sale-handover-records/${recordId}/pdf/${Date.now()}-${fileName || `carnest-sale-handover-${recordId}.pdf`}`;
+    if (!isSafeSaleHandoverStoragePath(storagePath)) {
+      return NextResponse.json({ success: false, error: "Invalid sale and handover file path." }, { status: 400 });
+    }
+
+    await getAdminStorageBucket().file(storagePath).save(fileBuffer, {
+      contentType: "application/pdf",
+      resumable: false,
+      metadata: {
+        cacheControl: "private, no-store, max-age=0"
+      }
+    });
+
+    return NextResponse.json({ success: true, storagePath });
+  } catch (error) {
+    const status = error instanceof AdminApiAuthError ? error.status : 500;
+    console.error("[sale-handover-file] Failed to upload private PDF.", {
+      status,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return NextResponse.json(
+      {
+        success: false,
+        error: status === 401 || status === 403
+          ? PROTECTED_FILE_ACCESS_ERROR
+          : "Unable to upload the sale and handover PDF right now."
+      },
+      { status }
+    );
+  }
 }
 
 export async function GET(request: NextRequest) {

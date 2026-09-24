@@ -401,7 +401,7 @@ export async function uploadSaleHandoverSignature(dataUrl: string, recordId: str
   return storageRef.fullPath;
 }
 
-export async function uploadSaleHandoverPdf(pdfBytes: Uint8Array, recordId: string, fileName: string) {
+export async function uploadSaleHandoverPdf(pdfBytes: Uint8Array, recordId: string, fileName: string, idToken: string) {
   if (!pdfBytes.length) {
     throw new Error("Generate the PDF before uploading.");
   }
@@ -410,8 +410,8 @@ export async function uploadSaleHandoverPdf(pdfBytes: Uint8Array, recordId: stri
     throw new Error("Create the sale and handover record before uploading the PDF.");
   }
 
-  if (!isFirebaseStorageConfigured) {
-    throw new Error("PDF upload is temporarily unavailable. Please try again later.");
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
   }
 
   const sanitizedName = sanitizeStorageName(fileName || `carnest-sale-handover-${recordId}.pdf`);
@@ -419,13 +419,26 @@ export async function uploadSaleHandoverPdf(pdfBytes: Uint8Array, recordId: stri
   const pdfBlob = new Blob([normalizedPdfBytes], {
     type: "application/pdf"
   });
-  const pdfFile = new File([pdfBlob], `${Date.now()}-${sanitizedName}`, { type: "application/pdf" });
-  const storageRef = ref(storage, `sale-handover-records/${recordId}/pdf/${pdfFile.name}`);
-  await uploadBytes(storageRef, pdfFile, {
-    contentType: "application/pdf"
+  const formData = new FormData();
+  formData.set("recordId", recordId);
+  formData.set("fileName", sanitizedName);
+  formData.set("file", pdfBlob, sanitizedName);
+
+  const response = await fetch("/api/admin/sale-handover/file", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${idToken}`
+    },
+    body: formData,
+    cache: "no-store"
   });
 
-  return storageRef.fullPath;
+  const payload = await response.json().catch(() => null) as { storagePath?: string; error?: string } | null;
+  if (!response.ok || !payload?.storagePath) {
+    throw new Error(payload?.error || "Unable to upload the sale and handover PDF.");
+  }
+
+  return payload.storagePath;
 }
 
 export async function uploadVehicleReportPdf(pdfBytes: Uint8Array, vehicleId: string, fileName: string) {
