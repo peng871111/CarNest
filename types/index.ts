@@ -1347,6 +1347,26 @@ export interface VehicleAnalytics {
   updatedAt?: string;
 }
 
+export interface RegisteredUserVehicleViewActivity {
+  id: string;
+  userId: string;
+  vehicleId: string;
+  listingId: string;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  viewCount: number;
+  vehicle: {
+    id: string;
+    year: number;
+    make: string;
+    model: string;
+    variant: string;
+    reference: string;
+    adminHref: string;
+    publicHref: string;
+  } | null;
+}
+
 export interface SellerTrustInfo {
   sellerType: "Private Seller";
   memberSince?: string;

@@ -58,6 +58,10 @@ function deriveSource(searchParamSource: string | null) {
   }
 }
 
+function shouldTrackRegisteredUserActivity(role?: string) {
+  return role === "buyer" || role === "seller" || role === "dealer";
+}
+
 interface VehicleViewTrackerProps {
   vehicleId: string;
   sellerOwnerUid: string;
@@ -75,7 +79,7 @@ export function VehicleViewTracker({
   state,
   city
 }: VehicleViewTrackerProps) {
-  const { appUser, loading } = useAuth();
+  const { appUser, firebaseUser, loading } = useAuth();
   const searchParams = useSearchParams();
   const hasTracked = useRef(false);
 
@@ -106,7 +110,27 @@ export function VehicleViewTracker({
       keepalive: true,
       cache: "no-store"
     }).catch(() => undefined);
-  }, [appUser?.id, appUser?.role, city, country, listingType, loading, searchParams, sellerOwnerUid, state, vehicleId]);
+
+    if (appUser?.id && firebaseUser && shouldTrackRegisteredUserActivity(appUser.role)) {
+      void firebaseUser.getIdToken()
+        .then((idToken) =>
+          fetch("/api/user/vehicle-view-history", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${idToken}`
+            },
+            body: JSON.stringify({
+              vehicleId,
+              listingId: vehicleId
+            }),
+            keepalive: true,
+            cache: "no-store"
+          })
+        )
+        .catch(() => undefined);
+    }
+  }, [appUser?.id, appUser?.role, city, country, firebaseUser, listingType, loading, searchParams, sellerOwnerUid, state, vehicleId]);
 
   return null;
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { getComplianceAlertsData, listUsers } from "@/lib/data";
 import { AdminAccessManager } from "@/components/admin/admin-access-manager";
+import { RegisteredUserActivityPanel } from "@/components/admin/registered-user-activity-panel";
 import { useAuth } from "@/lib/auth";
 import { canAccessRole } from "@/lib/permissions";
 import { AppUser, ComplianceAlert } from "@/types";
@@ -33,6 +34,10 @@ export default function AdminUsersPage() {
 
   const adminUsers = useMemo(
     () => users.filter((user) => user.role === "admin" || user.role === "super_admin"),
+    [users]
+  );
+  const registeredUsers = useMemo(
+    () => users.filter((user) => user.role !== "admin" && user.role !== "super_admin"),
     [users]
   );
   const openComplianceAlerts = useMemo(
@@ -73,6 +78,7 @@ export default function AdminUsersPage() {
         complianceAlerts={complianceAlerts}
         onUserAccessUpdated={handleUserAccessUpdated}
       />
+      <RegisteredUserActivityPanel users={registeredUsers} />
     </AdminShell>
   );
 }
