@@ -51,6 +51,9 @@ export interface WarehousePmsBayBoardCell {
   state: "available" | "occupied" | "temporarily_blocked" | "maintenance";
   bookingId?: string;
   occupancyId?: string;
+  vehicleType?: "storage" | "managed" | "internal" | "listing";
+  checkInAt?: string;
+  expectedDepartureAt?: string;
 }
 
 export interface WarehousePmsBayBoardRow {
@@ -121,8 +124,8 @@ function isBookingReserved(booking: WarehousePmsBooking, date: string) {
 
 function isOccupancyActive(occupancy: WarehousePmsOccupancy, date: string) {
   const start = warehouseDateKey(occupancy.occupiedFrom);
-  const end = occupancy.plannedDepartureAt ? warehouseDateKey(occupancy.plannedDepartureAt) : "";
-  return Boolean(start && isOnOrBefore(start, date) && (!end || isOnOrBefore(date, end)));
+  const releasedAt = occupancy.releasedAt ? warehouseDateKey(occupancy.releasedAt) : "";
+  return Boolean(start && isOnOrBefore(start, date) && (!releasedAt || date < releasedAt));
 }
 
 export function getEffectiveWarehouseBookingStatus(booking: WarehousePmsBooking, now = new Date()): WarehousePmsBookingStatus {
@@ -189,17 +192,17 @@ export function buildWarehousePmsForecast(input: {
       .filter((booking) => isActiveBooking(booking) && Boolean(booking.actualCheckInAt) && booking.vehicleId)
       .map((booking) => booking.vehicleId!)
   );
-  const effectiveManagedVehicles = input.managedVehicles.filter((vehicle) => !managedVehicleIdsWithActiveStorage.has(vehicle.id));
   const unavailable = input.bays.filter((bay) => bay.baseState === "temporarily_blocked" || bay.baseState === "maintenance").length;
   const capacity = Math.max(0, input.settings.bayCapacity - unavailable);
 
   return Array.from({ length: input.days }, (_, index) => {
     const date = warehouseAddDays(start, index);
     const storageOccupied = input.bookings.filter((booking) => isBookingPhysicallyPresent(booking, date)).length;
-    const managedOccupied = effectiveManagedVehicles.filter((vehicle) => {
-      const occupiedFrom = vehicle.occupiedFrom ? warehouseDateKey(vehicle.occupiedFrom) : warehouseDateKey(start);
-      return Boolean(occupiedFrom) && isOnOrBefore(occupiedFrom, date);
-    }).length;
+    const managedOccupied = input.occupancies.filter((occupancy) =>
+      occupancy.sourceType === "managed_vehicle"
+      && !managedVehicleIdsWithActiveStorage.has(occupancy.sourceId)
+      && isOccupancyActive(occupancy, date)
+    ).length;
     const internalOccupied = input.occupancies.filter((occupancy) => {
       if (occupancy.sourceType === "managed_vehicle") return false;
       return isOccupancyActive(occupancy, date);
@@ -274,7 +277,10 @@ export function buildWarehouseBayBoard(input: {
             date,
             label: dueOut ? `Due out: ${booking.vehicleTitle}` : booking.vehicleTitle,
             state: "occupied",
-            bookingId: booking.id
+            bookingId: booking.id,
+            vehicleType: "storage",
+            checkInAt: booking.actualCheckInAt,
+            expectedDepartureAt: booking.plannedCollectionAt
           };
         }
         const occupancy = input.occupancies.find(
@@ -285,7 +291,10 @@ export function buildWarehouseBayBoard(input: {
             date,
             label: occupancy.label,
             state: "occupied",
-            occupancyId: occupancy.id
+            occupancyId: occupancy.id,
+            vehicleType: occupancy.sourceType === "managed_vehicle" ? "managed" : occupancy.sourceType,
+            checkInAt: occupancy.occupiedFrom,
+            expectedDepartureAt: occupancy.plannedDepartureAt || undefined
           };
         }
         return { date, label: "Available", state: "available" };

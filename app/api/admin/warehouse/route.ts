@@ -7,6 +7,7 @@ import {
   createWarehousePmsBooking,
   extendWarehousePmsBooking,
   loadWarehousePmsSnapshot,
+  releaseWarehousePmsManagedOccupancy,
   updateWarehousePmsBay,
   updateWarehousePmsSettings,
   upsertWarehousePmsManagedOccupancy,
@@ -74,6 +75,10 @@ export async function POST(request: NextRequest) {
     }
     if (action === "assign_managed_bay") {
       await upsertWarehousePmsManagedOccupancy(body, admin.uid);
+      return NextResponse.json({ success: true });
+    }
+    if (action === "release_managed_bay") {
+      await releaseWarehousePmsManagedOccupancy(String(body.occupancyId || ""), admin.uid);
       return NextResponse.json({ success: true });
     }
 

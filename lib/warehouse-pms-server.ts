@@ -179,6 +179,8 @@ function serializeOccupancy(id: string, data: DocumentData): WarehousePmsOccupan
     vehicleReference: asOptionalString(data.vehicleReference),
     occupiedFrom: serializeTimestamp(data.occupiedFrom) || "",
     plannedDepartureAt: serializeTimestamp(data.plannedDepartureAt) || undefined,
+    releasedAt: serializeTimestamp(data.releasedAt),
+    releasedBy: asOptionalString(data.releasedBy),
     notes: asOptionalString(data.notes),
     createdBy: asString(data.createdBy),
     createdAt: serializeTimestamp(data.createdAt),
@@ -492,7 +494,7 @@ export async function checkInWarehousePmsBooking(bookingId: string, bayId: strin
 
   const today = warehouseDateKey(new Date());
   const physicalBooking = pms.bookings.find((entry) => entry.id !== booking.id && entry.assignedBayId === bayId && entry.actualCheckInAt && !entry.actualCollectionAt);
-  const mappedOccupancy = pms.occupancies.find((entry) => entry.bayId === bayId && entry.occupiedFrom && (!entry.plannedDepartureAt || warehouseDateKey(entry.plannedDepartureAt) >= today));
+  const mappedOccupancy = pms.occupancies.find((entry) => entry.bayId === bayId && entry.occupiedFrom && !entry.releasedAt);
   if (physicalBooking || mappedOccupancy) throw new WarehousePmsError("That bay is already occupied.", 409, "bay_occupied");
 
   const candidate = { ...booking, assignedBayId: bayId, actualCheckInAt: new Date().toISOString(), status: "checked_in" as const };
@@ -585,7 +587,7 @@ export async function updateWarehousePmsBay(bayId: string, input: Record<string,
   if (!baySnapshot.exists) throw new WarehousePmsError("Warehouse bay not found.", 404);
   const today = warehouseDateKey(new Date());
   const currentBooking = pms.bookings.find((booking) => booking.assignedBayId === bayId && booking.actualCheckInAt && !booking.actualCollectionAt);
-  const currentOccupancy = pms.occupancies.find((occupancy) => occupancy.bayId === bayId && (!occupancy.plannedDepartureAt || warehouseDateKey(occupancy.plannedDepartureAt) >= today));
+  const currentOccupancy = pms.occupancies.find((occupancy) => occupancy.bayId === bayId && occupancy.occupiedFrom && !occupancy.releasedAt);
   if (nextState !== "available" && (currentBooking || currentOccupancy)) {
     throw new WarehousePmsError("An occupied bay cannot be blocked or put into maintenance.", 409, "bay_occupied");
   }
@@ -632,24 +634,58 @@ export async function upsertWarehousePmsManagedOccupancy(input: Record<string, u
   if (!bay || bay.baseState !== "available") throw new WarehousePmsError("Select an available warehouse bay.");
   const today = warehouseDateKey(new Date());
   const occupied = pms.bookings.some((booking) => booking.assignedBayId === bayId && booking.actualCheckInAt && !booking.actualCollectionAt)
-    || pms.occupancies.some((occupancy) => occupancy.bayId === bayId && occupancy.sourceId !== sourceId && (!occupancy.plannedDepartureAt || warehouseDateKey(occupancy.plannedDepartureAt) >= today));
+    || pms.occupancies.some((occupancy) => occupancy.bayId === bayId && occupancy.sourceId !== sourceId && occupancy.occupiedFrom && !occupancy.releasedAt);
   if (occupied) throw new WarehousePmsError("That bay is already occupied.", 409, "bay_occupied");
-  const existing = pms.occupancies.find((occupancy) => occupancy.sourceType === "managed_vehicle" && occupancy.sourceId === sourceId);
-  const occupancyRef = existing ? getAdminDb().collection(OCCUPANCY_COLLECTION).doc(existing.id) : getAdminDb().collection(OCCUPANCY_COLLECTION).doc();
-  const payload = {
+  const existing = pms.occupancies.find((occupancy) => occupancy.sourceType === "managed_vehicle" && occupancy.sourceId === sourceId && !occupancy.releasedAt);
+  if (existing) throw new WarehousePmsError("Release this vehicle's current bay before assigning another bay.", 409, "managed_vehicle_already_assigned");
+  const occupancyRef = getAdminDb().collection(OCCUPANCY_COLLECTION).doc();
+  const candidate: WarehousePmsOccupancy = {
+    id: "candidate",
     sourceType: "managed_vehicle",
     sourceId,
     bayId,
     label: managedVehicle.title,
     rego: managedVehicle.rego || "",
     vehicleReference: managedVehicle.vehicleReference || "",
-    occupiedFrom: Timestamp.fromDate(new Date(managedVehicle.occupiedFrom || new Date().toISOString())),
+    occupiedFrom: new Date().toISOString(),
+    plannedDepartureAt: undefined,
+    createdBy: actorUid,
+  };
+  assertNoCapacityConflict({
+    ...pms,
+    occupancies: [...pms.occupancies, candidate],
+    managedVehicles,
+    startAt: today,
+    endAt: today
+  });
+  await occupancyRef.create({
+    sourceType: candidate.sourceType,
+    sourceId: candidate.sourceId,
+    bayId: candidate.bayId,
+    label: candidate.label,
+    rego: candidate.rego || "",
+    vehicleReference: candidate.vehicleReference || "",
+    occupiedFrom: FieldValue.serverTimestamp(),
     plannedDepartureAt: null,
     createdBy: actorUid,
+    createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
-  };
-  if (existing) await occupancyRef.update(payload);
-  else await occupancyRef.create({ ...payload, createdAt: FieldValue.serverTimestamp() });
+  });
+}
+
+export async function releaseWarehousePmsManagedOccupancy(occupancyId: string, actorUid: string) {
+  const db = getAdminDb();
+  const occupancyRef = db.collection(OCCUPANCY_COLLECTION).doc(occupancyId);
+  const occupancySnapshot = await occupancyRef.get();
+  if (!occupancySnapshot.exists) throw new WarehousePmsError("Managed vehicle bay assignment not found.", 404);
+  const occupancy = serializeOccupancy(occupancySnapshot.id, occupancySnapshot.data() ?? {});
+  if (occupancy.sourceType !== "managed_vehicle") throw new WarehousePmsError("Only Managed vehicle bay assignments can be released here.");
+  if (occupancy.releasedAt) throw new WarehousePmsError("This Managed vehicle bay assignment has already been released.");
+  await occupancyRef.update({
+    releasedAt: FieldValue.serverTimestamp(),
+    releasedBy: actorUid,
+    updatedAt: FieldValue.serverTimestamp()
+  });
 }
 
 export async function getWarehousePmsOverviewForToday() {

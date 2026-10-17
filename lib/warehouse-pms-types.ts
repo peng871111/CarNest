@@ -120,6 +120,8 @@ export interface WarehousePmsOccupancy {
   vehicleReference?: string;
   occupiedFrom: string;
   plannedDepartureAt?: string | null;
+  releasedAt?: string;
+  releasedBy?: string;
   notes?: string;
   createdBy: string;
   createdAt?: string;
