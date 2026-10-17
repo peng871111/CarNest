@@ -18,6 +18,7 @@ export const ADMIN_LINKS: Array<{ href: string; label: string; permission?: Admi
   { href: "/admin/vehicles", label: "Vehicles", permission: "manageVehicles" },
   { href: "/admin/customers", label: "Customers", permission: "manageVehicles" },
   { href: "/admin/warehouse-intake", label: "Storage Contracts", permission: "manageVehicles" },
+  { href: "/admin/warehouse", label: "Warehouse", permission: "manageVehicles" },
   { href: "/admin/vehicles/add", label: "Add Vehicle", permission: "manageVehicles" },
   { href: "/admin/analytics", label: "Analytics" },
   { href: "/admin/community", label: "Community", permission: "manageVehicles" },
