@@ -2,6 +2,7 @@ import "server-only";
 
 import { FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin-server";
+import { omitUndefinedWarehousePmsFields } from "@/lib/warehouse-pms-booking-data";
 import {
   buildWarehousePmsForecast,
   findWarehouseCapacityConflicts,
@@ -365,6 +366,9 @@ export async function bootstrapWarehousePms(actorUid: string) {
 function normalizeBookingInput(input: Record<string, unknown>, settings: WarehousePmsSettings, actorUid: string) {
   const plannedCheckInAt = asDateString(input.plannedCheckInAt, "Planned check-in");
   const plannedCollectionAt = asDateString(input.plannedCollectionAt, "Planned collection");
+  if (new Date(plannedCheckInAt).getTime() < Date.now()) {
+    throw new WarehousePmsError("Planned check-in cannot be in the past.");
+  }
   if (new Date(plannedCollectionAt).getTime() <= new Date(plannedCheckInAt).getTime()) {
     throw new WarehousePmsError("Planned collection must be after planned check-in.");
   }
@@ -522,7 +526,7 @@ export async function createWarehousePmsBooking(input: Record<string, unknown>, 
         endAt: candidate.plannedCollectionAt
       });
     }
-    transaction.create(referenceDoc, { ...payload, reference });
+    transaction.create(referenceDoc, omitUndefinedWarehousePmsFields({ ...payload, reference }));
   });
   return { id: referenceDoc.id, reference: savedReference };
 }
