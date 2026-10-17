@@ -225,7 +225,6 @@ export function WarehousePmsWorkspace() {
       setLoading(true);
       setErrorMessage("");
       try {
-        await request("POST", { action: "bootstrap" });
         await loadSnapshot();
       } catch (error) {
         if (!cancelled) setErrorMessage(error instanceof Error ? error.message : "Warehouse data could not be loaded.");

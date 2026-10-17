@@ -162,6 +162,7 @@ assert.equal(readProjectFile("lib/warehouse-pms.ts").includes("effectiveManagedV
 
 assert.ok(routeSource.includes('requireVerifiedAdminApiAccess(request, "manageVehicles")'), "Warehouse API must require verified Admin authorization.");
 assert.ok(routeSource.includes("AdminApiAuthError"), "Unauthorized API calls must return an authorization failure.");
+assert.equal(workspaceSource.includes('request("POST", { action: "bootstrap" })'), false, "Opening Warehouse must not run a write-capable bootstrap request.");
 assert.ok(workspaceSource.includes("Storage bookings"), "Warehouse UI must expose Storage Bookings.");
 assert.ok(workspaceSource.includes("Bay board"), "Warehouse UI must expose the Bay Board.");
 assert.ok(workspaceSource.includes("Assign Managed Vehicle"), "Warehouse UI must allow an Admin to assign a Managed vehicle to a bay.");
