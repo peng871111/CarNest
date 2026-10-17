@@ -110,7 +110,7 @@ function isActiveBooking(booking: WarehousePmsBooking) {
 }
 
 function isBookingPhysicallyPresent(booking: WarehousePmsBooking, date: string) {
-  if (!isActiveBooking(booking) || !booking.actualCheckInAt) return false;
+  if (!isActiveBooking(booking) || !booking.actualCheckInAt || !booking.assignedBayId) return false;
   const checkInDate = warehouseDateKey(booking.actualCheckInAt);
   return Boolean(checkInDate) && isOnOrBefore(checkInDate, date);
 }
@@ -189,7 +189,7 @@ export function buildWarehousePmsForecast(input: {
   if (!start || input.days < 1) return [] as WarehousePmsForecastDay[];
   const managedVehicleIdsWithActiveStorage = new Set(
     input.bookings
-      .filter((booking) => isActiveBooking(booking) && Boolean(booking.actualCheckInAt) && booking.vehicleId)
+      .filter((booking) => isActiveBooking(booking) && Boolean(booking.actualCheckInAt) && Boolean(booking.assignedBayId) && booking.vehicleId)
       .map((booking) => booking.vehicleId!)
   );
   const unavailable = input.bays.filter((bay) => bay.baseState === "temporarily_blocked" || bay.baseState === "maintenance").length;

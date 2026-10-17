@@ -75,6 +75,11 @@ function asDateString(value: unknown, label: string) {
   return new Date(raw).toISOString();
 }
 
+function asOptionalDateString(value: unknown, label: string) {
+  const raw = asString(value);
+  return raw ? asDateString(raw, label) : undefined;
+}
+
 function serializeTimestamp(value: unknown): string | undefined {
   if (value instanceof Timestamp) return value.toDate().toISOString();
   if (value instanceof Date) return value.toISOString();
@@ -366,14 +371,34 @@ export async function bootstrapWarehousePms(actorUid: string) {
 function normalizeBookingInput(input: Record<string, unknown>, settings: WarehousePmsSettings, actorUid: string) {
   const plannedCheckInAt = asDateString(input.plannedCheckInAt, "Planned check-in");
   const plannedCollectionAt = asDateString(input.plannedCollectionAt, "Planned collection");
-  if (new Date(plannedCheckInAt).getTime() < Date.now()) {
-    throw new WarehousePmsError("Planned check-in cannot be in the past.");
-  }
   if (new Date(plannedCollectionAt).getTime() <= new Date(plannedCheckInAt).getTime()) {
     throw new WarehousePmsError("Planned collection must be after planned check-in.");
   }
+  const actualCheckInAt = asOptionalDateString(input.actualCheckInAt, "Actual check-in");
+  const actualCollectionAt = asOptionalDateString(input.actualCollectionAt, "Actual checkout");
+  const assignedBayId = asOptionalString(input.assignedBayId);
+  const now = Date.now();
+  if (actualCheckInAt && new Date(actualCheckInAt).getTime() > now) {
+    throw new WarehousePmsError("Actual check-in cannot be in the future.");
+  }
+  if (actualCollectionAt && new Date(actualCollectionAt).getTime() > now) {
+    throw new WarehousePmsError("Actual checkout cannot be in the future.");
+  }
+  if (actualCollectionAt && !actualCheckInAt) {
+    throw new WarehousePmsError("Record the actual check-in before recording an actual checkout.");
+  }
+  if (actualCheckInAt && actualCollectionAt && new Date(actualCollectionAt).getTime() <= new Date(actualCheckInAt).getTime()) {
+    throw new WarehousePmsError("Actual checkout must be after actual check-in.");
+  }
+  if (assignedBayId && (!actualCheckInAt || actualCollectionAt)) {
+    throw new WarehousePmsError("An active bay assignment requires an actual check-in and no actual checkout.");
+  }
+  if (actualCheckInAt && !actualCollectionAt && !assignedBayId) {
+    throw new WarehousePmsError("Select an available bay for a vehicle that is currently in the warehouse.");
+  }
   const requestedStatus = asString(input.status);
-  const status = ["draft", "reserved", "confirmed"].includes(requestedStatus) ? requestedStatus : "confirmed";
+  const requestedBookingStatus = ["draft", "reserved", "confirmed"].includes(requestedStatus) ? requestedStatus : "confirmed";
+  const status = actualCollectionAt ? "checked_out" : actualCheckInAt ? "checked_in" : requestedBookingStatus;
   const monthlyRate = Math.max(0, asNumber(input.monthlyRate, settings.defaultMonthlyRate));
   const dailyRate = Math.max(0, asNumber(input.dailyRate, settings.defaultDailyRate));
   const customerId = asOptionalString(input.customerId);
@@ -406,6 +431,9 @@ function normalizeBookingInput(input: Record<string, unknown>, settings: Warehou
     linkedStorageContractId: asOptionalString(input.linkedStorageContractId),
     plannedCheckInAt: Timestamp.fromDate(new Date(plannedCheckInAt)),
     plannedCollectionAt: Timestamp.fromDate(new Date(plannedCollectionAt)),
+    ...(actualCheckInAt ? { actualCheckInAt: Timestamp.fromDate(new Date(actualCheckInAt)), checkedInBy: actorUid } : {}),
+    ...(actualCollectionAt ? { actualCollectionAt: Timestamp.fromDate(new Date(actualCollectionAt)), checkedOutBy: actorUid } : {}),
+    ...(assignedBayId ? { assignedBayId } : {}),
     monthlyRate,
     dailyRate,
     rateOverride: monthlyRate !== settings.defaultMonthlyRate || dailyRate !== settings.defaultDailyRate,
@@ -466,6 +494,60 @@ function assertNoCapacityConflict(input: {
   }
 }
 
+function getBookingCapacityWindow(booking: WarehousePmsBooking, now = new Date()) {
+  if (["draft", "cancelled", "no_show", "checked_out"].includes(booking.status) || booking.actualCollectionAt) return undefined;
+  const today = warehouseDateKey(now);
+  if (booking.actualCheckInAt) {
+    if (!booking.assignedBayId) return undefined;
+    const plannedEnd = warehouseDateKey(booking.plannedCollectionAt);
+    return { startAt: today, endAt: plannedEnd >= today ? booking.plannedCollectionAt : today };
+  }
+  const plannedStart = warehouseDateKey(booking.plannedCheckInAt);
+  const plannedEnd = warehouseDateKey(booking.plannedCollectionAt);
+  if (!plannedStart || !plannedEnd || plannedEnd < today) return undefined;
+  return {
+    startAt: plannedStart > today ? booking.plannedCheckInAt : now.toISOString(),
+    endAt: booking.plannedCollectionAt
+  };
+}
+
+function assertNewBookingBayIsAvailable(pms: {
+  bays: WarehousePmsBay[];
+  bookings: WarehousePmsBooking[];
+  occupancies: WarehousePmsOccupancy[];
+}, candidate: WarehousePmsBooking) {
+  if (!candidate.actualCheckInAt || candidate.actualCollectionAt || !candidate.assignedBayId) return;
+  const bay = pms.bays.find((entry) => entry.id === candidate.assignedBayId);
+  if (!bay || bay.baseState !== "available") throw new WarehousePmsError("Select an available warehouse bay.");
+  const occupiedByBooking = pms.bookings.some((entry) => entry.assignedBayId === candidate.assignedBayId && entry.actualCheckInAt && !entry.actualCollectionAt);
+  const occupiedByMapping = pms.occupancies.some((entry) => entry.bayId === candidate.assignedBayId && entry.occupiedFrom && !entry.releasedAt);
+  if (occupiedByBooking || occupiedByMapping) throw new WarehousePmsError("That bay is already occupied.", 409, "bay_occupied");
+}
+
+function assertNewBookingCapacity(input: {
+  settings: WarehousePmsSettings;
+  bays: WarehousePmsBay[];
+  bookings: WarehousePmsBooking[];
+  occupancies: WarehousePmsOccupancy[];
+  managedVehicles: WarehousePmsManagedVehicle[];
+}, candidate: WarehousePmsBooking) {
+  assertNewBookingBayIsAvailable(input, candidate);
+  const capacityWindow = getBookingCapacityWindow(candidate);
+  if (!capacityWindow) return;
+  const latestExistingReservationEnd = input.bookings
+    .filter((booking) => !booking.actualCheckInAt && !booking.actualCollectionAt && !["draft", "cancelled", "no_show", "checked_out"].includes(booking.status))
+    .map((booking) => booking.plannedCollectionAt)
+    .filter((value) => warehouseDateKey(value) >= warehouseDateKey(capacityWindow.startAt))
+    .sort()
+    .at(-1);
+  assertNoCapacityConflict({
+    ...input,
+    bookings: [...input.bookings, candidate],
+    startAt: capacityWindow.startAt,
+    endAt: latestExistingReservationEnd && latestExistingReservationEnd > capacityWindow.endAt ? latestExistingReservationEnd : capacityWindow.endAt
+  });
+}
+
 export async function createWarehousePmsBooking(input: Record<string, unknown>, actorUid: string) {
   const db = getAdminDb();
   const creationRequestId = asString(input.creationRequestId);
@@ -483,19 +565,11 @@ export async function createWarehousePmsBooking(input: Record<string, unknown>, 
     ...payload,
     plannedCheckInAt: payload.plannedCheckInAt,
     plannedCollectionAt: payload.plannedCollectionAt,
-    actualCheckInAt: null,
-    actualCollectionAt: null
+    actualCheckInAt: payload.actualCheckInAt,
+    actualCollectionAt: payload.actualCollectionAt
   });
 
-  if (candidate.status !== "draft") {
-    assertNoCapacityConflict({
-      ...pms,
-      bookings: [...pms.bookings, candidate],
-      managedVehicles,
-      startAt: candidate.plannedCheckInAt,
-      endAt: candidate.plannedCollectionAt
-    });
-  }
+  assertNewBookingCapacity({ ...pms, managedVehicles }, candidate);
 
   const reference = `WHS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${creationRequestId.slice(-6).toUpperCase()}`;
   let savedReference = reference;
@@ -517,15 +591,7 @@ export async function createWarehousePmsBooking(input: Record<string, unknown>, 
       bookings: bookingsSnapshot.docs.map((document) => serializeBooking(document.id, document.data())),
       occupancies: occupancySnapshot.docs.map((document) => serializeOccupancy(document.id, document.data()))
     };
-    if (candidate.status !== "draft") {
-      assertNoCapacityConflict({
-        ...currentPms,
-        bookings: [...currentPms.bookings, candidate],
-        managedVehicles,
-        startAt: candidate.plannedCheckInAt,
-        endAt: candidate.plannedCollectionAt
-      });
-    }
+    assertNewBookingCapacity({ ...currentPms, managedVehicles }, candidate);
     transaction.create(referenceDoc, omitUndefinedWarehousePmsFields({ ...payload, reference }));
   });
   return { id: referenceDoc.id, reference: savedReference };

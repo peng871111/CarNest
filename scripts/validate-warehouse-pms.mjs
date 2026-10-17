@@ -195,6 +195,7 @@ const { db: mockWarehouseDb, collections: mockWarehouseCollections } = createWar
 const warehouseServer = loadWarehousePmsServerModule(mockWarehouseDb);
 const futureCheckIn = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString();
 const futureCollection = new Date(Date.now() + 32 * 24 * 60 * 60 * 1000).toISOString();
+const oneDay = 24 * 60 * 60 * 1000;
 const validBookingInput = {
   creationRequestId: "11111111-1111-4111-8111-111111111111",
   customerId: "customer-test",
@@ -228,16 +229,127 @@ assert.equal("notes" in mockBookings.get(firstCreatedBooking.id), false, "Option
 const retriedBooking = await warehouseServer.createWarehousePmsBooking(validBookingInput, "admin-test");
 assert.deepEqual(retriedBooking, firstCreatedBooking, "Retrying the same booking request must return the original booking.");
 assert.equal(mockBookings.size, 1, "An idempotent retry must not create a duplicate booking document.");
+const todayCheckIn = new Date().toISOString();
+const todayBooking = await warehouseServer.createWarehousePmsBooking({
+  ...validBookingInput,
+  creationRequestId: "77777777-7777-4777-8777-777777777777",
+  plannedCheckInAt: todayCheckIn,
+  plannedCollectionAt: new Date(Date.now() + 30 * oneDay).toISOString()
+}, "admin-test");
+assert.equal(mockBookings.get(todayBooking.id).plannedCheckInAt.toDate().toISOString(), todayCheckIn, "A booking starting today should be stored successfully.");
+const nextMonthCheckIn = new Date(Date.now() + 35 * oneDay).toISOString();
+const nextMonthBooking = await warehouseServer.createWarehousePmsBooking({
+  ...validBookingInput,
+  creationRequestId: "88888888-8888-4888-8888-888888888888",
+  plannedCheckInAt: nextMonthCheckIn,
+  plannedCollectionAt: new Date(Date.now() + 65 * oneDay).toISOString()
+}, "admin-test");
+assert.equal(mockBookings.get(nextMonthBooking.id).plannedCheckInAt.toDate().toISOString(), nextMonthCheckIn, "A booking starting next month should be stored successfully.");
+assert.equal(mockBookings.size, 3, "Current and future bookings should remain separate records.");
+const mockBays = mockWarehouseCollections.get("warehousePmsBays");
+mockBays.set("bay-01", { label: "Bay 01", sequence: 1, baseState: "available" });
+
+const historicalArrival = new Date(Date.now() - 90 * oneDay).toISOString();
+const historicalCheckout = new Date(Date.now() - 54 * oneDay).toISOString();
+const historicalBooking = await warehouseServer.createWarehousePmsBooking({
+  ...validBookingInput,
+  creationRequestId: "22222222-2222-4222-8222-222222222222",
+  plannedCheckInAt: historicalArrival,
+  plannedCollectionAt: historicalCheckout,
+  actualCheckInAt: historicalArrival,
+  actualCollectionAt: historicalCheckout
+}, "admin-test");
+assert.equal(mockBookings.size, 4, "A completed backdated booking should be created without a current bay.");
+const storedHistoricalBooking = mockBookings.get(historicalBooking.id);
+assert.equal(storedHistoricalBooking.status, "checked_out", "A historical completed stay must remain checked out.");
+assert.equal(storedHistoricalBooking.actualCheckInAt.toDate().toISOString(), historicalArrival, "The original actual arrival must be preserved.");
+assert.equal(storedHistoricalBooking.actualCollectionAt.toDate().toISOString(), historicalCheckout, "The original actual checkout must be preserved.");
+assert.equal(storedHistoricalBooking.createdAt.kind, "serverTimestamp", "Booking creation must retain a real server-generated audit timestamp.");
+assert.equal(storedHistoricalBooking.assignedBayId, undefined, "A historical completed stay must not create a current bay assignment.");
+assert.equal(pms.calculateWarehouseBilling({
+  startAt: storedHistoricalBooking.actualCheckInAt.toDate().toISOString(),
+  endAt: storedHistoricalBooking.actualCollectionAt.toDate().toISOString(),
+  monthlyRate: storedHistoricalBooking.monthlyRate,
+  dailyRate: storedHistoricalBooking.dailyRate
+}).finalTotal, 456.02, "Historical billing must use the actual storage arrival and checkout dates.");
+
+const activeHistoricalArrival = new Date(Date.now() - 31 * oneDay).toISOString();
+const activeHistoricalBooking = await warehouseServer.createWarehousePmsBooking({
+  ...validBookingInput,
+  creationRequestId: "33333333-3333-4333-8333-333333333333",
+  plannedCheckInAt: activeHistoricalArrival,
+  plannedCollectionAt: new Date(Date.now() + 20 * oneDay).toISOString(),
+  actualCheckInAt: activeHistoricalArrival,
+  assignedBayId: "bay-01"
+}, "admin-test");
+assert.equal(mockBookings.size, 5, "A historical vehicle still in the warehouse should be recorded with its explicit bay.");
+const storedActiveHistoricalBooking = mockBookings.get(activeHistoricalBooking.id);
+assert.equal(storedActiveHistoricalBooking.assignedBayId, "bay-01", "Only an explicitly selected bay may record current occupancy.");
+assert.equal(storedActiveHistoricalBooking.status, "checked_in", "An active historical arrival must be checked in.");
+const retriedHistoricalBooking = await warehouseServer.createWarehousePmsBooking({
+  ...validBookingInput,
+  creationRequestId: "33333333-3333-4333-8333-333333333333",
+  plannedCheckInAt: activeHistoricalArrival,
+  plannedCollectionAt: new Date(Date.now() + 20 * oneDay).toISOString(),
+  actualCheckInAt: activeHistoricalArrival,
+  assignedBayId: "bay-01"
+}, "admin-test");
+assert.deepEqual(retriedHistoricalBooking, activeHistoricalBooking, "A retried historical booking must not duplicate an existing record.");
+assert.equal(mockBookings.size, 5, "A historical idempotency retry must preserve a single booking.");
+
 await assert.rejects(
   () => warehouseServer.createWarehousePmsBooking({
     ...validBookingInput,
-    creationRequestId: "22222222-2222-4222-8222-222222222222",
-    plannedCheckInAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    creationRequestId: "44444444-4444-4444-8444-444444444444",
+    plannedCheckInAt: futureCollection,
+    plannedCollectionAt: futureCheckIn
   }, "admin-test"),
-  (error) => error?.message === "Planned check-in cannot be in the past." && error.status === 400,
-  "A past planned check-in must return a clear validation error."
+  (error) => error?.message === "Planned collection must be after planned check-in." && error.status === 400,
+  "Invalid planned date ranges must be rejected."
 );
-assert.equal(mockBookings.size, 1, "A rejected booking must not create a partial booking document.");
+await assert.rejects(
+  () => warehouseServer.createWarehousePmsBooking({
+    ...validBookingInput,
+    creationRequestId: "55555555-5555-4555-8555-555555555555",
+    plannedCheckInAt: activeHistoricalArrival,
+    plannedCollectionAt: new Date(Date.now() + 20 * oneDay).toISOString(),
+    actualCheckInAt: activeHistoricalArrival
+  }, "admin-test"),
+  (error) => error?.message === "Select an available bay for a vehicle that is currently in the warehouse." && error.status === 400,
+  "A historical arrival must not become active occupancy without an explicit bay assignment."
+);
+assert.equal(mockBookings.size, 5, "Rejected historical requests must not create partial booking documents.");
+
+const { db: capacityDb, collections: capacityCollections } = createWarehousePmsFirestoreMock();
+capacityCollections.set("warehousePmsSettings", new Map([["default", { defaultMonthlyRate: 380, defaultDailyRate: 12.67, bayCapacity: 1 }]]));
+capacityCollections.set("warehousePmsBays", new Map([["bay-01", { label: "Bay 01", sequence: 1, baseState: "available" }]]));
+capacityCollections.set("warehousePmsBookings", new Map([["future-reservation", {
+  reference: "WHS-FUTURE-1",
+  customerName: "Future Customer",
+  vehicleTitle: "Future Vehicle",
+  plannedCheckInAt: MockTimestamp.fromDate(new Date(Date.now() + 5 * oneDay)),
+  plannedCollectionAt: MockTimestamp.fromDate(new Date(Date.now() + 15 * oneDay)),
+  monthlyRate: 380,
+  dailyRate: 12.67,
+  rateOverride: false,
+  additionalStorageCharges: 0,
+  status: "confirmed",
+  createdBy: "admin-test"
+}]]));
+const capacityWarehouseServer = loadWarehousePmsServerModule(capacityDb);
+await assert.rejects(
+  () => capacityWarehouseServer.createWarehousePmsBooking({
+    ...validBookingInput,
+    creationRequestId: "66666666-6666-4666-8666-666666666666",
+    plannedCheckInAt: activeHistoricalArrival,
+    plannedCollectionAt: new Date(Date.now() + 20 * oneDay).toISOString(),
+    actualCheckInAt: activeHistoricalArrival,
+    assignedBayId: "bay-01"
+  }, "admin-test"),
+  (error) => error?.code === "capacity_conflict" && error.status === 409,
+  "A current historical bay assignment must still respect existing future reservations."
+);
+assert.equal(capacityCollections.get("warehousePmsBookings").size, 1, "A real historical capacity conflict must not create a booking document.");
 
 const settings = { id: "default", defaultMonthlyRate: 380, defaultDailyRate: 12.67, bayCapacity: 20 };
 const bays = Array.from({ length: 20 }, (_, index) => ({
@@ -310,6 +422,20 @@ const reservationForecast = forecast({ bookings: [reservation] });
 assert.equal(reservationForecast[0].reserved, 1, "A reservation should consume forecast capacity.");
 assert.equal(reservationForecast[0].physicalOccupied, 0, "A reservation must not require a physical bay.");
 assert.equal(forecast({ bookings: [booking({ status: "draft" })] })[0].reserved, 0, "Storage booking drafts must not reserve capacity.");
+const completedHistorical = booking({
+  plannedCheckInAt: "2026-08-01T09:00:00.000Z",
+  plannedCollectionAt: "2026-08-31T09:00:00.000Z",
+  actualCheckInAt: "2026-08-01T09:00:00.000Z",
+  actualCollectionAt: "2026-08-31T09:00:00.000Z",
+  status: "checked_out"
+});
+assert.equal(forecast({ bookings: [completedHistorical] })[0].capacityUsed, 0, "Completed historical storage must not consume current capacity.");
+const unassignedHistoricalArrival = booking({
+  actualCheckInAt: "2026-09-20T09:00:00.000Z",
+  assignedBayId: undefined,
+  status: "checked_in"
+});
+assert.equal(forecast({ bookings: [unassignedHistoricalArrival] })[0].physicalOccupied, 0, "A historical arrival without an explicit PMS bay must not occupy current capacity.");
 
 const checkedIn = booking({ actualCheckInAt: "2026-10-20T09:00:00.000Z", assignedBayId: "bay-01", status: "checked_in" });
 assert.equal(forecast({ bookings: [checkedIn] })[0].physicalOccupied, 1, "Check-in should consume physical capacity.");
@@ -367,7 +493,12 @@ assert.ok(workspaceSource.includes("Booking data could not be verified"), "A fai
 assert.ok(workspaceSource.includes("Warehouse API ${method} /api/admin/warehouse"), "Warehouse errors must identify the failed request method and endpoint.");
 assert.ok(serverSource.includes("A customer selection is required for a storage booking."), "Server booking creation must require an explicit customer selection.");
 assert.ok(serverSource.includes("A vehicle selection is required for a storage booking."), "Server booking creation must require an explicit vehicle selection.");
-assert.ok(serverSource.includes("Planned check-in cannot be in the past."), "Past planned check-ins must return a clear validation error.");
+assert.equal(serverSource.includes("Planned check-in cannot be in the past."), false, "Past planned check-ins must be accepted for retrospective Warehouse history.");
+assert.ok(serverSource.includes("Actual checkout must be after actual check-in."), "Actual date ranges must remain logically valid.");
+assert.ok(serverSource.includes("getBookingCapacityWindow"), "Historical booking creation must protect only current and future applicable capacity.");
+assert.ok(workspaceSource.includes("This is a backdated storage booking. Please confirm the vehicle’s actual arrival date."), "The booking form must clearly warn before a backdated entry is created.");
+assert.ok(workspaceSource.includes("Actual arrival"), "The booking form must allow the original arrival to be recorded.");
+assert.ok(workspaceSource.includes("Actual checkout"), "The booking form must allow a completed historical stay to be recorded.");
 assert.ok(serverSource.includes("omitUndefinedWarehousePmsFields({ ...payload, reference })"), "Booking writes must omit optional undefined fields before Firebase Admin validation.");
 assert.ok(serverSource.includes("transaction.get(referenceDoc)"), "Warehouse booking creation must return an existing idempotent request rather than duplicate it.");
 assert.ok(routeSource.includes('get("diagnostics") === "1"'), "Warehouse read diagnostics must be an explicit GET-only path.");
