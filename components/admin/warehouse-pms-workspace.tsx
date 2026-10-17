@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight,
   CalendarDays,
@@ -83,6 +83,8 @@ const VIEWS: Array<{ id: WarehouseView; label: string }> = [
   { id: "analytics", label: "Analytics" }
 ];
 
+const DEFAULT_NEW_BOOKING_MONTHLY_RATE = "380";
+
 function datetimeInputValue(value: Date) {
   const offset = value.getTimezoneOffset() * 60_000;
   return new Date(value.getTime() - offset).toISOString().slice(0, 16);
@@ -112,7 +114,7 @@ function makeBookingDraft(snapshot?: WarehousePmsSnapshot): BookingDraft {
     linkedStorageContractId: "",
     plannedCheckInAt: datetimeInputValue(start),
     plannedCollectionAt: datetimeInputValue(end),
-    monthlyRate: String(snapshot?.settings.defaultMonthlyRate ?? 380),
+    monthlyRate: DEFAULT_NEW_BOOKING_MONTHLY_RATE,
     dailyRate: String(snapshot?.settings.defaultDailyRate ?? 12.67),
     additionalStorageCharges: "0",
     notes: "",
@@ -172,6 +174,7 @@ export function WarehousePmsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [pendingAction, setPendingAction] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [snapshotReadFailed, setSnapshotReadFailed] = useState(false);
   const [notice, setNotice] = useState("");
   const [bookingDraft, setBookingDraft] = useState<BookingDraft>(() => makeBookingDraft());
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -185,6 +188,8 @@ export function WarehousePmsWorkspace() {
   const [defaultMonthlyRate, setDefaultMonthlyRate] = useState("380");
   const [defaultDailyRate, setDefaultDailyRate] = useState("12.67");
   const [managedVehicleSearch, setManagedVehicleSearch] = useState("");
+  const bookingSubmitInFlight = useRef(false);
+  const bookingCreationRequestId = useRef("");
 
   const canManageWarehouse = hasAdminPermission(appUser, "manageVehicles");
 
@@ -204,18 +209,26 @@ export function WarehousePmsWorkspace() {
     };
     if (!response.ok || !result.success) {
       const dates = result.details?.affectedDates?.map((entry) => formatCalendarDate(entry.date)).join(", ");
-      throw new Error(dates ? `${result.error || "Warehouse capacity conflict."} Affected dates: ${dates}.` : result.error || "Warehouse request failed.");
+      const requestLabel = `Warehouse API ${method} /api/admin/warehouse${body?.action ? ` (${String(body.action)})` : ""} failed (${response.status})`;
+      const message = dates ? `${result.error || "Warehouse capacity conflict."} Affected dates: ${dates}.` : result.error || "Warehouse request failed.";
+      throw new Error(`${requestLabel}: ${message}`);
     }
     return result;
   }, [firebaseUser]);
 
   const loadSnapshot = useCallback(async () => {
-    const result = await request("GET");
-    if (!result.snapshot) throw new Error("Warehouse data was unavailable.");
-    setSnapshot(result.snapshot);
-    setDefaultMonthlyRate(String(result.snapshot.settings.defaultMonthlyRate));
-    setDefaultDailyRate(String(result.snapshot.settings.defaultDailyRate));
-    setBookingDraft((current) => current.customerId || current.vehicleId ? current : makeBookingDraft(result.snapshot));
+    try {
+      const result = await request("GET");
+      if (!result.snapshot) throw new Error("Warehouse data was unavailable.");
+      setSnapshot(result.snapshot);
+      setSnapshotReadFailed(false);
+      setDefaultMonthlyRate(String(result.snapshot.settings.defaultMonthlyRate));
+      setDefaultDailyRate(String(result.snapshot.settings.defaultDailyRate));
+      setBookingDraft((current) => current.customerId || current.vehicleId ? current : makeBookingDraft(result.snapshot));
+    } catch (error) {
+      setSnapshotReadFailed(true);
+      throw error;
+    }
   }, [request]);
 
   useEffect(() => {
@@ -251,6 +264,26 @@ export function WarehousePmsWorkspace() {
     } finally {
       setPendingAction("");
     }
+  };
+
+  const refreshWarehouse = async () => {
+    setPendingAction("refresh");
+    setErrorMessage("");
+    setNotice("");
+    try {
+      await loadSnapshot();
+      setNotice("Warehouse data refreshed.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Warehouse data could not be refreshed.");
+    } finally {
+      setPendingAction("");
+    }
+  };
+
+  const openBookingModal = () => {
+    setBookingDraft(makeBookingDraft(snapshot || undefined));
+    bookingCreationRequestId.current = crypto.randomUUID();
+    setBookingModalOpen(true);
   };
 
   const selectCustomer = (customerId: string) => {
@@ -289,10 +322,26 @@ export function WarehousePmsWorkspace() {
 
   const submitBooking = async (event: FormEvent) => {
     event.preventDefault();
-    const succeeded = await runAction("create-booking", { action: "create_booking", ...bookingDraft }, "Storage booking created.");
-    if (succeeded) {
-      setBookingModalOpen(false);
-      setBookingDraft(makeBookingDraft(snapshot || undefined));
+    if (bookingSubmitInFlight.current) return;
+    if (!bookingDraft.customerId || !bookingDraft.vehicleId) {
+      setErrorMessage("Select a customer and vehicle before creating a storage booking.");
+      return;
+    }
+
+    bookingSubmitInFlight.current = true;
+    try {
+      const succeeded = await runAction("create-booking", {
+        action: "create_booking",
+        creationRequestId: bookingCreationRequestId.current,
+        ...bookingDraft
+      }, "Storage booking created.");
+      if (succeeded) {
+        setBookingModalOpen(false);
+        setBookingDraft(makeBookingDraft(snapshot || undefined));
+        bookingCreationRequestId.current = "";
+      }
+    } finally {
+      bookingSubmitInFlight.current = false;
     }
   };
 
@@ -407,7 +456,7 @@ export function WarehousePmsWorkspace() {
         </tbody>
       </table>
     </div>
-  ) : <EmptyState>{empty}</EmptyState>;
+  ) : <EmptyState>{snapshotReadFailed ? "Booking data could not be verified after the last refresh. Try refreshing Warehouse data again." : empty}</EmptyState>;
 
   return (
     <div className="space-y-6">
@@ -419,8 +468,8 @@ export function WarehousePmsWorkspace() {
             <p className="mt-1 text-sm text-ink/60">Reservations protect capacity. Physical bays are assigned only when a vehicle checks in.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => { setBookingDraft(makeBookingDraft(snapshot)); setBookingModalOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" />New booking</Button>
-            <button type="button" onClick={() => void runAction("refresh", { action: "bootstrap" }, "Warehouse refreshed.")} className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/10 text-ink transition hover:border-bronze hover:text-bronze" title="Refresh Warehouse data"><RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} /></button>
+            <Button type="button" onClick={openBookingModal}><PackagePlus className="mr-2 h-4 w-4" />New booking</Button>
+            <button type="button" onClick={() => void refreshWarehouse()} className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/10 text-ink transition hover:border-bronze hover:text-bronze" title="Refresh Warehouse data"><RefreshCw className={cn("h-4 w-4", pendingAction === "refresh" && "animate-spin")} /></button>
           </div>
         </div>
         <div className="mt-6 overflow-x-auto"><div className="flex min-w-max gap-5 border-b border-black/10">{VIEWS.map((view) => <TabButton key={view.id} active={activeView === view.id} label={view.label} onClick={() => setActiveView(view.id)} />)}</div></div>
@@ -455,7 +504,7 @@ export function WarehousePmsWorkspace() {
 
       {activeView === "board" && <section className="border border-black/5 bg-white p-5 shadow-panel"><div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h3 className="font-semibold text-ink">Bay board</h3><p className="mt-1 text-sm text-ink/55">Fourteen-day physical bay view. Unassigned reservations remain in capacity, not a bay.</p></div><div className="flex gap-4 text-xs text-ink/55"><span><b className="mr-1 inline-block h-2 w-2 bg-emerald-500" />Occupied</span><span><b className="mr-1 inline-block h-2 w-2 bg-amber-400" />Reserved</span><span><b className="mr-1 inline-block h-2 w-2 bg-black/30" />Unavailable</span></div></div><div className="mt-5 overflow-x-auto"><table className="min-w-[1100px] border-collapse text-left text-xs"><thead><tr><th className="sticky left-0 z-10 min-w-32 border-b border-r border-black/10 bg-white px-3 py-3 font-semibold text-ink">Bay</th>{board[0]?.cells.map((cell) => <th key={cell.date} className="min-w-32 border-b border-black/10 px-3 py-3 font-semibold text-ink">{formatCalendarDate(cell.date)}</th>)}</tr></thead><tbody>{board.map((row) => <tr key={row.bay.id}><td className="sticky left-0 z-10 border-b border-r border-black/10 bg-white px-3 py-3 font-semibold text-ink"><p>{row.bay.label}</p><select aria-label={`${row.bay.label} state`} className="mt-1 w-full border border-black/10 bg-white px-1 py-1 text-[11px] font-medium text-ink/65" value={row.bay.baseState} onChange={(event) => void runAction(`bay-${row.bay.id}`, { action: "update_bay", bayId: row.bay.id, baseState: event.target.value }, `${row.bay.label} updated.`)}><option value="available">Available</option><option value="temporarily_blocked">Temporarily blocked</option><option value="maintenance">Maintenance</option></select></td>{row.cells.map((cell) => <td key={cell.date} className="border-b border-r border-black/5 p-1"><div className={cn("min-h-14 px-2 py-2", cell.state === "occupied" && "bg-emerald-50 text-emerald-800", cell.state === "temporarily_blocked" && "bg-amber-50 text-amber-800", cell.state === "maintenance" && "bg-black/5 text-ink/55", cell.state === "available" && "text-ink/45")}><p>{cell.label}</p>{cell.state === "occupied" && <div className="mt-1 space-y-0.5 text-[10px] leading-tight"><p className="font-semibold">{cell.vehicleType === "managed" ? "Managed vehicle" : cell.vehicleType === "storage" ? "Storage vehicle" : "Internal vehicle"}</p><p>Check-in {formatCalendarDate(cell.checkInAt)}</p>{cell.expectedDepartureAt && <p>Expected {formatCalendarDate(cell.expectedDepartureAt)}</p>}{cell.occupancyId && cell.vehicleType === "managed" && cell.date === today && <button type="button" className="pt-1 text-[10px] font-semibold underline underline-offset-2" onClick={() => void runAction(`release-managed-${cell.occupancyId}`, { action: "release_managed_bay", occupancyId: cell.occupancyId }, "Managed vehicle bay released.")}>Release Bay</button>}</div>}</div></td>)}</tr>)}</tbody></table></div><div className="mt-5 flex flex-wrap gap-2 border-t border-black/10 pt-4 text-sm"><span className="font-semibold text-ink">Unassigned reservations</span>{forecast.slice(0, 14).map((entry) => <span key={entry.date} className="border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{formatCalendarDate(entry.date)}: {entry.reserved}</span>)}</div></section>}
 
-      {activeView === "bookings" && <section className="border border-black/5 bg-white shadow-panel"><div className="flex items-center justify-between gap-4 p-5"><div><h3 className="font-semibold text-ink">Storage bookings</h3><p className="mt-1 text-sm text-ink/55">Reservation capacity and physical check-in are separate.</p></div><Button onClick={() => { setBookingDraft(makeBookingDraft(snapshot)); setBookingModalOpen(true); }}><PackagePlus className="mr-2 h-4 w-4" />New booking</Button></div>{renderBookingRows(bookingsByRecency, "No storage bookings yet.")}</section>}
+      {activeView === "bookings" && <section className="border border-black/5 bg-white shadow-panel"><div className="flex items-center justify-between gap-4 p-5"><div><h3 className="font-semibold text-ink">Storage bookings</h3><p className="mt-1 text-sm text-ink/55">Reservation capacity and physical check-in are separate.</p></div><Button onClick={openBookingModal}><PackagePlus className="mr-2 h-4 w-4" />New booking</Button></div>{renderBookingRows(bookingsByRecency, "No storage bookings yet.")}</section>}
 
       {activeView === "arrivals" && <section className="border border-black/5 bg-white shadow-panel"><div className="p-5"><h3 className="font-semibold text-ink">Today’s arrivals</h3><p className="mt-1 text-sm text-ink/55">Planned to arrive today and not yet physically checked in.</p></div>{renderBookingRows(arrivalsToday, "No arrivals are scheduled today.")}</section>}
       {activeView === "departures" && <section className="border border-black/5 bg-white shadow-panel"><div className="p-5"><h3 className="font-semibold text-ink">Today’s departures</h3><p className="mt-1 text-sm text-ink/55">A planned departure does not free the bay until check-out is completed.</p></div>{renderBookingRows(departuresToday, "No departures are planned today.")}</section>}
@@ -466,7 +515,7 @@ export function WarehousePmsWorkspace() {
 
       {activeView === "analytics" && <section className="space-y-6"><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{(() => { const averageOccupancy = forecast.length ? forecast.reduce((sum, day) => sum + day.physicalOccupied, 0) / forecast.length : 0; const storageRevenue = checkedIn.reduce((sum, booking) => sum + booking.monthlyRate, 0); const averageStay = checkedIn.length ? checkedIn.reduce((sum, booking) => sum + calculateWarehouseBilling({ startAt: booking.actualCheckInAt || booking.plannedCheckInAt, endAt: booking.actualCollectionAt || booking.plannedCollectionAt, monthlyRate: booking.monthlyRate, dailyRate: booking.dailyRate }).totalDays, 0) / checkedIn.length : 0; return <><div className="border border-black/5 bg-white p-5 shadow-panel"><p className="text-sm font-semibold text-ink">Occupancy rate</p><p className="mt-3 text-3xl font-semibold text-ink">{snapshot.settings.bayCapacity ? Math.round(((currentForecast?.physicalOccupied || 0) / snapshot.settings.bayCapacity) * 100) : 0}%</p><p className="mt-2 text-xs text-ink/55">Physical vehicles only</p></div><div className="border border-black/5 bg-white p-5 shadow-panel"><p className="text-sm font-semibold text-ink">Average occupancy</p><p className="mt-3 text-3xl font-semibold text-ink">{averageOccupancy.toFixed(1)}</p><p className="mt-2 text-xs text-ink/55">Physical bays across 30 days</p></div><div className="border border-black/5 bg-white p-5 shadow-panel"><p className="text-sm font-semibold text-ink">Storage revenue estimate</p><p className="mt-3 text-3xl font-semibold text-ink">{formatAccountingCurrency(storageRevenue)}</p><p className="mt-2 text-xs text-ink/55">Revenue-generating storage only</p></div><div className="border border-black/5 bg-white p-5 shadow-panel"><p className="text-sm font-semibold text-ink">Average stay length</p><p className="mt-3 text-3xl font-semibold text-ink">{averageStay.toFixed(0)} days</p><p className="mt-2 text-xs text-ink/55">Current storage bookings</p></div></>; })()}</div><div className="grid gap-6 lg:grid-cols-2"><div className="border border-black/5 bg-white p-5 shadow-panel"><h3 className="font-semibold text-ink">Capacity forecast</h3><div className="mt-4 divide-y divide-black/5">{forecast.slice(0, 16).map((day) => <div key={day.date} className="flex items-center justify-between py-2 text-sm"><span className="text-ink/65">{formatCalendarDate(day.date)}</span><span className="font-medium text-ink">{day.capacityUsed + day.unavailable} / {snapshot.settings.bayCapacity}{day.isFull ? " FULL" : ""}</span></div>)}</div></div><div className="border border-black/5 bg-white p-5 shadow-panel"><h3 className="font-semibold text-ink">Occupancy mix</h3><div className="mt-4 divide-y divide-black/5 text-sm"><div className="flex justify-between py-2"><span className="text-ink/65">Storage customer vehicles</span><span className="font-semibold text-ink">{checkedIn.length}</span></div><div className="flex justify-between py-2"><span className="text-ink/65">Managed vehicle bay usage</span><span className="font-semibold text-ink">{currentForecast?.managedOccupied || 0}</span></div><div className="flex justify-between py-2"><span className="text-ink/65">Internal / listing occupancy</span><span className="font-semibold text-ink">{currentForecast?.internalOccupied || 0}</span></div><div className="flex justify-between py-2"><span className="text-ink/65">Available capacity</span><span className="font-semibold text-ink">{currentForecast?.availableCapacity || 0}</span></div><div className="flex justify-between py-2"><span className="text-ink/65">Theoretical monthly storage capacity</span><span className="font-semibold text-ink">{formatAccountingCurrency(snapshot.settings.bayCapacity * snapshot.settings.defaultMonthlyRate)}</span></div></div></div></div></section>}
 
-      {bookingModalOpen && <Modal title="New storage booking" onClose={() => setBookingModalOpen(false)}><form onSubmit={submitBooking} className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-medium text-ink">Customer<select required className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.customerId} onChange={(event) => selectCustomer(event.target.value)}><option value="">Select registered customer</option>{snapshot.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.fullName}{customer.email ? ` · ${customer.email}` : ""}</option>)}</select></label><label className="text-sm font-medium text-ink">Vehicle<select required className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.vehicleId ? `${bookingDraft.vehicleSource}:${bookingDraft.vehicleId}` : ""} onChange={(event) => selectVehicle(event.target.value)}><option value="">Select CarNest vehicle / record</option>{snapshot.vehicles.map((vehicle) => <option key={`${vehicle.source}:${vehicle.id}`} value={`${vehicle.source}:${vehicle.id}`}>{vehicle.title}{vehicle.rego ? ` · ${vehicle.rego}` : ""}</option>)}</select></label><label className="text-sm font-medium text-ink">Planned check-in<Input required type="datetime-local" className="mt-1" value={bookingDraft.plannedCheckInAt} onChange={(event) => setBookingDraft((current) => ({ ...current, plannedCheckInAt: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Planned collection<Input required type="datetime-local" className="mt-1" value={bookingDraft.plannedCollectionAt} onChange={(event) => setBookingDraft((current) => ({ ...current, plannedCollectionAt: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Booking status<select className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.status} onChange={(event) => setBookingDraft((current) => ({ ...current, status: event.target.value as BookingDraft["status"] }))}><option value="draft">Draft</option><option value="reserved">Reserved</option><option value="confirmed">Confirmed</option></select></label><label className="text-sm font-medium text-ink">Monthly rate<Input required type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.monthlyRate} onChange={(event) => setBookingDraft((current) => ({ ...current, monthlyRate: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Daily rate<Input required type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.dailyRate} onChange={(event) => setBookingDraft((current) => ({ ...current, dailyRate: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Additional charges<Input type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.additionalStorageCharges} onChange={(event) => setBookingDraft((current) => ({ ...current, additionalStorageCharges: event.target.value }))} /></label></div>{bookingDraft.linkedStorageContractId && <div className="border border-black/10 bg-black/[0.02] px-4 py-3 text-sm text-ink/65">Linked existing Storage Contract: {snapshot.linkedContracts.find((contract) => contract.id === bookingDraft.linkedStorageContractId)?.reference || bookingDraft.linkedStorageContractId} (read-only)</div>}<label className="block text-sm font-medium text-ink">Notes<textarea className="mt-1 min-h-24 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm outline-none focus:border-bronze" value={bookingDraft.notes} onChange={(event) => setBookingDraft((current) => ({ ...current, notes: event.target.value }))} /></label><div className="flex justify-end gap-3"><button type="button" className="px-4 py-3 text-sm font-semibold text-ink/65" onClick={() => setBookingModalOpen(false)}>Cancel</button><Button disabled={pendingAction === "create-booking"}>{pendingAction === "create-booking" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create booking</Button></div></form></Modal>}
+      {bookingModalOpen && <Modal title="New storage booking" onClose={() => setBookingModalOpen(false)}><form autoComplete="off" onSubmit={submitBooking} className="space-y-5"><div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-medium text-ink">Customer<select required autoComplete="off" className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.customerId} onChange={(event) => selectCustomer(event.target.value)}><option value="">Select registered customer</option>{snapshot.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.fullName}{customer.email ? ` · ${customer.email}` : ""}</option>)}</select></label><label className="text-sm font-medium text-ink">Vehicle<select required autoComplete="off" className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.vehicleId ? `${bookingDraft.vehicleSource}:${bookingDraft.vehicleId}` : ""} onChange={(event) => selectVehicle(event.target.value)}><option value="">Select CarNest vehicle / record</option>{snapshot.vehicles.map((vehicle) => <option key={`${vehicle.source}:${vehicle.id}`} value={`${vehicle.source}:${vehicle.id}`}>{vehicle.title}{vehicle.rego ? ` · ${vehicle.rego}` : ""}</option>)}</select></label><label className="text-sm font-medium text-ink">Planned check-in<Input required type="datetime-local" className="mt-1" value={bookingDraft.plannedCheckInAt} onChange={(event) => setBookingDraft((current) => ({ ...current, plannedCheckInAt: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Planned collection<Input required type="datetime-local" className="mt-1" value={bookingDraft.plannedCollectionAt} onChange={(event) => setBookingDraft((current) => ({ ...current, plannedCollectionAt: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Booking status<select className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={bookingDraft.status} onChange={(event) => setBookingDraft((current) => ({ ...current, status: event.target.value as BookingDraft["status"] }))}><option value="draft">Draft</option><option value="reserved">Reserved</option><option value="confirmed">Confirmed</option></select></label><label className="text-sm font-medium text-ink">Monthly rate<Input required type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.monthlyRate} onChange={(event) => setBookingDraft((current) => ({ ...current, monthlyRate: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Daily rate<Input required type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.dailyRate} onChange={(event) => setBookingDraft((current) => ({ ...current, dailyRate: event.target.value }))} /></label><label className="text-sm font-medium text-ink">Additional charges<Input type="number" min="0" step="0.01" className="mt-1" value={bookingDraft.additionalStorageCharges} onChange={(event) => setBookingDraft((current) => ({ ...current, additionalStorageCharges: event.target.value }))} /></label></div>{bookingDraft.linkedStorageContractId && <div className="border border-black/10 bg-black/[0.02] px-4 py-3 text-sm text-ink/65">Linked existing Storage Contract: {snapshot.linkedContracts.find((contract) => contract.id === bookingDraft.linkedStorageContractId)?.reference || bookingDraft.linkedStorageContractId} (read-only)</div>}<label className="block text-sm font-medium text-ink">Notes<textarea className="mt-1 min-h-24 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm outline-none focus:border-bronze" value={bookingDraft.notes} onChange={(event) => setBookingDraft((current) => ({ ...current, notes: event.target.value }))} /></label><div className="flex justify-end gap-3"><button type="button" className="px-4 py-3 text-sm font-semibold text-ink/65" onClick={() => setBookingModalOpen(false)}>Cancel</button><Button disabled={!bookingDraft.customerId || !bookingDraft.vehicleId || pendingAction === "create-booking"}>{pendingAction === "create-booking" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Create booking</Button></div></form></Modal>}
 
       {checkInBooking && <Modal title={`Check in ${checkInBooking.vehicleTitle}`} onClose={() => setCheckInBooking(null)}><form onSubmit={submitCheckIn} className="space-y-5"><div className="border border-black/10 bg-black/[0.02] px-4 py-3 text-sm text-ink/65"><p>Customer: {checkInBooking.customerName}</p><p className="mt-1">Planned collection: {formatAdminDateTime(checkInBooking.plannedCollectionAt)}</p></div><label className="block text-sm font-medium text-ink">Physical bay<select required className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm" value={selectedBayId} onChange={(event) => setSelectedBayId(event.target.value)}><option value="">Select available bay</option>{availableBays.map((bay) => <option key={bay.id} value={bay.id}>{bay.label}</option>)}</select></label><div className="flex justify-end gap-3"><button type="button" className="px-4 py-3 text-sm font-semibold text-ink/65" onClick={() => setCheckInBooking(null)}>Cancel</button><Button disabled={!selectedBayId || pendingAction === "check-in"}>Check in</Button></div></form></Modal>}
 

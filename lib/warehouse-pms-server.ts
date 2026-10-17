@@ -284,6 +284,35 @@ async function loadPmsDocuments() {
   };
 }
 
+function readDiagnosticErrorCode(error: unknown) {
+  if (typeof error === "object" && error && "code" in error && typeof error.code === "string") return error.code;
+  return "read_failed";
+}
+
+export async function getWarehousePmsReadDiagnostics() {
+  const db = getAdminDb();
+  const reads = [
+    [SETTINGS_COLLECTION, db.collection(SETTINGS_COLLECTION).doc("default").get()],
+    [BAYS_COLLECTION, db.collection(BAYS_COLLECTION).get()],
+    [BOOKINGS_COLLECTION, db.collection(BOOKINGS_COLLECTION).get()],
+    [EXTENSIONS_COLLECTION, db.collection(EXTENSIONS_COLLECTION).get()],
+    [OCCUPANCY_COLLECTION, db.collection(OCCUPANCY_COLLECTION).get()]
+  ] as const;
+  const results = await Promise.allSettled(reads.map(([, read]) => read));
+
+  return {
+    mode: "read_only" as const,
+    collections: results.map((result, index) => {
+      const name = reads[index][0];
+      if (result.status === "fulfilled") {
+        const documentCount = "size" in result.value ? result.value.size : result.value.exists ? 1 : 0;
+        return { name, ok: true, documentCount };
+      }
+      return { name, ok: false, errorCode: readDiagnosticErrorCode(result.reason) };
+    })
+  };
+}
+
 export async function loadWarehousePmsSnapshot(): Promise<WarehousePmsSnapshot> {
   const [pms, references] = await Promise.all([loadPmsDocuments(), loadReferenceData()]);
   return {
@@ -343,8 +372,12 @@ function normalizeBookingInput(input: Record<string, unknown>, settings: Warehou
   const status = ["draft", "reserved", "confirmed"].includes(requestedStatus) ? requestedStatus : "confirmed";
   const monthlyRate = Math.max(0, asNumber(input.monthlyRate, settings.defaultMonthlyRate));
   const dailyRate = Math.max(0, asNumber(input.dailyRate, settings.defaultDailyRate));
+  const customerId = asOptionalString(input.customerId);
+  const vehicleId = asOptionalString(input.vehicleId);
   const customerName = asString(input.customerName);
   const vehicleTitle = asString(input.vehicleTitle);
+  if (!customerId) throw new WarehousePmsError("A customer selection is required for a storage booking.");
+  if (!vehicleId) throw new WarehousePmsError("A vehicle selection is required for a storage booking.");
   if (!customerName) throw new WarehousePmsError("A customer is required for a storage booking.");
   if (!vehicleTitle) throw new WarehousePmsError("A vehicle is required for a storage booking.");
   const manualBillingOverride = input.manualBillingOverride === "" || input.manualBillingOverride === undefined
@@ -352,11 +385,11 @@ function normalizeBookingInput(input: Record<string, unknown>, settings: Warehou
     : Math.max(0, asNumber(input.manualBillingOverride));
 
   return {
-    customerId: asOptionalString(input.customerId),
+    customerId,
     customerName,
     customerEmail: asOptionalString(input.customerEmail),
     customerPhone: asOptionalString(input.customerPhone),
-    vehicleId: asOptionalString(input.vehicleId),
+    vehicleId,
     vehicleSource: input.vehicleSource === "vehicle_record" ? "vehicle_record" : "vehicle",
     vehicleTitle,
     vehicleYear: asOptionalString(input.vehicleYear),
@@ -431,6 +464,15 @@ function assertNoCapacityConflict(input: {
 
 export async function createWarehousePmsBooking(input: Record<string, unknown>, actorUid: string) {
   const db = getAdminDb();
+  const creationRequestId = asString(input.creationRequestId);
+  if (!/^[a-z0-9-]{16,100}$/i.test(creationRequestId)) {
+    throw new WarehousePmsError("A valid booking creation request is required.");
+  }
+  const referenceDoc = db.collection(BOOKINGS_COLLECTION).doc(`request-${creationRequestId}`);
+  const existingBooking = await referenceDoc.get();
+  if (existingBooking.exists) {
+    return { id: existingBooking.id, reference: asString(existingBooking.data()?.reference) || existingBooking.id };
+  }
   const [pms, managedVehicles] = await Promise.all([getTransactionalPmsData(), getManagedVehicles()]);
   const payload = normalizeBookingInput(input, pms.settings, actorUid);
   const candidate = serializeBooking("candidate", {
@@ -451,15 +493,20 @@ export async function createWarehousePmsBooking(input: Record<string, unknown>, 
     });
   }
 
-  const referenceDoc = db.collection(BOOKINGS_COLLECTION).doc();
-  const reference = `WHS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${referenceDoc.id.slice(0, 6).toUpperCase()}`;
+  const reference = `WHS-${new Date().toISOString().slice(0, 10).replaceAll("-", "")}-${creationRequestId.slice(-6).toUpperCase()}`;
+  let savedReference = reference;
   await db.runTransaction(async (transaction) => {
-    const [settingsSnapshot, baysSnapshot, bookingsSnapshot, occupancySnapshot] = await Promise.all([
+    const [existingBookingSnapshot, settingsSnapshot, baysSnapshot, bookingsSnapshot, occupancySnapshot] = await Promise.all([
+      transaction.get(referenceDoc),
       transaction.get(db.collection(SETTINGS_COLLECTION).doc("default")),
       transaction.get(db.collection(BAYS_COLLECTION)),
       transaction.get(db.collection(BOOKINGS_COLLECTION)),
       transaction.get(db.collection(OCCUPANCY_COLLECTION))
     ]);
+    if (existingBookingSnapshot.exists) {
+      savedReference = asString(existingBookingSnapshot.data()?.reference) || reference;
+      return;
+    }
     const currentPms = {
       settings: settingsSnapshot.exists ? serializeSettings(settingsSnapshot.id, settingsSnapshot.data() ?? {}) : DEFAULT_SETTINGS,
       bays: baysSnapshot.docs.map((document) => serializeBay(document.id, document.data())),
@@ -477,7 +524,7 @@ export async function createWarehousePmsBooking(input: Record<string, unknown>, 
     }
     transaction.create(referenceDoc, { ...payload, reference });
   });
-  return { id: referenceDoc.id, reference };
+  return { id: referenceDoc.id, reference: savedReference };
 }
 
 export async function checkInWarehousePmsBooking(bookingId: string, bayId: string, actorUid: string) {

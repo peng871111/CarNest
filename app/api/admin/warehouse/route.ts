@@ -6,6 +6,7 @@ import {
   checkOutWarehousePmsBooking,
   createWarehousePmsBooking,
   extendWarehousePmsBooking,
+  getWarehousePmsReadDiagnostics,
   loadWarehousePmsSnapshot,
   releaseWarehousePmsManagedOccupancy,
   updateWarehousePmsBay,
@@ -34,6 +35,9 @@ function failureResponse(error: unknown) {
 export async function GET(request: NextRequest) {
   try {
     await requireVerifiedAdminApiAccess(request, "manageVehicles");
+    if (request.nextUrl.searchParams.get("diagnostics") === "1") {
+      return NextResponse.json({ success: true, diagnostics: await getWarehousePmsReadDiagnostics() });
+    }
     return NextResponse.json({ success: true, snapshot: await loadWarehousePmsSnapshot() });
   } catch (error) {
     return failureResponse(error);

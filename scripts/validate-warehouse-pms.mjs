@@ -162,7 +162,20 @@ assert.equal(readProjectFile("lib/warehouse-pms.ts").includes("effectiveManagedV
 
 assert.ok(routeSource.includes('requireVerifiedAdminApiAccess(request, "manageVehicles")'), "Warehouse API must require verified Admin authorization.");
 assert.ok(routeSource.includes("AdminApiAuthError"), "Unauthorized API calls must return an authorization failure.");
-assert.equal(workspaceSource.includes('request("POST", { action: "bootstrap" })'), false, "Opening Warehouse must not run a write-capable bootstrap request.");
+assert.equal(workspaceSource.includes('action: "bootstrap"'), false, "Warehouse loading and refresh must not run a write-capable bootstrap request.");
+assert.ok(workspaceSource.includes('const DEFAULT_NEW_BOOKING_MONTHLY_RATE = "380"'), "The approved new-booking monthly default must be $380.");
+assert.ok(workspaceSource.includes('monthlyRate: DEFAULT_NEW_BOOKING_MONTHLY_RATE'), "New storage bookings must always start at the approved $380 monthly default.");
+assert.ok(workspaceSource.includes('customerId: ""'), "New storage bookings must start without a selected customer.");
+assert.ok(workspaceSource.includes('vehicleId: ""'), "New storage bookings must start without a selected vehicle.");
+assert.ok(workspaceSource.includes("bookingSubmitInFlight.current"), "New storage booking submission must prevent an accidental double submit.");
+assert.ok(workspaceSource.includes("bookingCreationRequestId"), "New storage booking requests must carry an idempotency key.");
+assert.ok(workspaceSource.includes("Booking data could not be verified"), "A failed refresh must not incorrectly claim that bookings are empty.");
+assert.ok(workspaceSource.includes("Warehouse API ${method} /api/admin/warehouse"), "Warehouse errors must identify the failed request method and endpoint.");
+assert.ok(serverSource.includes("A customer selection is required for a storage booking."), "Server booking creation must require an explicit customer selection.");
+assert.ok(serverSource.includes("A vehicle selection is required for a storage booking."), "Server booking creation must require an explicit vehicle selection.");
+assert.ok(serverSource.includes("transaction.get(referenceDoc)"), "Warehouse booking creation must return an existing idempotent request rather than duplicate it.");
+assert.ok(routeSource.includes('get("diagnostics") === "1"'), "Warehouse read diagnostics must be an explicit GET-only path.");
+assert.ok(serverSource.includes('mode: "read_only" as const'), "Warehouse diagnostics must remain read-only.");
 assert.ok(workspaceSource.includes("Storage bookings"), "Warehouse UI must expose Storage Bookings.");
 assert.ok(workspaceSource.includes("Bay board"), "Warehouse UI must expose the Bay Board.");
 assert.ok(workspaceSource.includes("Assign Managed Vehicle"), "Warehouse UI must allow an Admin to assign a Managed vehicle to a bay.");
