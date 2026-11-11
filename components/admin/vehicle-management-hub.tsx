@@ -30,6 +30,13 @@ import {
   isSuperAdminUser
 } from "@/lib/permissions";
 import { getSaleHandoverVehicleCardActions, isWarehouseManagedListing } from "@/lib/sale-handover";
+import {
+  compareRegoExpiryDateKeys,
+  getMelbourneCalendarDateKey,
+  getRegoExpiryReminder,
+  isRegoExpiringWithinThirtyDays,
+  REGO_EXPIRING_VEHICLES_FILTER
+} from "@/lib/admin-vehicle-rego";
 import { formatAccountingCurrency, formatAdminDateTime, formatCurrency, getVehicleDisplayReference } from "@/lib/utils";
 import { AdminAccountingEntry, AppUser, CustomerProfile, SaleHandoverRecord, Vehicle, VehicleActivityEvent, VehicleActor, VehicleRecord, WarehouseIntakeRecord } from "@/types";
 
@@ -44,7 +51,7 @@ type VehicleOperationalStatus =
   | "Withdrawn"
   | "Unlinked";
 type AdminListingStatus = "Pending Review" | "Listed" | "Warehouse managed" | "Under offer" | "Sold" | "Withdrawn";
-type VehicleListingsFilter = "Pending Review" | "Active" | "Sold" | "Withdrawn" | "All";
+type VehicleListingsFilter = "Pending Review" | "Active" | "Sold" | "Withdrawn" | "All" | typeof REGO_EXPIRING_VEHICLES_FILTER;
 type VehicleRowStatusControl = "ACTIVE" | "SOLD" | "WITHDRAWN";
 type VehicleLogComposerMode = "internal" | "owner";
 type VehicleLogComposerDraft = {
@@ -256,6 +263,12 @@ function StatusPill({ label }: { label: VehicleOperationalStatus | AdminListingS
   return <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold ${getStatusTone(label)}`}>{label}</span>;
 }
 
+function getRegoReminderClassName(status: "expired" | "urgent" | "expiring") {
+  if (status === "expired") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "urgent") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-amber-200 bg-amber-50 text-amber-800";
+}
+
 function InfoStat({ label, value, helper }: { label: string; value: string; helper?: string }) {
   return (
     <div className="rounded-[18px] border border-black/6 bg-shell px-4 py-4">
@@ -341,6 +354,7 @@ export function VehicleManagementHub({
   const [globalSearch, setGlobalSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState(initialCustomerSearch);
   const [vehicleStatusFilter, setVehicleStatusFilter] = useState<VehicleListingsFilter>(defaultView === "vehicles" ? "Active" : "All");
+  const [regoToday, setRegoToday] = useState(() => getMelbourneCalendarDateKey());
   const [localVehicles, setLocalVehicles] = useState(vehicles);
   const [localCustomerProfiles, setLocalCustomerProfiles] = useState(customerProfiles);
   const [localVehicleRecords, setLocalVehicleRecords] = useState(vehicleRecords);
@@ -365,6 +379,15 @@ export function VehicleManagementHub({
   useEffect(() => {
     setVehicleStatusFilter(defaultView === "vehicles" ? "Active" : "All");
   }, [defaultView]);
+
+  useEffect(() => {
+    const refreshRegoToday = () => {
+      const nextToday = getMelbourneCalendarDateKey();
+      setRegoToday((currentToday) => currentToday === nextToday ? currentToday : nextToday);
+    };
+    const intervalId = window.setInterval(refreshRegoToday, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   useEffect(() => {
     setLocalVehicles(vehicles);
@@ -597,7 +620,8 @@ export function VehicleManagementHub({
 
   const listingRows = useMemo(() => {
     const term = globalSearch.trim().toLowerCase();
-    const statusRank: Record<Exclude<VehicleListingsFilter, "All">, number> = {
+    const isRegoExpiringFilter = vehicleStatusFilter === REGO_EXPIRING_VEHICLES_FILTER;
+    const statusRank: Record<Exclude<VehicleListingsFilter, "All" | typeof REGO_EXPIRING_VEHICLES_FILTER>, number> = {
       "Pending Review": 0,
       Active: 1,
       Sold: 2,
@@ -605,9 +629,17 @@ export function VehicleManagementHub({
     };
 
     return allListingRows
-      .filter((row) => (vehicleStatusFilter === "All" ? true : row.filterGroup === vehicleStatusFilter))
+      .filter((row) => {
+        if (isRegoExpiringFilter) {
+          return row.filterGroup === "Active" && isRegoExpiringWithinThirtyDays(row.vehicle.regoExpiry, regoToday);
+        }
+        return vehicleStatusFilter === "All" ? true : row.filterGroup === vehicleStatusFilter;
+      })
       .filter((row) => (term ? row.searchText.includes(term) : true))
       .sort((left, right) => {
+        if (isRegoExpiringFilter) {
+          return compareRegoExpiryDateKeys(left.vehicle.regoExpiry, right.vehicle.regoExpiry);
+        }
         if (vehicleStatusFilter === "All") {
           const groupSort = statusRank[left.filterGroup] - statusRank[right.filterGroup];
           if (groupSort !== 0) return groupSort;
@@ -620,7 +652,7 @@ export function VehicleManagementHub({
         const rightRef = getVehicleDisplayReference(right.vehicle);
         return leftRef.localeCompare(rightRef);
       });
-  }, [allListingRows, globalSearch, vehicleStatusFilter]);
+  }, [allListingRows, globalSearch, regoToday, vehicleStatusFilter]);
 
   const workspaceMetrics = useMemo(() => {
     const listingLinkedRecords = localVehicleRecords
@@ -1458,6 +1490,7 @@ export function VehicleManagementHub({
                 <option value="Sold">Sold</option>
                 <option value="Withdrawn">Withdrawn</option>
                 <option value="All">All</option>
+                <option value={REGO_EXPIRING_VEHICLES_FILTER}>{REGO_EXPIRING_VEHICLES_FILTER}</option>
               </CompactSelect>
               <button
                 type="button"
@@ -1493,6 +1526,7 @@ export function VehicleManagementHub({
                 const saleHandoverRecord = saleHandoverRecordByListingId.get(vehicle.id) ?? null;
                 const showSaleHandoverAction = isWarehouseManagedListing(vehicle);
                 const saleHandoverActions = showSaleHandoverAction ? getSaleHandoverVehicleCardActions(saleHandoverRecord) : [];
+                const regoReminder = getRegoExpiryReminder(vehicle.regoExpiry, regoToday);
 
                 return (
                 <div key={vehicle.id} className="rounded-[22px] border border-black/6 bg-shell px-4 py-4">
@@ -1527,6 +1561,11 @@ export function VehicleManagementHub({
                         {publicationProgress.priorityPending ? (
                           <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 font-semibold text-amber-800">
                             Needs publishing
+                          </span>
+                        ) : null}
+                        {regoReminder ? (
+                          <span className={`rounded-full border px-2.5 py-1 font-semibold ${getRegoReminderClassName(regoReminder.status)}`}>
+                            {regoReminder.label}
                           </span>
                         ) : null}
                       </div>
