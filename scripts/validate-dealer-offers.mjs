@@ -208,6 +208,12 @@ assert.match(inventoryBrowser, /showOfferActions/, "Inventory is the only Vehicl
 assert.match(inventoryCard, /router\.push\(vehicleHref\)/, "Card background navigation remains routed to the original Vehicle Detail page.");
 assert.match(inventoryCard, /\?action=offer#take-action-panel/, "Private Offer action must reuse the existing Vehicle Detail offer flow.");
 assert.match(inventoryCard, /event\.stopPropagation\(\)/, "Offer controls must not trigger vehicle-card navigation.");
+assert.match(inventoryCard, /absolute inset-0/, "Vehicle actions must be an in-photo overlay rather than card content below the image.");
+assert.match(inventoryCard, /flex w-44 flex-col gap-3/, "Vehicle actions must be a single vertical column with 12px spacing.");
+assert.match(inventoryCard, /View listing[\s\S]*Private offer[\s\S]*Dealer offer/, "Overlay actions must retain View listing, Private offer, Dealer offer order.");
+assert.match(inventoryCard, /bg-white\/\[0\.18\]/, "Overlay actions must retain frosted-glass styling.");
+assert.match(inventoryCard, /min-h-11/, "Touch overlay actions must meet the 44px minimum target height.");
+assert.match(inventoryCard, /pointerdown/, "Touch interaction must close the overlay when tapping outside the vehicle photo.");
 assert.match(takeAction, /DealerOfferModal/, "Vehicle Detail must reuse the shared Dealer Offer modal.");
 assert.match(privateSubmitRoute, /submitPublicOffer/, "The existing Private Offer submission route remains unchanged.");
 assert.match(privateSubmitRoute, /submitPublicInspectionRequest/, "The existing Book Inspection route remains unchanged.");

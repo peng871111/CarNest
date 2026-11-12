@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DealerOfferModal } from "@/components/offers/dealer-offer-modal";
 import { Vehicle } from "@/types";
 import { formatCurrency } from "@/lib/utils";
@@ -18,10 +18,40 @@ export function VehicleCard({ vehicle, compact = false, showOfferActions = false
   const candidates = useMemo(() => getVehicleImageCandidates(vehicle), [vehicle]);
   const [imageIndex, setImageIndex] = useState(0);
   const [dealerOfferOpen, setDealerOfferOpen] = useState(false);
+  const [photoActionsOpen, setPhotoActionsOpen] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  const photoRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setImageIndex(0);
+    setPhotoActionsOpen(false);
   }, [vehicle.id]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(hover: none), (pointer: coarse)");
+    const updateInteractionMode = () => setIsTouchDevice(mediaQuery.matches);
+    updateInteractionMode();
+    mediaQuery.addEventListener("change", updateInteractionMode);
+    return () => mediaQuery.removeEventListener("change", updateInteractionMode);
+  }, []);
+
+  useEffect(() => {
+    if (!photoActionsOpen || !isTouchDevice) return;
+
+    function closePhotoActions(event: Event) {
+      if (photoRef.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPhotoActionsOpen(false);
+    }
+
+    document.addEventListener("pointerdown", closePhotoActions, true);
+    document.addEventListener("click", closePhotoActions, true);
+    return () => {
+      document.removeEventListener("pointerdown", closePhotoActions, true);
+      document.removeEventListener("click", closePhotoActions, true);
+    };
+  }, [isTouchDevice, photoActionsOpen]);
 
   const imageSrc = candidates[Math.min(imageIndex, candidates.length - 1)];
   const vehicleHref = `/inventory/${vehicle.id}`;
@@ -44,8 +74,18 @@ export function VehicleCard({ vehicle, compact = false, showOfferActions = false
           }}
           className={`group cursor-pointer overflow-hidden border border-black/5 bg-white shadow-panel transition hover:-translate-y-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-bronze ${compact ? "rounded-[22px]" : "rounded-[24px]"}`}
         >
-          <Link href={vehicleHref} aria-label={`View ${vehicle.year} ${vehicle.make} ${vehicle.model}`} className="block">
-            <div className="relative aspect-[4/3]">
+          <div ref={photoRef} className="relative aspect-[4/3] overflow-hidden">
+            <Link
+              href={vehicleHref}
+              aria-label={`View ${vehicle.year} ${vehicle.make} ${vehicle.model}`}
+              className="block h-full"
+              onClick={(event) => {
+                if (!isTouchDevice) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setPhotoActionsOpen(true);
+              }}
+            >
               <PublicVehicleImage
                 src={imageSrc}
                 alt={`${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant} exterior photo on CarNest`.replace(/\s+/g, " ").trim()}
@@ -56,8 +96,40 @@ export function VehicleCard({ vehicle, compact = false, showOfferActions = false
                 onImageError={() => setImageIndex((current) => (current < candidates.length - 1 ? current + 1 : current))}
               />
               <ImageWatermark />
+            </Link>
+            <div
+              className={`absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-4 opacity-0 backdrop-blur-[1px] transition-opacity duration-200 pointer-events-none group-focus-within:pointer-events-auto group-focus-within:opacity-100 md:group-hover:pointer-events-auto md:group-hover:opacity-100 ${photoActionsOpen ? "pointer-events-auto opacity-100" : ""}`}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex w-44 flex-col gap-3">
+                <Link
+                  href={vehicleHref}
+                  onClick={(event) => event.stopPropagation()}
+                  className="flex min-h-11 items-center justify-center rounded-full border border-white/35 bg-white/[0.18] px-5 py-3 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/[0.3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  View listing
+                </Link>
+                <Link
+                  href={privateOfferHref}
+                  onClick={(event) => event.stopPropagation()}
+                  className="flex min-h-11 items-center justify-center rounded-full border border-white/35 bg-white/[0.18] px-5 py-3 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/[0.3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  Private offer
+                </Link>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPhotoActionsOpen(false);
+                    setDealerOfferOpen(true);
+                  }}
+                  className="flex min-h-11 items-center justify-center rounded-full border border-white/35 bg-white/[0.18] px-5 py-3 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/[0.3] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                  Dealer offer
+                </button>
+              </div>
             </div>
-          </Link>
+          </div>
           <div className={compact ? "space-y-2 p-3 sm:space-y-2.5 sm:p-3.5" : "space-y-3 p-4"}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -81,25 +153,6 @@ export function VehicleCard({ vehicle, compact = false, showOfferActions = false
               <span>{getPublicVehicleLocation(vehicle)}</span>
             </div>
             <ConditionSummaryPreview vehicle={vehicle} compact={compact} />
-            <div className="flex flex-wrap gap-2 border-t border-black/5 pt-2.5 md:hidden md:group-hover:flex md:group-focus-within:flex">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setDealerOfferOpen(true);
-                }}
-                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze md:px-3 md:py-1.5 md:text-xs"
-              >
-                Dealer Offer
-              </button>
-              <Link
-                href={privateOfferHref}
-                onClick={(event) => event.stopPropagation()}
-                className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze md:px-3 md:py-1.5 md:text-xs"
-              >
-                Private Offer
-              </Link>
-            </div>
           </div>
         </article>
         <DealerOfferModal vehicle={vehicle} open={dealerOfferOpen} onClose={() => setDealerOfferOpen(false)} />
