@@ -1136,6 +1136,28 @@ export interface Offer {
   sellerNotificationFailedAt?: string | null;
 }
 
+export type DealerOfferStatus = "new" | "reviewing" | "closed";
+
+export interface DealerOffer {
+  id: string;
+  vehicleId: string;
+  vehicleTitle: string;
+  vehicleReference?: string;
+  askingPriceAtSubmission: number;
+  dealershipName: string;
+  contactName: string;
+  contactPhone: string;
+  normalizedContactPhone: string;
+  contactEmail?: string;
+  normalizedContactEmail?: string;
+  offerAmount: number;
+  preferredInspectionDate?: string;
+  comments?: string;
+  status: DealerOfferStatus;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface InspectionRequest {
   id: string;
   vehicleId: string;

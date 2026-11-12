@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { TurnstileField } from "@/components/forms/turnstile-field";
+import { DealerOfferModal } from "@/components/offers/dealer-offer-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -119,6 +120,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
   const [idempotencyKey, setIdempotencyKey] = useState(createIdempotencyKey);
   const [startedAt] = useState(() => Date.now());
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [dealerOfferOpen, setDealerOfferOpen] = useState(false);
 
   const normalizedEmail = useMemo(() => normalizeEmailAddress(form.buyerEmail), [form.buyerEmail]);
   const accountEmailVerified = Boolean(
@@ -492,6 +494,15 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
             Book Inspection
           </button>
         ) : null}
+        {!isUnderOffer ? (
+          <button
+            type="button"
+            onClick={() => setDealerOfferOpen(true)}
+            className="w-full rounded-full border border-black/10 bg-white px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze sm:w-auto"
+          >
+            Dealer Offer
+          </button>
+        ) : null}
       </div>
 
       <div className="hidden" aria-hidden="true">
@@ -700,6 +711,7 @@ export function TakeActionPanel({ vehicle }: { vehicle: Vehicle }) {
           This vehicle is currently under offer while the accepted buyer confirms whether they want to proceed.
         </p>
       ) : null}
+      <DealerOfferModal vehicle={vehicle} open={dealerOfferOpen} onClose={() => setDealerOfferOpen(false)} />
     </div>
   );
 }
