@@ -11,6 +11,7 @@ import {
   normalizeDealerOfferInput
 } from "@/lib/dealer-offer-validation";
 import { getAdminDb } from "@/lib/firebase-admin-server";
+import { deliverAdminOfferNotification } from "@/lib/offer-admin-notifications";
 import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import { getVehicleDisplayReference } from "@/lib/utils";
 import { DealerOffer, DealerOfferStatus } from "@/types";
@@ -72,7 +73,20 @@ export function serializeDealerOffer(id: string, data: Record<string, unknown>):
     comments: stringValue(data.comments) || undefined,
     status: isDealerOfferStatus(data.status) ? data.status : "new",
     createdAt: serializeDate(data.createdAt) || undefined,
-    updatedAt: serializeDate(data.updatedAt) || undefined
+    updatedAt: serializeDate(data.updatedAt) || undefined,
+    adminNotificationStatus:
+      data.adminNotificationStatus === "pending"
+      || data.adminNotificationStatus === "sending"
+      || data.adminNotificationStatus === "sent"
+      || data.adminNotificationStatus === "failed"
+        ? data.adminNotificationStatus
+        : undefined,
+    adminNotificationAttemptCount: numberValue(data.adminNotificationAttemptCount) || undefined,
+    adminNotificationLastAttemptAt: data.adminNotificationLastAttemptAt === null ? null : serializeDate(data.adminNotificationLastAttemptAt) || undefined,
+    adminNotificationSentAt: data.adminNotificationSentAt === null ? null : serializeDate(data.adminNotificationSentAt) || undefined,
+    adminNotificationProviderMessageId: data.adminNotificationProviderMessageId === null ? null : stringValue(data.adminNotificationProviderMessageId) || undefined,
+    adminNotificationFailedAt: data.adminNotificationFailedAt === null ? null : serializeDate(data.adminNotificationFailedAt) || undefined,
+    adminNotificationError: data.adminNotificationError === null ? null : stringValue(data.adminNotificationError) || undefined
   };
 }
 
@@ -197,7 +211,14 @@ export async function submitDealerOffer({
       submissionIpHash: hash(ip),
       idempotencyKeyHash: idempotencyHash,
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      adminNotificationStatus: "pending",
+      adminNotificationAttemptCount: 0,
+      adminNotificationLastAttemptAt: null,
+      adminNotificationSentAt: null,
+      adminNotificationFailedAt: null,
+      adminNotificationProviderMessageId: null,
+      adminNotificationError: null
     });
     transaction.set(duplicateRef, {
       offerId: offerRef.id,
@@ -210,6 +231,15 @@ export async function submitDealerOffer({
 
     return { offerId: offerRef.id, duplicate: false };
   });
+
+  try {
+    await deliverAdminOfferNotification({ kind: "dealer", offerId: result.offerId });
+  } catch (error) {
+    console.error("[dealer-offers] Admin notification dispatch failed after persistence.", {
+      offerId: result.offerId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
 
   return result;
 }

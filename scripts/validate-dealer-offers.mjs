@@ -140,6 +140,7 @@ const activeVehicle = {
   displayReference: "CN-TEST-001"
 };
 let resolvedVehicle = activeVehicle;
+const deliveredDealerNotifications = [];
 const dealerOffers = loadModule("lib/dealer-offers.ts", (moduleName) => {
   if (moduleName === "server-only") return {};
   if (moduleName === "node:crypto") return nodeRequire("node:crypto");
@@ -149,6 +150,9 @@ const dealerOffers = loadModule("lib/dealer-offers.ts", (moduleName) => {
   };
   if (moduleName === "@/lib/dealer-offer-validation") return validation;
   if (moduleName === "@/lib/firebase-admin-server") return { getAdminDb: () => db };
+  if (moduleName === "@/lib/offer-admin-notifications") {
+    return { deliverAdminOfferNotification: async (input) => { deliveredDealerNotifications.push(input); return { attempted: true, sent: true, providerMessageId: "resend-dealer-test" }; } };
+  }
   if (moduleName === "@/lib/vehicle-admin-server") return { getAdminVehicleById: async () => resolvedVehicle };
   if (moduleName === "@/lib/utils") return { getVehicleDisplayReference: (vehicle) => vehicle.displayReference || vehicle.id };
   if (moduleName === "@/types") return {};
@@ -166,6 +170,10 @@ assert.equal(storedOffer.vehicleReference, "CN-TEST-001", "The vehicle reference
 assert.equal(storedOffer.status, "new", "New Dealer Offers must begin in the new status.");
 assert.equal("ownerUid" in storedOffer, false, "Dealer submissions must not write owner/customer identifiers.");
 assert.equal("submissionIpHash" in storedOffer, true, "Abuse controls must store only a hashed IP identifier.");
+assert.equal(storedOffer.adminNotificationStatus, "pending", "Dealer Offers must persist a notification state before delivery.");
+assert.equal(deliveredDealerNotifications.length, 1, "A saved Dealer Offer must dispatch one admin notification after persistence.");
+assert.equal(deliveredDealerNotifications[0]?.kind, "dealer", "A saved Dealer Offer must dispatch the Dealer notification channel.");
+assert.equal(deliveredDealerNotifications[0]?.offerId, firstResult.offerId, "The Dealer notification must reference the saved offer.");
 
 const retryResult = await dealerOffers.submitDealerOffer({ input: validInput, request, turnstileToken: "" });
 assert.equal(retryResult.offerId, firstResult.offerId, "An idempotency retry must return the original Dealer Offer.");
@@ -192,6 +200,7 @@ resolvedVehicle = activeVehicle;
 
 const publicRoute = read("app/api/public/dealer-offers/route.ts");
 const adminRoute = read("app/api/admin/dealer-offers/route.ts");
+const unifiedAdminRoute = read("app/api/admin/offers/route.ts");
 const adminUpdateRoute = read("app/api/admin/dealer-offers/[id]/route.ts");
 const inventoryCard = read("components/vehicles/vehicle-card.tsx");
 const inventoryBrowser = read("components/vehicles/inventory-browser.tsx");
@@ -203,6 +212,9 @@ const storageRules = read("storage.rules");
 assert.match(publicRoute, /submitDealerOffer/, "Public requests must use the dedicated Dealer Offer handler.");
 assert.doesNotMatch(publicRoute, /ownerUid|customerId|listingOwnerUid/, "The public Dealer Offer route must not accept privileged owner/customer fields.");
 assert.match(adminRoute, /requireVerifiedAdminApiAccess\(request, "manageOffers"\)/, "Admin Dealer Offer reads must require the existing manageOffers permission.");
+assert.match(unifiedAdminRoute, /requireVerifiedAdminApiAccess\(request, "manageOffers"\)/, "Unified Admin Offers reads must require the existing manageOffers permission.");
+assert.match(unifiedAdminRoute, /collection\("offers"\)\.get\(\)/, "Unified Admin Offers reads must use the Admin SDK for Private Offers.");
+assert.match(unifiedAdminRoute, /getDealerOffersForAdmin/, "Unified Admin Offers reads must include Dealer Offers.");
 assert.match(adminUpdateRoute, /requireVerifiedAdminApiAccess\(request, "manageOffers"\)/, "Admin Dealer Offer updates must require the existing manageOffers permission.");
 assert.match(inventoryBrowser, /showOfferActions/, "Inventory is the only VehicleCard consumer enabling secondary offer actions.");
 assert.match(inventoryCard, /router\.push\(vehicleHref\)/, "Card background navigation remains routed to the original Vehicle Detail page.");

@@ -1128,9 +1128,13 @@ export interface Offer {
   verificationMethod?: "email_otp" | "account_email";
   idempotencyKey?: string;
   submissionIpHash?: string;
-  adminNotificationStatus?: "pending" | "sent" | "failed";
+  adminNotificationStatus?: "pending" | "sending" | "sent" | "failed";
+  adminNotificationAttemptCount?: number;
+  adminNotificationLastAttemptAt?: string | null;
+  adminNotificationSentAt?: string | null;
   adminNotificationProviderMessageId?: string | null;
   adminNotificationFailedAt?: string | null;
+  adminNotificationError?: string | null;
   sellerNotificationStatus?: "pending" | "sent" | "failed";
   sellerNotificationProviderMessageId?: string | null;
   sellerNotificationFailedAt?: string | null;
@@ -1156,6 +1160,13 @@ export interface DealerOffer {
   status: DealerOfferStatus;
   createdAt?: string;
   updatedAt?: string;
+  adminNotificationStatus?: "pending" | "sending" | "sent" | "failed";
+  adminNotificationAttemptCount?: number;
+  adminNotificationLastAttemptAt?: string | null;
+  adminNotificationSentAt?: string | null;
+  adminNotificationProviderMessageId?: string | null;
+  adminNotificationFailedAt?: string | null;
+  adminNotificationError?: string | null;
 }
 
 export interface InspectionRequest {

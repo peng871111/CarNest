@@ -4,10 +4,10 @@ import { randomBytes, randomInt, createHmac, timingSafeEqual } from "node:crypto
 import { NextRequest } from "next/server";
 import { DocumentData, DocumentReference, DocumentSnapshot, Timestamp } from "firebase-admin/firestore";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin-server";
+import { deliverAdminOfferNotification } from "@/lib/offer-admin-notifications";
 import { getAdminVehicleById } from "@/lib/vehicle-admin-server";
 import {
   sendAdminInspectionNotificationEmail,
-  sendAdminOfferNotificationEmail,
   sendSellerOfferNotificationEmail,
   sendVehicleActionVerificationCodeEmail,
   VehicleActionEmailProviderError
@@ -550,6 +550,37 @@ async function updateInspectionNotificationState(inspectionId: string, state: {
   await getAdminDb().collection(INSPECTION_COLLECTION).doc(inspectionId).set(state, { merge: true });
 }
 
+async function linkVerificationSessionToSubmission(sessionRef: DocumentReference | undefined, offerId: string, createdAt = Timestamp.now()) {
+  if (!sessionRef) return;
+
+  try {
+    await sessionRef.set(
+      {
+        submissionUsedAt: createdAt,
+        relatedDocumentId: offerId,
+        updatedAt: createdAt
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    console.error("[public-vehicle-actions] Unable to link verified offer submission.", {
+      offerId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+async function dispatchPrivateOfferAdminNotification(offerId: string) {
+  try {
+    await deliverAdminOfferNotification({ kind: "private", offerId });
+  } catch (error) {
+    console.error("[public-vehicle-actions] Offer admin notification dispatch failed after persistence.", {
+      offerId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 export async function sendPublicActionVerificationCode(input: {
   actionType: PublicVehicleActionType;
   vehicleId: string;
@@ -916,9 +947,24 @@ export async function submitPublicOffer(input: {
     throw new PublicRouteError("EMAIL_NOT_VERIFIED", "Please verify your email before submitting your offer.");
   }
 
+  const db = getAdminDb();
+  const offerRef = db.collection(OFFER_COLLECTION).doc(
+    `offer_${hashValue("public-offer-idempotency", `${vehicle.id}:${buyerEmail}:${idempotencyKey}`)}`
+  );
+  const idempotentOffer = await offerRef.get();
+  if (idempotentOffer.exists) {
+    await linkVerificationSessionToSubmission(verification.sessionRef, offerRef.id);
+    await dispatchPrivateOfferAdminNotification(offerRef.id);
+    return {
+      offerId: offerRef.id,
+      duplicate: true
+    };
+  }
+
   if (verification.existingSubmissionId) {
-    const existingSnapshot = await getAdminDb().collection(OFFER_COLLECTION).doc(verification.existingSubmissionId).get();
+    const existingSnapshot = await db.collection(OFFER_COLLECTION).doc(verification.existingSubmissionId).get();
     if (existingSnapshot.exists) {
+      await dispatchPrivateOfferAdminNotification(verification.existingSubmissionId);
       return {
         offerId: verification.existingSubmissionId,
         duplicate: true
@@ -937,16 +983,8 @@ export async function submitPublicOffer(input: {
   );
 
   if (duplicateOffer) {
-    if (verification.sessionRef) {
-      await verification.sessionRef.set(
-        {
-          submissionUsedAt: Timestamp.now(),
-          relatedDocumentId: duplicateOffer.id,
-          updatedAt: Timestamp.now()
-        },
-        { merge: true }
-      );
-    }
+    await linkVerificationSessionToSubmission(verification.sessionRef, duplicateOffer.id);
+    await dispatchPrivateOfferAdminNotification(duplicateOffer.id);
     return {
       offerId: duplicateOffer.id,
       duplicate: true
@@ -966,7 +1004,6 @@ export async function submitPublicOffer(input: {
   const source = verification.source;
   const vehicleTitle = getVehicleTitle(vehicle);
   const offerPercentage = Number(((input.offerAmount / vehicle.price) * 100).toFixed(2));
-  const offerRef = getAdminDb().collection(OFFER_COLLECTION).doc();
   const offerPayload = {
     buyerUid: verification.authenticatedUid ?? "",
     listingOwnerUid: vehicle.ownerUid,
@@ -1021,64 +1058,28 @@ export async function submitPublicOffer(input: {
     submissionUserAgent: input.request.headers.get("user-agent") ?? "",
     idempotencyKey: idempotencyKey.slice(0, PUBLIC_ACTION_IDEMPOTENCY_KEY_MAX_LENGTH),
     adminNotificationStatus: "pending",
+    adminNotificationAttemptCount: 0,
+    adminNotificationLastAttemptAt: null,
+    adminNotificationSentAt: null,
+    adminNotificationFailedAt: null,
+    adminNotificationProviderMessageId: null,
+    adminNotificationError: null,
     sellerNotificationStatus: "pending"
   };
 
-  await offerRef.set(offerPayload);
-
-  if (verification.sessionRef) {
-    await verification.sessionRef.set(
-      {
-        submissionUsedAt: createdAt,
-        relatedDocumentId: offerRef.id,
-        updatedAt: createdAt
-      },
-      { merge: true }
-    );
-  }
-
-  const verificationMethodLabel = verificationMethod === "email_otp" ? "Verified by email OTP" : "Verified account email";
-
+  let created = true;
   try {
-    const result = await sendAdminOfferNotificationEmail({
-      vehicle,
-      buyerName,
-      buyerEmail,
-      buyerPhone: buyerPhoneDisplay,
-      offerAmount: input.offerAmount,
-      message,
-      offerPercentage,
-      verificationMethodLabel,
-      submittedAt: createdAt.toDate()
-    });
-    await updateOfferNotificationState(offerRef.id, {
-      adminNotificationStatus: "sent",
-      adminNotificationProviderMessageId: result.providerMessageId,
-      adminNotificationFailedAt: null
-    });
+    await offerRef.create(offerPayload);
   } catch (error) {
-    console.error("[public-vehicle-actions] Offer admin notification failed.", {
-      operation: "offer_admin_notification",
-      offerId: offerRef.id,
-      vehicleId: vehicle.id,
-      error: error instanceof Error ? error.message : String(error)
-    });
-    await updateOfferNotificationState(offerRef.id, {
-      adminNotificationStatus: "failed",
-      adminNotificationProviderMessageId: null,
-      adminNotificationFailedAt: Timestamp.now()
-    });
-    await recordNotificationFailure({
-      type: "offer_admin",
-      relatedDocumentId: offerRef.id,
-      vehicleId: vehicle.id,
-      vehicleTitle,
-      recipient: "info@carnest.au",
-      errorMessage: error instanceof Error ? error.message : String(error)
-    });
+    const existing = await offerRef.get().catch(() => null);
+    if (!existing?.exists) throw error;
+    created = false;
   }
 
-  const sellerEmail = await fetchSellerNotificationEmail(vehicle.ownerUid);
+  await linkVerificationSessionToSubmission(verification.sessionRef, offerRef.id, createdAt);
+  await dispatchPrivateOfferAdminNotification(offerRef.id);
+
+  const sellerEmail = created ? await fetchSellerNotificationEmail(vehicle.ownerUid) : "";
   if (sellerEmail) {
     try {
       const result = await sendSellerOfferNotificationEmail({
@@ -1099,25 +1100,39 @@ export async function submitPublicOffer(input: {
         vehicleId: vehicle.id,
         error: error instanceof Error ? error.message : String(error)
       });
-      await updateOfferNotificationState(offerRef.id, {
-        sellerNotificationStatus: "failed",
-        sellerNotificationProviderMessageId: null,
-        sellerNotificationFailedAt: Timestamp.now()
-      });
-      await recordNotificationFailure({
-        type: "offer_seller",
-        relatedDocumentId: offerRef.id,
-        vehicleId: vehicle.id,
-        vehicleTitle,
-        recipient: sellerEmail,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      });
+      try {
+        await updateOfferNotificationState(offerRef.id, {
+          sellerNotificationStatus: "failed",
+          sellerNotificationProviderMessageId: null,
+          sellerNotificationFailedAt: Timestamp.now()
+        });
+      } catch (stateError) {
+        console.error("[public-vehicle-actions] Unable to record seller notification state.", {
+          offerId: offerRef.id,
+          error: stateError instanceof Error ? stateError.message : String(stateError)
+        });
+      }
+      try {
+        await recordNotificationFailure({
+          type: "offer_seller",
+          relatedDocumentId: offerRef.id,
+          vehicleId: vehicle.id,
+          vehicleTitle,
+          recipient: sellerEmail,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        });
+      } catch (recordError) {
+        console.error("[public-vehicle-actions] Unable to record seller notification failure.", {
+          offerId: offerRef.id,
+          error: recordError instanceof Error ? recordError.message : String(recordError)
+        });
+      }
     }
   }
 
   return {
     offerId: offerRef.id,
-    duplicate: false,
+    duplicate: !created,
     submittedAt: nowIso
   };
 }

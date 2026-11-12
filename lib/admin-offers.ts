@@ -288,7 +288,20 @@ export function serializeAdminOfferDoc(id: string, data: OfferDocumentData): Off
     emailVerified: typeof data.emailVerified === "boolean" ? data.emailVerified : undefined,
     verificationMethod: data.verificationMethod === "email_otp" || data.verificationMethod === "account_email" ? data.verificationMethod : undefined,
     idempotencyKey: readString(data, "idempotencyKey") || undefined,
-    submissionIpHash: readString(data, "submissionIpHash") || undefined
+    submissionIpHash: readString(data, "submissionIpHash") || undefined,
+    adminNotificationStatus:
+      data.adminNotificationStatus === "pending"
+      || data.adminNotificationStatus === "sending"
+      || data.adminNotificationStatus === "sent"
+      || data.adminNotificationStatus === "failed"
+        ? data.adminNotificationStatus
+        : undefined,
+    adminNotificationAttemptCount: readNumber(data, "adminNotificationAttemptCount") || undefined,
+    adminNotificationLastAttemptAt: data.adminNotificationLastAttemptAt === null ? null : serializeAdminOfferDate(data.adminNotificationLastAttemptAt) ?? undefined,
+    adminNotificationSentAt: data.adminNotificationSentAt === null ? null : serializeAdminOfferDate(data.adminNotificationSentAt) ?? undefined,
+    adminNotificationProviderMessageId: data.adminNotificationProviderMessageId === null ? null : readString(data, "adminNotificationProviderMessageId") || undefined,
+    adminNotificationFailedAt: data.adminNotificationFailedAt === null ? null : serializeAdminOfferDate(data.adminNotificationFailedAt) ?? undefined,
+    adminNotificationError: data.adminNotificationError === null ? null : readString(data, "adminNotificationError") || undefined
   };
 }
 

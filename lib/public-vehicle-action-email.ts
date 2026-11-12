@@ -187,9 +187,39 @@ export async function sendAdminOfferNotificationEmail(input: {
   verificationMethodLabel: string;
   submittedAt: Date;
 }) {
+  return sendAdminPrivateOfferNotificationEmail({
+    vehicleTitle: [input.vehicle.year, input.vehicle.make, input.vehicle.model, input.vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(),
+    vehicleReference: getVehicleDisplayReference(input.vehicle),
+    askingPrice: input.vehicle.price,
+    buyerName: input.buyerName,
+    buyerEmail: input.buyerEmail,
+    buyerPhone: input.buyerPhone,
+    offerAmount: input.offerAmount,
+    message: input.message,
+    offerPercentage: input.offerPercentage,
+    buyerAccess: "registered",
+    verificationMethodLabel: input.verificationMethodLabel,
+    submittedAt: input.submittedAt,
+    status: "pending"
+  });
+}
+
+export async function sendAdminPrivateOfferNotificationEmail(input: {
+  vehicleTitle: string;
+  vehicleReference: string;
+  askingPrice: number;
+  buyerName: string;
+  buyerEmail: string;
+  buyerPhone: string;
+  offerAmount: number;
+  message?: string;
+  offerPercentage: number;
+  buyerAccess: "guest" | "registered";
+  verificationMethodLabel: string;
+  submittedAt: Date;
+  status: string;
+}) {
   const resend = createResendClient(ADMIN_EMAIL_FROM);
-  const vehicleTitle = [input.vehicle.year, input.vehicle.make, input.vehicle.model, input.vehicle.variant].filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
-  const vehicleReference = getVehicleDisplayReference(input.vehicle);
   const adminOfferUrl = getStableAdminUrl("/admin/offers");
   const messageBlock = input.message
     ? `<p style="font-size:15px;line-height:1.7;margin:16px 0 0;white-space:pre-line;">${escapeHtml(input.message)}</p>`
@@ -197,17 +227,20 @@ export async function sendAdminOfferNotificationEmail(input: {
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1b1b18;">
       <p style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#9d6b2f;margin:0 0 12px;">CarNest</p>
-      <h1 style="font-size:24px;line-height:1.3;margin:0 0 16px;">New Verified Offer</h1>
-      ${renderAdminEmailField("Vehicle", vehicleTitle)}
-      ${renderAdminEmailField("CN / reference", vehicleReference)}
-      ${renderAdminEmailField("Asking price", formatCurrency(input.vehicle.price))}
+      <h1 style="font-size:24px;line-height:1.3;margin:0 0 16px;">NEW OFFER RECEIVED</h1>
+      ${renderAdminEmailField("Offer type", "Private Offer")}
+      ${renderAdminEmailField("Vehicle", input.vehicleTitle)}
+      ${renderAdminEmailField("CN / listing ID", input.vehicleReference)}
+      ${renderAdminEmailField("Asking price", formatCurrency(input.askingPrice))}
       ${renderAdminEmailField("Offer amount", formatCurrency(input.offerAmount))}
       ${renderAdminEmailField("Offer percentage", `${input.offerPercentage.toFixed(1)}% of asking price`)}
       ${renderAdminEmailField("Buyer name", input.buyerName)}
       ${renderAdminEmailField("Buyer email", input.buyerEmail)}
       ${renderAdminEmailField("Buyer phone", input.buyerPhone)}
+      ${renderAdminEmailField("Buyer access", input.buyerAccess === "guest" ? "Guest" : "Registered buyer")}
       ${renderAdminEmailField("Submitted", formatMelbourneDateTime(input.submittedAt))}
       ${renderAdminEmailField("Email verification", input.verificationMethodLabel)}
+      ${renderAdminEmailField("Offer status", input.status || "pending")}
       ${input.message ? `<div style="margin-top:18px;"><p style="font-size:15px;line-height:1.6;margin:0 0 6px;"><strong>Buyer message:</strong></p>${messageBlock}</div>` : ""}
       ${adminOfferUrl ? `<p style="font-size:14px;line-height:1.6;margin:18px 0 0;"><a href="${escapeHtml(adminOfferUrl)}" style="color:#1b1b18;">Open Admin Offers</a></p>` : ""}
     </div>
@@ -215,18 +248,21 @@ export async function sendAdminOfferNotificationEmail(input: {
   const text = [
     "CarNest",
     "",
-    "New Verified Offer",
+    "NEW OFFER RECEIVED",
     "",
-    `Vehicle: ${vehicleTitle}`,
-    `CN / reference: ${vehicleReference}`,
-    `Asking price: ${formatCurrency(input.vehicle.price)}`,
+    "Offer type: Private Offer",
+    `Vehicle: ${input.vehicleTitle}`,
+    `CN / listing ID: ${input.vehicleReference}`,
+    `Asking price: ${formatCurrency(input.askingPrice)}`,
     `Offer amount: ${formatCurrency(input.offerAmount)}`,
     `Offer percentage: ${input.offerPercentage.toFixed(1)}% of asking price`,
     `Buyer name: ${input.buyerName}`,
     `Buyer email: ${input.buyerEmail}`,
     `Buyer phone: ${input.buyerPhone}`,
+    `Buyer access: ${input.buyerAccess === "guest" ? "Guest" : "Registered buyer"}`,
     `Submitted: ${formatMelbourneDateTime(input.submittedAt)}`,
     `Email verification: ${input.verificationMethodLabel}`,
+    `Offer status: ${input.status || "pending"}`,
     ...(input.message ? ["", "Buyer message:", input.message] : []),
     ...(adminOfferUrl ? ["", `Open Admin Offers: ${adminOfferUrl}`] : [])
   ].join("\n");
@@ -234,13 +270,93 @@ export async function sendAdminOfferNotificationEmail(input: {
   const { data, error } = await resend.emails.send({
     from: ADMIN_EMAIL_FROM,
     to: ADMIN_NOTIFICATION_RECIPIENT,
-    subject: `New Verified Offer — ${vehicleTitle} — ${formatCurrency(input.offerAmount)}`,
+    subject: `New Private Offer — ${input.vehicleTitle} — ${formatCurrency(input.offerAmount)}`,
     html,
     text
   });
 
   if (error) {
     throw new Error(error.message || "Offer admin notification failed.");
+  }
+
+  return {
+    providerMessageId: data?.id ?? null
+  };
+}
+
+export async function sendAdminDealerOfferNotificationEmail(input: {
+  vehicleTitle: string;
+  vehicleReference: string;
+  askingPrice: number;
+  dealershipName: string;
+  contactName: string;
+  contactEmail?: string;
+  contactPhone: string;
+  offerAmount: number;
+  preferredInspectionDate?: string;
+  comments?: string;
+  submittedAt: Date;
+  status: string;
+}) {
+  const resend = createResendClient(ADMIN_EMAIL_FROM);
+  const adminOfferUrl = getStableAdminUrl("/admin/offers");
+  const offerPercentage = input.askingPrice > 0 ? (input.offerAmount / input.askingPrice) * 100 : 0;
+  const commentsBlock = input.comments
+    ? `<div style="margin-top:18px;"><p style="font-size:15px;line-height:1.6;margin:0 0 6px;"><strong>Comments / additional conditions:</strong></p><p style="font-size:15px;line-height:1.7;margin:0;white-space:pre-line;">${escapeHtml(input.comments)}</p></div>`
+    : "";
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#1b1b18;">
+      <p style="font-size:12px;letter-spacing:0.2em;text-transform:uppercase;color:#9d6b2f;margin:0 0 12px;">CarNest</p>
+      <h1 style="font-size:24px;line-height:1.3;margin:0 0 16px;">NEW OFFER RECEIVED</h1>
+      ${renderAdminEmailField("Offer type", "Dealer Offer")}
+      ${renderAdminEmailField("Vehicle", input.vehicleTitle)}
+      ${renderAdminEmailField("CN / listing ID", input.vehicleReference)}
+      ${renderAdminEmailField("Asking price", formatCurrency(input.askingPrice))}
+      ${renderAdminEmailField("Offer amount", formatCurrency(input.offerAmount))}
+      ${renderAdminEmailField("Offer percentage", `${offerPercentage.toFixed(1)}% of asking price`)}
+      ${renderAdminEmailField("Dealership", input.dealershipName)}
+      ${renderAdminEmailField("Dealer contact", input.contactName)}
+      ${renderAdminEmailField("Dealer email", input.contactEmail)}
+      ${renderAdminEmailField("Dealer phone", input.contactPhone)}
+      ${renderAdminEmailField("Preferred inspection date", input.preferredInspectionDate)}
+      ${renderAdminEmailField("Submitted", formatMelbourneDateTime(input.submittedAt))}
+      ${renderAdminEmailField("Offer status", input.status || "new")}
+      ${commentsBlock}
+      ${adminOfferUrl ? `<p style="font-size:14px;line-height:1.6;margin:18px 0 0;"><a href="${escapeHtml(adminOfferUrl)}" style="color:#1b1b18;">Open Admin Offers</a></p>` : ""}
+    </div>
+  `;
+  const text = [
+    "CarNest",
+    "",
+    "NEW OFFER RECEIVED",
+    "",
+    "Offer type: Dealer Offer",
+    `Vehicle: ${input.vehicleTitle}`,
+    `CN / listing ID: ${input.vehicleReference}`,
+    `Asking price: ${formatCurrency(input.askingPrice)}`,
+    `Offer amount: ${formatCurrency(input.offerAmount)}`,
+    `Offer percentage: ${offerPercentage.toFixed(1)}% of asking price`,
+    `Dealership: ${input.dealershipName}`,
+    `Dealer contact: ${input.contactName}`,
+    ...(input.contactEmail ? [`Dealer email: ${input.contactEmail}`] : []),
+    `Dealer phone: ${input.contactPhone}`,
+    ...(input.preferredInspectionDate ? [`Preferred inspection date: ${input.preferredInspectionDate}`] : []),
+    `Submitted: ${formatMelbourneDateTime(input.submittedAt)}`,
+    `Offer status: ${input.status || "new"}`,
+    ...(input.comments ? ["", "Comments / additional conditions:", input.comments] : []),
+    ...(adminOfferUrl ? ["", `Open Admin Offers: ${adminOfferUrl}`] : [])
+  ].join("\n");
+
+  const { data, error } = await resend.emails.send({
+    from: ADMIN_EMAIL_FROM,
+    to: ADMIN_NOTIFICATION_RECIPIENT,
+    subject: `New Dealer Offer — ${input.vehicleTitle} — ${formatCurrency(input.offerAmount)}`,
+    html,
+    text
+  });
+
+  if (error) {
+    throw new Error(error.message || "Dealer offer admin notification failed.");
   }
 
   return {
