@@ -349,6 +349,13 @@ export interface WarehouseVehicleDamageRecord {
   damageType: VehicleDamageType;
   notes: string;
   photoIds: string[];
+  repairStatus?: "reported" | "verified";
+  repairDate?: string;
+  repairDescription?: string;
+  repairConfirmedAt?: string;
+  repairConfirmedByUid?: string;
+  repairConfirmedByName?: string;
+  afterRepairPhotoId?: string;
 }
 
 export interface WarehouseVehicleWheelDamageRecord {
@@ -358,6 +365,13 @@ export interface WarehouseVehicleWheelDamageRecord {
   damageType: VehicleWheelDamageType;
   notes: string;
   photoIds: string[];
+  repairStatus?: "reported" | "verified";
+  repairDate?: string;
+  repairDescription?: string;
+  repairConfirmedAt?: string;
+  repairConfirmedByUid?: string;
+  repairConfirmedByName?: string;
+  afterRepairPhotoId?: string;
 }
 
 export interface VehiclePublicDamageRecordSummary {
@@ -442,6 +456,27 @@ export interface WarehouseIntakePhotoRecord {
   note?: string;
   uploadedAt?: string;
   contentType?: string;
+}
+
+export interface WarehouseDamagePhotoHistoryEntry {
+  id: string;
+  action: "deleted" | "replaced" | "repaired" | "note_updated";
+  photo: WarehouseIntakePhotoRecord;
+  archivedAt: string;
+  actorUid: string;
+  actorName: string;
+  reason?: string;
+  vehicleId?: string;
+  contractId: string;
+  linkedDamageRecordIds: string[];
+  linkedWheelDamageRecordIds: string[];
+  originalDamageNotes?: string[];
+  replacementPhoto?: WarehouseIntakePhotoRecord;
+  afterRepairPhoto?: WarehouseIntakePhotoRecord;
+  repairDate?: string;
+  repairDescription?: string;
+  repairVerified?: boolean;
+  previousNote?: string;
 }
 
 export interface WarehouseIntakeOwnerDetails {
@@ -957,6 +992,7 @@ export interface WarehouseIntakeRecord {
   conditionReport: WarehouseIntakeConditionReport;
   vehicleReport: WarehouseVehicleReportDetails;
   photos: WarehouseIntakePhotoRecord[];
+  damagePhotoHistory: WarehouseDamagePhotoHistoryEntry[];
   serviceItems: WarehouseServiceFeeItem[];
   intakeDate?: string;
   assignedStaffUid?: string;

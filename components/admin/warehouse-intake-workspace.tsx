@@ -58,6 +58,7 @@ import {
   deleteAdminWarehouseIntakePhoto,
   fetchAdminWarehouseIntakeFileBytes,
   fetchAdminWarehouseIntakeFileBlob,
+  manageAdminWarehouseIntakeDamagePhoto,
   uploadWarehouseIntakePdf,
   uploadWarehouseIntakePhotos,
   uploadWarehouseIntakeSignature,
@@ -83,6 +84,7 @@ import {
   WarehouseIntakeOwnerDetails,
   WarehouseIntakePhotoRecord,
   WarehouseIntakeRecord,
+  WarehouseDamagePhotoHistoryEntry,
   VehicleBodyPanelCondition,
   VehicleBodyPanelKey,
   VehicleConditionCategoryKey,
@@ -130,6 +132,15 @@ const PHOTO_DELETION_REASON_OPTIONS = [
   "No longer relevant",
   "Other",
 ] as const;
+
+function getMelbourneCalendarDate() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Australia/Melbourne",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
 
 function createWarehouseDamageRecord(gridCellId: string, panelKey: VehicleBodyPanelKey, damageType: VehicleDamageType): WarehouseVehicleDamageRecord {
   return {
@@ -462,6 +473,8 @@ function WarehouseIntakePhotoCard({
   listingLinked,
   deleting,
   onRequestDelete,
+  onViewDamagePhoto,
+  onManageDamagePhoto,
 }: {
   photo: WarehouseIntakePhotoRecord;
   alt: string;
@@ -469,7 +482,10 @@ function WarehouseIntakePhotoCard({
   listingLinked: boolean;
   deleting: boolean;
   onRequestDelete: (photo: WarehouseIntakePhotoRecord) => void;
+  onViewDamagePhoto?: (photo: WarehouseIntakePhotoRecord) => void;
+  onManageDamagePhoto?: (photo: WarehouseIntakePhotoRecord, action: "replace" | "update_note" | "mark_repaired") => void;
 }) {
+  const isDamagePhoto = photo.category === "damagePhotos";
   return (
     <div className="space-y-2">
       <WarehouseIntakeSecureImage
@@ -477,7 +493,52 @@ function WarehouseIntakePhotoCard({
         fileName={photo.name}
         alt={alt}
       />
-      {listingLinked ? (
+      {isDamagePhoto && onManageDamagePhoto ? (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onViewDamagePhoto?.(photo)}
+            className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze"
+          >
+            View photo
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => onManageDamagePhoto(photo, "replace")}
+            className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            Replace photo
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => onManageDamagePhoto(photo, "update_note")}
+            className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            Edit damage note
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => onManageDamagePhoto(photo, "mark_repaired")}
+            className="inline-flex min-h-10 items-center justify-center rounded-2xl border border-black/10 bg-white px-3 py-2 text-xs font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            Mark repaired
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRequestDelete(photo);
+            }}
+            className="col-span-2 inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2 text-xs font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-55"
+          >
+            {deleting ? "Saving..." : "Delete photo"}
+          </button>
+        </div>
+      ) : listingLinked ? (
         <p className="rounded-2xl border border-black/6 bg-white px-3 py-2 text-xs leading-5 text-ink/52">
           Photos cannot be deleted after this contract is linked to a listing.
         </p>
@@ -525,7 +586,9 @@ function PhotoDeleteDialog({
         <p className="text-xs uppercase tracking-[0.24em] text-bronze">Condition record</p>
         <h3 className="mt-2 font-display text-2xl text-ink">Delete this condition photo?</h3>
         <p className="mt-3 text-sm leading-6 text-ink/64">
-          This contract is not linked to a listing. The photo will be permanently removed from the current vehicle-condition record.
+          {photo.category === "damagePhotos"
+            ? "The photo will be removed from the current Condition Summary and newly generated reports. Its original inspection evidence will remain available to authorised Admin users."
+            : "This contract is not linked to a listing. The photo will be permanently removed from the current vehicle-condition record."}
         </p>
         <p className="mt-3 rounded-2xl bg-shell px-3 py-2 text-xs text-ink/58">
           {photo.name || photo.label || "Storage contract photo"}
@@ -557,6 +620,133 @@ function PhotoDeleteDialog({
             {deleting ? "Deleting..." : "Delete photo"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DamagePhotoManagementDialog({
+  photo,
+  action,
+  processing,
+  note,
+  repairDate,
+  repairDescription,
+  repairVerified,
+  onCancel,
+  onNoteChange,
+  onRepairDateChange,
+  onRepairDescriptionChange,
+  onRepairVerifiedChange,
+  onFileChange,
+  onConfirm,
+}: {
+  photo: WarehouseIntakePhotoRecord;
+  action: "replace" | "update_note" | "mark_repaired";
+  processing: boolean;
+  note: string;
+  repairDate: string;
+  repairDescription: string;
+  repairVerified: boolean;
+  onCancel: () => void;
+  onNoteChange: (value: string) => void;
+  onRepairDateChange: (value: string) => void;
+  onRepairDescriptionChange: (value: string) => void;
+  onRepairVerifiedChange: (value: boolean) => void;
+  onFileChange: (files: FileList | null) => void;
+  onConfirm: () => void;
+}) {
+  const title = action === "replace"
+    ? "Replace damage photo"
+    : action === "update_note"
+      ? "Edit damage note"
+      : "Mark damage as repaired";
+  const confirmLabel = action === "replace" ? "Replace photo" : action === "update_note" ? "Save note" : "Save repair";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/45 px-4 py-4 sm:items-center">
+      <div className="w-full max-w-md rounded-[28px] border border-black/8 bg-white p-5 shadow-[0_28px_70px_rgba(24,18,12,0.28)] sm:p-6">
+        <p className="text-xs uppercase tracking-[0.24em] text-bronze">Condition record</p>
+        <h3 className="mt-2 font-display text-2xl text-ink">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-ink/62">{photo.name || photo.label || "Damage photo"}</p>
+
+        {action === "replace" ? (
+          <div className="mt-5 space-y-2">
+            <FieldLabel>Replacement photo</FieldLabel>
+            <TextInput type="file" accept="image/*" capture="environment" disabled={processing} onChange={(event) => onFileChange(event.target.files)} />
+            <FieldNote>The original photo stays in the Admin-only inspection history. Current records will use the replacement after it saves.</FieldNote>
+          </div>
+        ) : null}
+
+        {action === "update_note" ? (
+          <div className="mt-5 space-y-2">
+            <FieldLabel>Damage note</FieldLabel>
+            <TextAreaInput className="min-h-[120px]" value={note} onChange={(event) => onNoteChange(event.target.value)} maxLength={1200} />
+          </div>
+        ) : null}
+
+        {action === "mark_repaired" ? (
+          <div className="mt-5 space-y-4">
+            <div className="space-y-2">
+              <FieldLabel>Repair date</FieldLabel>
+              <TextInput type="date" value={repairDate} onChange={(event) => onRepairDateChange(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>Repair description</FieldLabel>
+              <TextAreaInput className="min-h-[96px]" value={repairDescription} onChange={(event) => onRepairDescriptionChange(event.target.value)} maxLength={1200} placeholder="Optional repair work or reinspection details" />
+            </div>
+            <div className="space-y-2">
+              <FieldLabel>After-repair photo</FieldLabel>
+              <TextInput type="file" accept="image/*" capture="environment" disabled={processing} onChange={(event) => onFileChange(event.target.files)} />
+            </div>
+            <label className="flex items-start gap-3 rounded-2xl border border-black/8 bg-shell px-3 py-3 text-sm leading-5 text-ink/70">
+              <input
+                type="checkbox"
+                checked={repairVerified}
+                onChange={(event) => onRepairVerifiedChange(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-black/20 text-bronze focus:ring-bronze"
+              />
+              <span><span className="font-semibold text-ink">Admin inspected and confirmed this repair.</span> Verified repairs are removed from the current Condition Summary; the historical record remains available to Admin.</span>
+            </label>
+          </div>
+        ) : null}
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button type="button" disabled={processing} onClick={onCancel} className="rounded-full border border-black/10 px-5 py-3 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze disabled:cursor-not-allowed disabled:opacity-55">Cancel</button>
+          <button type="button" disabled={processing} onClick={onConfirm} className="rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/85 disabled:cursor-not-allowed disabled:opacity-55">{processing ? "Saving..." : confirmLabel}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DamagePhotoHistorySection({ history }: { history: WarehouseDamagePhotoHistoryEntry[] }) {
+  if (!history.length) return null;
+
+  return (
+    <div className="rounded-[24px] border border-black/6 bg-white p-4">
+      <div>
+        <FieldLabel>Damage photo history</FieldLabel>
+        <FieldNote>Admin-only archived inspection evidence. Historical signed contracts and PDFs are not changed.</FieldNote>
+      </div>
+      <div className="mt-4 space-y-3">
+        {history.map((entry) => (
+          <div key={entry.id} className="rounded-[20px] border border-black/6 bg-shell p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-ink">{entry.action === "replaced" ? "Photo replaced" : entry.action === "repaired" ? entry.repairVerified ? "Repair verified" : "Repair recorded" : entry.action === "note_updated" ? "Damage note updated" : "Photo removed from current record"}</p>
+                <p className="mt-1 text-xs text-ink/55">{entry.actorName || "CarNest Admin"}{entry.archivedAt ? ` · ${formatAdminDateTime(entry.archivedAt)}` : ""}</p>
+              </div>
+              {entry.repairVerified ? <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700">Repair verified</span> : null}
+            </div>
+            {entry.reason || entry.repairDescription || entry.previousNote || entry.originalDamageNotes?.length ? <p className="mt-2 text-xs leading-5 text-ink/62">{entry.repairDescription || entry.reason || entry.originalDamageNotes?.join(" · ") || `Previous note: ${entry.previousNote}`}</p> : null}
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <WarehouseIntakeSecureImage storagePath={entry.photo.storagePath} fileName={entry.photo.name} alt="Archived damage photo" />
+              {entry.replacementPhoto ? <WarehouseIntakeSecureImage storagePath={entry.replacementPhoto.storagePath} fileName={entry.replacementPhoto.name} alt="Replacement damage photo" /> : null}
+              {entry.afterRepairPhoto ? <WarehouseIntakeSecureImage storagePath={entry.afterRepairPhoto.storagePath} fileName={entry.afterRepairPhoto.name} alt="After-repair photo" /> : null}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -710,6 +900,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
   const [photoDeletionReason, setPhotoDeletionReason] = useState("");
   const [deletingPhotoId, setDeletingPhotoId] = useState("");
+  const [damagePhotoAction, setDamagePhotoAction] = useState<{
+    photo: WarehouseIntakePhotoRecord;
+    action: "replace" | "update_note" | "mark_repaired";
+  } | null>(null);
+  const [damagePhotoFile, setDamagePhotoFile] = useState<File | null>(null);
+  const [damagePhotoNote, setDamagePhotoNote] = useState("");
+  const [repairDate, setRepairDate] = useState("");
+  const [repairDescription, setRepairDescription] = useState("");
+  const [repairVerified, setRepairVerified] = useState(false);
 
   const customerVehicleRecords = useMemo(
     () => vehicleRecords.filter((record) => !draft.customerProfileId || record.customerProfileId === draft.customerProfileId),
@@ -1612,6 +1811,101 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     }));
   }
 
+  function openDamagePhotoManagement(photo: WarehouseIntakePhotoRecord, action: "replace" | "update_note" | "mark_repaired") {
+    setDamagePhotoAction({ photo, action });
+    setDamagePhotoFile(null);
+    setDamagePhotoNote(photo.note || "");
+    setRepairDate(getMelbourneCalendarDate());
+    setRepairDescription("");
+    setRepairVerified(false);
+    setErrorMessage("");
+    setNotice("");
+  }
+
+  async function handleViewDamagePhoto(photo: WarehouseIntakePhotoRecord) {
+    try {
+      const idToken = await getAdminIdToken();
+      const blob = await fetchAdminWarehouseIntakeFileBlob(photo.storagePath, idToken);
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to open this damage photo.");
+    }
+  }
+
+  async function refreshCurrentConditionAfterDamagePhotoMutation(successMessage: string) {
+    if (!recordId) throw new Error("Storage contract reference is missing.");
+    const refreshed = await getWarehouseIntakeById(recordId);
+    if (!refreshed) throw new Error("The condition update saved, but the storage contract could not be reloaded. Refresh the page before continuing.");
+    await persistDraft(toDraft(refreshed), successMessage);
+  }
+
+  async function handleDamagePhotoAction() {
+    if (!damagePhotoAction || !recordId || deletingPhotoId) return;
+    const { photo, action } = damagePhotoAction;
+    let mutationSaved = false;
+
+    try {
+      setDeletingPhotoId(photo.id);
+      setErrorMessage("");
+      setNotice("");
+      const idToken = await getAdminIdToken();
+      let uploadedPhoto: WarehouseIntakePhotoRecord | undefined;
+      if ((action === "replace" || damagePhotoFile) && damagePhotoFile) {
+        setUploadingLabel(action === "replace" ? "Uploading replacement photo..." : "Uploading after-repair photo...");
+        const uploaded = await uploadWarehouseIntakePhotos(
+          [damagePhotoFile],
+          recordId,
+          "damagePhotos",
+          action === "replace" ? photo.label || "Replacement damage photo" : "After-repair photo",
+          { maxFiles: 1 }
+        );
+        uploadedPhoto = uploaded[0];
+      }
+      if (action === "replace" && !uploadedPhoto) {
+        throw new Error("Select a replacement photo before saving.");
+      }
+      if (action === "mark_repaired" && !repairDate) {
+        throw new Error("Enter the repair date before saving.");
+      }
+
+      await manageAdminWarehouseIntakeDamagePhoto(recordId, photo.id, idToken, {
+        action,
+        ...(action === "replace" ? { replacementPhoto: uploadedPhoto } : {}),
+        ...(action === "update_note" ? { note: damagePhotoNote } : {}),
+        ...(action === "mark_repaired" ? {
+          repairDate,
+          repairDescription,
+          repairVerified,
+          afterRepairPhoto: uploadedPhoto,
+        } : {}),
+      });
+      mutationSaved = true;
+      const successMessage = action === "replace"
+        ? "Damage photo replaced. The current Condition Summary has been refreshed."
+        : action === "update_note"
+          ? "Damage note updated. The current Condition Summary has been refreshed."
+          : repairVerified
+            ? "Repair verified. The damage is now historical and the current Condition Summary has been refreshed."
+            : "Repair recorded for Admin follow-up. Verify it after inspection to remove it from the current Condition Summary.";
+      await refreshCurrentConditionAfterDamagePhotoMutation(successMessage);
+      setDamagePhotoAction(null);
+      setDamagePhotoFile(null);
+    } catch (error) {
+      setErrorMessage(
+        mutationSaved
+          ? "The condition evidence was saved, but the current Condition Summary could not refresh. Refresh the page before continuing."
+          : error instanceof Error
+            ? error.message
+            : "Unable to update this damage photo right now. Please try again."
+      );
+    } finally {
+      setDeletingPhotoId("");
+      setUploadingLabel("");
+    }
+  }
+
   async function handleConfirmPhotoDelete() {
     if (!photoPendingDelete || !recordId || deletingPhotoId) return;
 
@@ -1621,38 +1915,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
       setNotice("");
       const idToken = await getAdminIdToken();
       const result = await deleteAdminWarehouseIntakePhoto(recordId, photoPendingDelete.id, idToken, photoDeletionReason);
-      const deleteResult = result as {
-        result?: {
-          pdfRegenerationRequired?: boolean;
-          pdfRegenerationRequiredAt?: string;
-        };
-      };
+      const deleteResult = result as { result?: { pdfRegenerationRequired?: boolean; archived?: boolean } };
       const pdfChanged = deleteResult.result?.pdfRegenerationRequired === true;
-      const pdfRegenerationRequiredAt = deleteResult.result?.pdfRegenerationRequiredAt || (pdfChanged ? new Date().toISOString() : "");
-      setDraft((current) => ({
-        ...current,
-        photos: current.photos.filter((photo) => photo.id !== photoPendingDelete.id),
-        vehicleReport: {
-          ...current.vehicleReport,
-          damageRecords: (current.vehicleReport.damageRecords ?? []).map((record) => ({
-            ...record,
-            photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
-          })),
-          wheelDamageRecords: (current.vehicleReport.wheelDamageRecords ?? []).map((record) => ({
-            ...record,
-            photoIds: record.photoIds.filter((photoId) => photoId !== photoPendingDelete.id),
-          })),
-        },
-        ...(pdfChanged
-          ? {
-              pdfRegenerationRequiredAt,
-              pdfRegenerationReason: "condition_photo_deleted",
-              pdfRegenerationRequiredByUid: actor?.id || "",
-              pdfRegenerationRequiredByName: actor?.displayName || actor?.name || actor?.email || "CarNest Admin",
-            }
-          : {}),
-      }));
-      setNotice(pdfChanged ? "Photo deleted. This contract has changed. Please regenerate the PDF." : "Photo deleted.");
+      await refreshCurrentConditionAfterDamagePhotoMutation(
+        deleteResult.result?.archived
+          ? "Damage photo removed from the current Condition Summary and retained in Admin history."
+          : pdfChanged
+            ? "Photo deleted. This contract has changed. Please regenerate the PDF."
+            : "Photo deleted."
+      );
       setPhotoPendingDelete(null);
       setPhotoDeletionReason("");
     } catch (error) {
@@ -1900,6 +2171,29 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
           }}
           onReasonChange={setPhotoDeletionReason}
           onConfirm={() => void handleConfirmPhotoDelete()}
+        />
+      ) : null}
+      {damagePhotoAction ? (
+        <DamagePhotoManagementDialog
+          photo={damagePhotoAction.photo}
+          action={damagePhotoAction.action}
+          processing={deletingPhotoId === damagePhotoAction.photo.id}
+          note={damagePhotoNote}
+          repairDate={repairDate}
+          repairDescription={repairDescription}
+          repairVerified={repairVerified}
+          onCancel={() => {
+            if (!deletingPhotoId) {
+              setDamagePhotoAction(null);
+              setDamagePhotoFile(null);
+            }
+          }}
+          onNoteChange={setDamagePhotoNote}
+          onRepairDateChange={setRepairDate}
+          onRepairDescriptionChange={setRepairDescription}
+          onRepairVerifiedChange={setRepairVerified}
+          onFileChange={(files) => setDamagePhotoFile(files?.[0] || null)}
+          onConfirm={() => void handleDamagePhotoAction()}
         />
       ) : null}
 
@@ -2572,6 +2866,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                                     listingLinked={listingLinked}
                                     deleting={deletingPhotoId === photo.id}
                                     onRequestDelete={setPhotoPendingDelete}
+                                    onViewDamagePhoto={(damagePhoto) => void handleViewDamagePhoto(damagePhoto)}
+                                    onManageDamagePhoto={openDamagePhotoManagement}
                                   />
                                 ))
                               ) : (
@@ -2657,6 +2953,11 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                                   <p className="mt-1 text-xs uppercase tracking-[0.18em] text-ink/45">
                                     {formatVehicleBodyDamageGridCellLabel(selectedDamageGridCell.id)}
                                   </p>
+                                  {record.repairStatus ? (
+                                    <p className={`mt-2 text-xs font-semibold ${record.repairStatus === "verified" ? "text-emerald-700" : "text-amber-700"}`}>
+                                      {record.repairStatus === "verified" ? "Repair verified" : "Repair recorded - inspection pending"}
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <button
                                   type="button"
@@ -2708,6 +3009,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                                       listingLinked={listingLinked}
                                       deleting={deletingPhotoId === photo.id}
                                       onRequestDelete={setPhotoPendingDelete}
+                                      onViewDamagePhoto={(damagePhoto) => void handleViewDamagePhoto(damagePhoto)}
+                                      onManageDamagePhoto={openDamagePhotoManagement}
                                     />
                                   ))
                                 ) : (
@@ -2775,6 +3078,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           listingLinked={listingLinked}
                           deleting={deletingPhotoId === photo.id}
                           onRequestDelete={setPhotoPendingDelete}
+                          onViewDamagePhoto={(damagePhoto) => void handleViewDamagePhoto(damagePhoto)}
+                          onManageDamagePhoto={openDamagePhotoManagement}
                         />
                         <TextAreaInput
                           className="min-h-[84px]"
@@ -2790,6 +3095,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     )}
                   </div>
                 </div>
+
+                <DamagePhotoHistorySection history={draft.damagePhotoHistory ?? []} />
               </div>
 
               <div className="mt-6 grid gap-4 md:grid-cols-2">

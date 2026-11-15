@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AdminApiAuthError, requireVerifiedAdminApiAccess } from "@/lib/admin-api-auth";
-import { deleteWarehouseIntakePhoto, WarehouseIntakeDeleteError } from "@/lib/warehouse-intake-delete-server";
+import {
+  deleteWarehouseIntakePhoto,
+  manageWarehouseIntakeDamagePhoto,
+  WarehouseIntakeDeleteError,
+} from "@/lib/warehouse-intake-delete-server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +62,60 @@ export async function DELETE(
     });
     return NextResponse.json(
       { success: false, error: "Unable to delete this photo right now. Please try again." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string; photoId: string }> }
+) {
+  const { id, photoId } = await params;
+
+  try {
+    const admin = await requireVerifiedAdminApiAccess(request, "manageVehicles");
+    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
+    const action = body?.action;
+    if (action !== "replace" && action !== "mark_repaired" && action !== "update_note") {
+      return NextResponse.json({ success: false, error: "Invalid damage photo action." }, { status: 400 });
+    }
+    const result = await manageWarehouseIntakeDamagePhoto({
+      intakeId: id,
+      photoId,
+      action,
+      actorUid: admin.uid,
+      actorEmail: admin.email,
+      replacementPhoto: body?.replacementPhoto,
+      afterRepairPhoto: body?.afterRepairPhoto,
+      note: body?.note,
+      repairDate: body?.repairDate,
+      repairDescription: body?.repairDescription,
+      repairVerified: body?.repairVerified,
+      reason: body?.reason,
+    });
+
+    return NextResponse.json({ success: true, result });
+  } catch (error) {
+    if (error instanceof AdminApiAuthError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
+    if (error instanceof WarehouseIntakeDeleteError) {
+      console.error("[warehouse-intake-damage-photo] Update failed.", {
+        intakeId: id,
+        photoId,
+        code: error.code,
+        message: error.message,
+      });
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
+    console.error("[warehouse-intake-damage-photo] Unexpected update failure.", {
+      intakeId: id,
+      photoId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return NextResponse.json(
+      { success: false, error: "Unable to update this damage photo right now. Please try again." },
       { status: 500 }
     );
   }

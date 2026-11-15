@@ -419,6 +419,7 @@ function collectVehicleReportDamageData(record: WarehouseIntakeRecord) {
   const groupsByGridCell = new Map<string, GridLinkedDamageGroup>();
 
   for (const damageRecord of record.vehicleReport.damageRecords ?? []) {
+    if (damageRecord.repairStatus === "verified") continue;
     const gridCellId = damageRecord.gridCellId?.trim();
     if (!gridCellId) continue;
 
@@ -453,6 +454,7 @@ function collectVehicleReportDamageData(record: WarehouseIntakeRecord) {
   }
 
   for (const wheelDamageRecord of record.vehicleReport.wheelDamageRecords ?? []) {
+    if (wheelDamageRecord.repairStatus === "verified") continue;
     for (const photoId of wheelDamageRecord.photoIds) {
       linkedPhotoIds.add(photoId);
     }

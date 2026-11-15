@@ -154,6 +154,7 @@ import {
   UserSupportRecord,
   UserSupportSuggestion,
   WarehouseConditionItem,
+  WarehouseDamagePhotoHistoryEntry,
   WarehouseDeclarationAnswer,
   WarehouseIntakeAgreement,
   WarehouseIntakeConditionReport,
@@ -1328,6 +1329,13 @@ function serializeWarehouseVehicleDamageRecord(input: unknown): WarehouseVehicle
     photoIds: Array.isArray(value.photoIds)
       ? value.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
       : [],
+    repairStatus: value.repairStatus === "reported" || value.repairStatus === "verified" ? value.repairStatus : undefined,
+    repairDate: typeof value.repairDate === "string" ? value.repairDate : "",
+    repairDescription: typeof value.repairDescription === "string" ? value.repairDescription : "",
+    repairConfirmedAt: serializeDate(value.repairConfirmedAt),
+    repairConfirmedByUid: typeof value.repairConfirmedByUid === "string" ? value.repairConfirmedByUid : "",
+    repairConfirmedByName: typeof value.repairConfirmedByName === "string" ? value.repairConfirmedByName : "",
+    afterRepairPhotoId: typeof value.afterRepairPhotoId === "string" ? value.afterRepairPhotoId : "",
   };
 }
 
@@ -1389,6 +1397,13 @@ function serializeWarehouseVehicleWheelDamageRecord(input: unknown): WarehouseVe
     photoIds: Array.isArray(value.photoIds)
       ? value.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
       : [],
+    repairStatus: value.repairStatus === "reported" || value.repairStatus === "verified" ? value.repairStatus : undefined,
+    repairDate: typeof value.repairDate === "string" ? value.repairDate : "",
+    repairDescription: typeof value.repairDescription === "string" ? value.repairDescription : "",
+    repairConfirmedAt: serializeDate(value.repairConfirmedAt),
+    repairConfirmedByUid: typeof value.repairConfirmedByUid === "string" ? value.repairConfirmedByUid : "",
+    repairConfirmedByName: typeof value.repairConfirmedByName === "string" ? value.repairConfirmedByName : "",
+    afterRepairPhotoId: typeof value.afterRepairPhotoId === "string" ? value.afterRepairPhotoId : "",
   };
 }
 
@@ -1402,6 +1417,73 @@ function serializeWarehouseVehicleWheelDamageRecords(input: unknown): WarehouseV
       if (positionOrder !== 0) return positionOrder;
       return VEHICLE_WHEEL_ZONES.indexOf(left.wheelZone) - VEHICLE_WHEEL_ZONES.indexOf(right.wheelZone);
     });
+}
+
+function serializeWarehouseIntakePhotoRecord(input: unknown, fallbackId: string): WarehouseIntakePhotoRecord | null {
+  const value = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!value) return null;
+  const storagePath = extractFirebaseStoragePath(
+    typeof value.storagePath === "string"
+      ? value.storagePath
+      : typeof value.url === "string"
+        ? value.url
+        : ""
+  );
+  if (!storagePath) return null;
+
+  return {
+    id: typeof value.id === "string" && value.id.trim() ? value.id : fallbackId,
+    category: typeof value.category === "string" ? value.category : "damagePhotos",
+    label: typeof value.label === "string" && value.label.trim() ? value.label : "Damage photo",
+    storagePath,
+    name: typeof value.name === "string" ? value.name : "",
+    note: typeof value.note === "string" ? value.note : "",
+    uploadedAt: serializeDate(value.uploadedAt),
+    contentType: typeof value.contentType === "string" ? value.contentType : "",
+  };
+}
+
+function serializeWarehouseDamagePhotoHistory(input: unknown, intakeId: string): WarehouseDamagePhotoHistoryEntry[] {
+  if (!Array.isArray(input)) return [];
+
+  return input
+    .map((item, index) => {
+      const value = item && typeof item === "object" ? item as Record<string, unknown> : null;
+      if (!value) return null;
+      const photo = serializeWarehouseIntakePhotoRecord(value.photo, `${intakeId}-archived-damage-${index + 1}`);
+      if (!photo || photo.category !== "damagePhotos") return null;
+      const action = value.action === "deleted" || value.action === "replaced" || value.action === "repaired" || value.action === "note_updated"
+        ? value.action
+        : null;
+      if (!action) return null;
+      const arrayOfStrings = (field: unknown) => Array.isArray(field)
+        ? field.filter((entry): entry is string => typeof entry === "string" && Boolean(entry.trim())).slice(0, 50)
+        : [];
+
+      const entry: WarehouseDamagePhotoHistoryEntry = {
+        id: typeof value.id === "string" && value.id.trim() ? value.id : `${intakeId}-damage-history-${index + 1}`,
+        action,
+        photo,
+        archivedAt: serializeDate(value.archivedAt) || "",
+        actorUid: typeof value.actorUid === "string" ? value.actorUid : "",
+        actorName: typeof value.actorName === "string" ? value.actorName : "CarNest Admin",
+        reason: typeof value.reason === "string" ? value.reason : "",
+        vehicleId: typeof value.vehicleId === "string" ? value.vehicleId : "",
+        contractId: typeof value.contractId === "string" && value.contractId.trim() ? value.contractId : intakeId,
+        linkedDamageRecordIds: arrayOfStrings(value.linkedDamageRecordIds),
+        linkedWheelDamageRecordIds: arrayOfStrings(value.linkedWheelDamageRecordIds),
+        originalDamageNotes: arrayOfStrings(value.originalDamageNotes),
+        replacementPhoto: serializeWarehouseIntakePhotoRecord(value.replacementPhoto, `${intakeId}-replacement-${index + 1}`) ?? undefined,
+        afterRepairPhoto: serializeWarehouseIntakePhotoRecord(value.afterRepairPhoto, `${intakeId}-after-repair-${index + 1}`) ?? undefined,
+        repairDate: typeof value.repairDate === "string" ? value.repairDate : "",
+        repairDescription: typeof value.repairDescription === "string" ? value.repairDescription : "",
+        repairVerified: value.repairVerified === true,
+        previousNote: typeof value.previousNote === "string" ? value.previousNote : "",
+      };
+      return entry;
+    })
+    .filter((entry): entry is WarehouseDamagePhotoHistoryEntry => Boolean(entry))
+    .sort((left, right) => right.archivedAt.localeCompare(left.archivedAt));
 }
 
 function serializeVehiclePublicWheelDamageRecordSummary(input: unknown): VehiclePublicWheelDamageRecordSummary | null {
@@ -1784,6 +1866,7 @@ export function createEmptyWarehouseIntakeRecord(vehicle?: Vehicle | null): Omit
     conditionReport: createEmptyWarehouseConditionReport(),
     vehicleReport: createEmptyWarehouseVehicleReport(),
     photos: [],
+    damagePhotoHistory: [],
     serviceItems: [],
     intakeDate: "",
     assignedStaffUid: "",
@@ -1852,6 +1935,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
         }))
         .filter((item) => item.storagePath)
     : [];
+  const damagePhotoHistory = serializeWarehouseDamagePhotoHistory(data.damagePhotoHistory, id);
   const serviceItems = Array.isArray(data.serviceItems)
     ? (data.serviceItems as Array<Record<string, unknown>>)
         .map((item, index) => createEmptyWarehouseServiceFeeItem({
@@ -1985,6 +2069,7 @@ function serializeWarehouseIntakeDoc(id: string, data: Record<string, unknown>):
       wheelDamageRecords: serializeWarehouseVehicleWheelDamageRecords(vehicleReportInput.wheelDamageRecords),
     },
     photos,
+    damagePhotoHistory,
     serviceItems,
     intakeDate,
     assignedStaffUid: typeof data.assignedStaffUid === "string" ? data.assignedStaffUid : "",
@@ -7126,6 +7211,44 @@ function buildWarehouseIntakeWritePayload(
         ])
     ).values()
   );
+  const damagePhotoHistory = (input.damagePhotoHistory ?? [])
+    .filter((entry) => entry?.photo?.category === "damagePhotos" && Boolean(entry.photo.storagePath?.trim()))
+    .map((entry, index) => ({
+      id: entry.id || `damage-history-${Date.now()}-${index + 1}`,
+      action: entry.action,
+      photo: {
+        id: entry.photo.id,
+        category: "damagePhotos",
+        label: entry.photo.label || "Damage photo",
+        storagePath: entry.photo.storagePath.trim(),
+        name: entry.photo.name || "",
+        note: entry.photo.note || "",
+        uploadedAt: entry.photo.uploadedAt || "",
+        contentType: entry.photo.contentType || "",
+      },
+      archivedAt: entry.archivedAt || new Date().toISOString(),
+      actorUid: entry.actorUid || "",
+      actorName: entry.actorName || "CarNest Admin",
+      reason: sanitizeSingleLineText(entry.reason || "").slice(0, 240),
+      vehicleId: entry.vehicleId || input.vehicleId || "",
+      contractId: entry.contractId || "",
+      linkedDamageRecordIds: (entry.linkedDamageRecordIds ?? []).filter((recordId) => typeof recordId === "string" && Boolean(recordId.trim())).slice(0, 50),
+      linkedWheelDamageRecordIds: (entry.linkedWheelDamageRecordIds ?? []).filter((recordId) => typeof recordId === "string" && Boolean(recordId.trim())).slice(0, 50),
+      originalDamageNotes: (entry.originalDamageNotes ?? []).filter((note) => typeof note === "string" && Boolean(note.trim())).map((note) => sanitizeMultilineText(note).slice(0, 1200)).slice(0, 50),
+      replacementPhoto: entry.replacementPhoto?.storagePath ? {
+        ...entry.replacementPhoto,
+        category: "damagePhotos",
+      } : undefined,
+      afterRepairPhoto: entry.afterRepairPhoto?.storagePath ? {
+        ...entry.afterRepairPhoto,
+        category: "damagePhotos",
+      } : undefined,
+      repairDate: entry.repairDate || "",
+      repairDescription: sanitizeMultilineText(entry.repairDescription || "").slice(0, 1200),
+      repairVerified: entry.repairVerified === true,
+      previousNote: sanitizeMultilineText(entry.previousNote || "").slice(0, 1200),
+    }))
+    .slice(0, 200);
   const agreement = {
     ...base.agreement,
     ...input.agreement
@@ -7291,10 +7414,18 @@ function buildWarehouseIntakeWritePayload(
           photoIds: Array.isArray(record?.photoIds)
             ? record.photoIds.filter((photoId): photoId is string => typeof photoId === "string" && Boolean(photoId.trim()))
             : [],
+          repairStatus: record?.repairStatus === "reported" || record?.repairStatus === "verified" ? record.repairStatus : undefined,
+          repairDate: typeof record?.repairDate === "string" ? record.repairDate : "",
+          repairDescription: sanitizeMultilineText(record?.repairDescription ?? "").slice(0, 1200),
+          repairConfirmedAt: typeof record?.repairConfirmedAt === "string" ? record.repairConfirmedAt : "",
+          repairConfirmedByUid: typeof record?.repairConfirmedByUid === "string" ? record.repairConfirmedByUid : "",
+          repairConfirmedByName: typeof record?.repairConfirmedByName === "string" ? record.repairConfirmedByName : "",
+          afterRepairPhotoId: typeof record?.afterRepairPhotoId === "string" ? record.afterRepairPhotoId : "",
         })),
       wheelDamageRecords: serializeWarehouseVehicleWheelDamageRecords(input.vehicleReport?.wheelDamageRecords),
     } satisfies WarehouseIntakeRecord["vehicleReport"],
     photos,
+    damagePhotoHistory,
     serviceItems,
     intakeDate,
     assignedStaffUid: input.assignedStaffUid || actor.id,
@@ -7478,7 +7609,7 @@ async function resolveVehicleReportDamageRecordSummaries(
 
   const resolved = await Promise.all(
     (input.vehicleReport.damageRecords ?? [])
-      .filter((record) => Boolean(record.gridCellId?.trim()))
+      .filter((record) => Boolean(record.gridCellId?.trim()) && record.repairStatus !== "verified")
       .map(async (record) => {
       const images = await Promise.all(
         record.photoIds.map(async (photoId) => {
@@ -7524,7 +7655,11 @@ async function resolveVehicleReportWheelDamageRecordSummaries(
 
   const resolved = await Promise.all(
     (input.vehicleReport.wheelDamageRecords ?? [])
-      .filter((record) => isVehicleWheelPosition(record.wheelPosition) && isVehicleWheelZone(record.wheelZone))
+      .filter((record) => (
+        isVehicleWheelPosition(record.wheelPosition)
+        && isVehicleWheelZone(record.wheelZone)
+        && record.repairStatus !== "verified"
+      ))
       .map(async (record) => {
         const images = await Promise.all(
           record.photoIds.map(async (photoId) => {
@@ -7563,10 +7698,14 @@ function getAdditionalDamagePhotos(
   const linkedPhotoIds = new Set(
     [
       ...(input.vehicleReport.damageRecords ?? [])
-        .filter((record) => Boolean(record.gridCellId?.trim()))
+        .filter((record) => Boolean(record.gridCellId?.trim()) && record.repairStatus !== "verified")
         .flatMap((record) => record.photoIds),
       ...(input.vehicleReport.wheelDamageRecords ?? [])
-        .filter((record) => isVehicleWheelPosition(record.wheelPosition) && isVehicleWheelZone(record.wheelZone))
+        .filter((record) => (
+          isVehicleWheelPosition(record.wheelPosition)
+          && isVehicleWheelZone(record.wheelZone)
+          && record.repairStatus !== "verified"
+        ))
         .flatMap((record) => record.photoIds),
     ]
   );

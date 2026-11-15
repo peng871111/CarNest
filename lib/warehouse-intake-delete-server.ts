@@ -52,9 +52,9 @@ function normalizeIntakeStoragePath(value: unknown, intakeId: string) {
   return storagePath;
 }
 
-function getRawPhotos(data: WarehouseIntakeRawData) {
+function getRawPhotos(data: WarehouseIntakeRawData): Array<Record<string, unknown> & { id: string }> {
   return Array.isArray(data.photos)
-    ? (data.photos as Array<Record<string, unknown>>).filter((photo) => typeof photo.id === "string")
+    ? (data.photos as Array<Record<string, unknown>>).filter((photo): photo is Record<string, unknown> & { id: string } => typeof photo.id === "string")
     : [];
 }
 
@@ -88,6 +88,133 @@ function removePhotoIdFromWheelDamageRecords(data: WarehouseIntakeRawData, photo
       ? record.photoIds.filter((entry) => entry !== photoId)
       : [],
   }));
+}
+
+function getVehicleReport(data: WarehouseIntakeRawData) {
+  return data.vehicleReport && typeof data.vehicleReport === "object"
+    ? data.vehicleReport as Record<string, unknown>
+    : {};
+}
+
+function getLinkedDamageRecordIds(data: WarehouseIntakeRawData, photoId: string) {
+  const vehicleReport = getVehicleReport(data);
+  const damageRecords = Array.isArray(vehicleReport.damageRecords)
+    ? vehicleReport.damageRecords as Array<Record<string, unknown>>
+    : [];
+  const wheelDamageRecords = Array.isArray(vehicleReport.wheelDamageRecords)
+    ? vehicleReport.wheelDamageRecords as Array<Record<string, unknown>>
+    : [];
+
+  return {
+    damageRecordIds: damageRecords
+      .filter((record) => Array.isArray(record.photoIds) && record.photoIds.includes(photoId))
+      .map((record) => typeof record.id === "string" ? record.id : "")
+      .filter(Boolean),
+    wheelDamageRecordIds: wheelDamageRecords
+      .filter((record) => Array.isArray(record.photoIds) && record.photoIds.includes(photoId))
+      .map((record) => typeof record.id === "string" ? record.id : "")
+      .filter(Boolean),
+    damageNotes: [...damageRecords, ...wheelDamageRecords]
+      .filter((record) => Array.isArray(record.photoIds) && record.photoIds.includes(photoId))
+      .map((record) => typeof record.notes === "string" ? record.notes.trim().slice(0, 1200) : "")
+      .filter(Boolean),
+  };
+}
+
+function replacePhotoIdInDamageRecords(data: WarehouseIntakeRawData, photoId: string, replacementPhotoId: string) {
+  const vehicleReport = getVehicleReport(data);
+  const damageRecords = Array.isArray(vehicleReport.damageRecords)
+    ? vehicleReport.damageRecords as Array<Record<string, unknown>>
+    : [];
+
+  return damageRecords.map((record) => ({
+    ...record,
+    photoIds: Array.isArray(record.photoIds)
+      ? Array.from(new Set(record.photoIds.map((entry) => entry === photoId ? replacementPhotoId : entry)))
+      : [],
+  }));
+}
+
+function replacePhotoIdInWheelDamageRecords(data: WarehouseIntakeRawData, photoId: string, replacementPhotoId: string) {
+  const vehicleReport = getVehicleReport(data);
+  const wheelDamageRecords = Array.isArray(vehicleReport.wheelDamageRecords)
+    ? vehicleReport.wheelDamageRecords as Array<Record<string, unknown>>
+    : [];
+
+  return wheelDamageRecords.map((record) => ({
+    ...record,
+    photoIds: Array.isArray(record.photoIds)
+      ? Array.from(new Set(record.photoIds.map((entry) => entry === photoId ? replacementPhotoId : entry)))
+      : [],
+  }));
+}
+
+function getRawDamagePhoto(input: unknown, intakeId: string) {
+  const photo = input && typeof input === "object" ? input as Record<string, unknown> : null;
+  if (!photo || typeof photo.id !== "string" || !photo.id.trim() || photo.category !== "damagePhotos") return null;
+  const storagePath = normalizeIntakeStoragePath(photo.storagePath, intakeId);
+  if (!storagePath.startsWith(`warehouse-intakes/${intakeId}/photos/damagePhotos/`)) return null;
+  const contentType = typeof photo.contentType === "string" ? photo.contentType : "";
+  if (contentType && !contentType.toLowerCase().startsWith("image/")) return null;
+
+  return {
+    id: photo.id.trim(),
+    category: "damagePhotos",
+    label: typeof photo.label === "string" && photo.label.trim() ? photo.label.trim().slice(0, 160) : "Damage photo",
+    storagePath,
+    name: typeof photo.name === "string" ? photo.name.slice(0, 240) : "",
+    note: typeof photo.note === "string" ? photo.note.slice(0, 1200) : "",
+    uploadedAt: typeof photo.uploadedAt === "string" ? photo.uploadedAt : "",
+    contentType,
+  };
+}
+
+function sanitizeRepairDate(value: unknown) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
+function sanitizeRepairDescription(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 1200) : "";
+}
+
+function createDamagePhotoHistoryEntry(input: {
+  intakeId: string;
+  vehicleId: string;
+  photo: Record<string, unknown>;
+  action: "deleted" | "replaced" | "repaired" | "note_updated";
+  actorUid: string;
+  actorName: string;
+  linkedDamageRecordIds: string[];
+  linkedWheelDamageRecordIds: string[];
+  originalDamageNotes?: string[];
+  reason?: string;
+  replacementPhoto?: Record<string, unknown> | null;
+  afterRepairPhoto?: Record<string, unknown> | null;
+  repairDate?: string;
+  repairDescription?: string;
+  repairVerified?: boolean;
+  previousNote?: string;
+}) {
+  return {
+    id: `damage-photo-history-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+    action: input.action,
+    photo: input.photo,
+    archivedAt: Timestamp.now(),
+    actorUid: input.actorUid,
+    actorName: input.actorName,
+    reason: input.reason || "",
+    vehicleId: input.vehicleId,
+    contractId: input.intakeId,
+    linkedDamageRecordIds: input.linkedDamageRecordIds,
+    linkedWheelDamageRecordIds: input.linkedWheelDamageRecordIds,
+    originalDamageNotes: input.originalDamageNotes ?? [],
+    replacementPhoto: input.replacementPhoto ?? null,
+    afterRepairPhoto: input.afterRepairPhoto ?? null,
+    repairDate: input.repairDate || "",
+    repairDescription: input.repairDescription || "",
+    repairVerified: input.repairVerified === true,
+    previousNote: input.previousNote || "",
+  };
 }
 
 function hasBuyerFacingReport(data: WarehouseIntakeRawData) {
@@ -231,10 +358,6 @@ export async function deleteWarehouseIntakePhoto(input: {
   }
 
   const data = snapshot.data() ?? {};
-  if (!canDeleteWarehouseIntakePhotos(data)) {
-    throw new WarehouseIntakeDeleteError("Photos cannot be deleted after this contract is linked to a listing.", 409, "listing_linked");
-  }
-
   const photos = getRawPhotos(data);
   const photo = photos.find((entry) => entry.id === photoId);
   if (!photo) {
@@ -258,14 +381,41 @@ export async function deleteWarehouseIntakePhoto(input: {
     throw new WarehouseIntakeDeleteError("Only vehicle-condition photos can be deleted from this workflow.", 400, "protected_photo");
   }
 
+  const isDamagePhoto = photo.category === "damagePhotos";
+  if (!isDamagePhoto && !canDeleteWarehouseIntakePhotos(data)) {
+    throw new WarehouseIntakeDeleteError("Photos cannot be deleted after this contract is linked to a listing.", 409, "listing_linked");
+  }
+
   const pdfExisted = isPdfAvailable(data);
   const pdfRegenerationRequiredAt = pdfExisted ? Timestamp.now() : null;
   const deletionReason = sanitizeDeletionReason(input.deletionReason);
   const linkedListingState = isWarehouseIntakeLinkedToListing(data) ? "linked" : "unlinked";
-  const storageResult = await deleteStorageObject(storagePath);
+  const links = getLinkedDamageRecordIds(data, photoId);
+  const storageResult = isDamagePhoto
+    ? { deleted: false, missing: false }
+    : await deleteStorageObject(storagePath);
   const nextPhotos = photos.filter((entry) => entry.id !== photoId);
   const nextDamageRecords = removePhotoIdFromDamageRecords(data, photoId);
   const nextWheelDamageRecords = removePhotoIdFromWheelDamageRecords(data, photoId);
+  const actorName = input.actorEmail || "CarNest Admin";
+  const existingHistory = Array.isArray(data.damagePhotoHistory) ? data.damagePhotoHistory : [];
+  const nextDamagePhotoHistory = isDamagePhoto
+    ? [
+        ...existingHistory,
+        createDamagePhotoHistoryEntry({
+          intakeId,
+          vehicleId: getStringField(data, "vehicleId").trim(),
+          photo,
+          action: "deleted",
+          actorUid: input.actorUid,
+          actorName,
+          linkedDamageRecordIds: links.damageRecordIds,
+          linkedWheelDamageRecordIds: links.wheelDamageRecordIds,
+          originalDamageNotes: links.damageNotes,
+          reason: deletionReason,
+        }),
+      ]
+    : existingHistory;
 
   try {
     await ref.update({
@@ -273,6 +423,7 @@ export async function deleteWarehouseIntakePhoto(input: {
       photoCount: nextPhotos.length,
       "vehicleReport.damageRecords": nextDamageRecords,
       "vehicleReport.wheelDamageRecords": nextWheelDamageRecords,
+      ...(isDamagePhoto ? { damagePhotoHistory: nextDamagePhotoHistory } : {}),
       ...(pdfRegenerationRequiredAt
         ? {
             pdfRegenerationRequiredAt,
@@ -282,7 +433,7 @@ export async function deleteWarehouseIntakePhoto(input: {
           }
         : {}),
       lastEditedByUid: input.actorUid,
-      lastEditedByName: input.actorEmail || "CarNest Admin",
+      lastEditedByName: actorName,
       lastEditedAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
@@ -307,13 +458,13 @@ export async function deleteWarehouseIntakePhoto(input: {
       });
     });
   } catch (error) {
-    console.error("[warehouse-intake-delete] Firestore metadata update failed after Storage photo delete.", {
+    console.error("[warehouse-intake-delete] Condition photo metadata update failed.", {
       intakeId,
       photoId,
       storagePath,
       error: error instanceof Error ? error.message : String(error),
     });
-    throw new WarehouseIntakeDeleteError("Photo storage was removed, but the contract metadata could not be updated.", 500, "metadata_update_failed");
+    throw new WarehouseIntakeDeleteError("The condition photo could not be updated safely. Please try again.", 500, "metadata_update_failed");
   }
 
   return {
@@ -321,6 +472,258 @@ export async function deleteWarehouseIntakePhoto(input: {
     alreadyRemoved: false,
     storageDeleted: storageResult.deleted,
     storageMissing: storageResult.missing,
+    archived: isDamagePhoto,
+    pdfRegenerationRequired: pdfExisted,
+    pdfRegenerationRequiredAt: pdfRegenerationRequiredAt?.toDate().toISOString() ?? "",
+  };
+}
+
+type DamagePhotoMutationAction = "replace" | "mark_repaired" | "update_note";
+
+async function writeDamagePhotoAuditEvent(input: {
+  intakeId: string;
+  photoId: string;
+  action: DamagePhotoMutationAction;
+  actorUid: string;
+  actorEmail?: string;
+  vehicleId: string;
+  details: string;
+}) {
+  await getAdminDb().collection("adminOperationalEvents").add({
+    recordType: "warehouse_intake",
+    actionType: "photo_updated",
+    affectedRecordId: input.intakeId,
+    intakeEventId: input.intakeId,
+    publicListingId: input.vehicleId,
+    staffUid: input.actorUid,
+    staffName: input.actorEmail || "CarNest Admin",
+    staffEmail: input.actorEmail || "",
+    summary: input.details,
+    photoId: input.photoId,
+    damagePhotoAction: input.action,
+    createdAt: Timestamp.now(),
+  });
+}
+
+export async function manageWarehouseIntakeDamagePhoto(input: {
+  intakeId: string;
+  photoId: string;
+  action: DamagePhotoMutationAction;
+  actorUid: string;
+  actorEmail?: string;
+  replacementPhoto?: unknown;
+  afterRepairPhoto?: unknown;
+  note?: unknown;
+  repairDate?: unknown;
+  repairDescription?: unknown;
+  repairVerified?: unknown;
+  reason?: unknown;
+}) {
+  const intakeId = input.intakeId.trim();
+  const photoId = input.photoId.trim();
+  if (!isSafeWarehouseIntakeId(intakeId) || !photoId) {
+    throw new WarehouseIntakeDeleteError("Invalid warehouse damage photo request.", 400, "invalid_request");
+  }
+
+  const db = getAdminDb();
+  const ref = db.collection("warehouseIntakes").doc(intakeId);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) {
+    throw new WarehouseIntakeDeleteError("Storage contract draft was not found.", 404, "not_found");
+  }
+
+  const data = snapshot.data() ?? {};
+  const photos = getRawPhotos(data);
+  const photo = photos.find((entry) => entry.id === photoId);
+  if (!photo || photo.category !== "damagePhotos") {
+    throw new WarehouseIntakeDeleteError("Damage photo was not found.", 404, "photo_not_found");
+  }
+  const storagePath = normalizeIntakeStoragePath(photo.storagePath, intakeId);
+  if (!storagePath.startsWith(`warehouse-intakes/${intakeId}/photos/damagePhotos/`)) {
+    throw new WarehouseIntakeDeleteError("Stored photo path is invalid for this contract.", 400, "invalid_storage_path");
+  }
+
+  const actorName = input.actorEmail || "CarNest Admin";
+  const vehicleId = getStringField(data, "vehicleId").trim();
+  const links = getLinkedDamageRecordIds(data, photoId);
+  const existingHistory = Array.isArray(data.damagePhotoHistory) ? data.damagePhotoHistory : [];
+  const pdfExisted = isPdfAvailable(data);
+  const pdfRegenerationRequiredAt = pdfExisted ? Timestamp.now() : null;
+  const updates: WarehouseIntakeRawData = {
+    lastEditedByUid: input.actorUid,
+    lastEditedByName: actorName,
+    lastEditedAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    ...(pdfRegenerationRequiredAt
+      ? {
+          pdfRegenerationRequiredAt,
+          pdfRegenerationReason: input.action === "mark_repaired" ? "condition_damage_repaired" : "condition_photo_updated",
+          pdfRegenerationRequiredByUid: input.actorUid,
+          pdfRegenerationRequiredByName: actorName,
+        }
+      : {}),
+  };
+  let auditDetails = "";
+
+  if (input.action === "replace") {
+    const replacementPhoto = getRawDamagePhoto(input.replacementPhoto, intakeId);
+    if (!replacementPhoto || replacementPhoto.id === photoId || photos.some((entry) => entry.id === replacementPhoto.id && entry.id !== photoId)) {
+      throw new WarehouseIntakeDeleteError("Upload a valid replacement damage photo before saving.", 400, "invalid_replacement_photo");
+    }
+
+    updates.photos = photos.map((entry) => entry.id === photoId ? replacementPhoto : entry);
+    updates.photoCount = photos.length;
+    updates["vehicleReport.damageRecords"] = replacePhotoIdInDamageRecords(data, photoId, replacementPhoto.id);
+    updates["vehicleReport.wheelDamageRecords"] = replacePhotoIdInWheelDamageRecords(data, photoId, replacementPhoto.id);
+    updates.damagePhotoHistory = [
+      ...existingHistory,
+      createDamagePhotoHistoryEntry({
+        intakeId,
+        vehicleId,
+        photo,
+        action: "replaced",
+        actorUid: input.actorUid,
+        actorName,
+        linkedDamageRecordIds: links.damageRecordIds,
+        linkedWheelDamageRecordIds: links.wheelDamageRecordIds,
+        originalDamageNotes: links.damageNotes,
+        reason: sanitizeDeletionReason(input.reason),
+        replacementPhoto,
+      }),
+    ];
+    auditDetails = `Damage photo ${photoId} replaced on warehouse intake ${intakeId}.`;
+  } else if (input.action === "update_note") {
+    const note = sanitizeRepairDescription(input.note);
+    updates.photos = photos.map((entry) => entry.id === photoId ? { ...entry, note } : entry);
+    updates.photoCount = photos.length;
+    updates.damagePhotoHistory = [
+      ...existingHistory,
+      createDamagePhotoHistoryEntry({
+        intakeId,
+        vehicleId,
+        photo,
+        action: "note_updated",
+        actorUid: input.actorUid,
+        actorName,
+        linkedDamageRecordIds: links.damageRecordIds,
+        linkedWheelDamageRecordIds: links.wheelDamageRecordIds,
+        originalDamageNotes: links.damageNotes,
+        previousNote: typeof photo.note === "string" ? photo.note : "",
+      }),
+    ];
+    auditDetails = `Damage note updated for photo ${photoId} on warehouse intake ${intakeId}.`;
+  } else {
+    const repairDate = sanitizeRepairDate(input.repairDate);
+    const repairDescription = sanitizeRepairDescription(input.repairDescription);
+    const repairVerified = input.repairVerified === true;
+    const afterRepairPhoto = input.afterRepairPhoto ? getRawDamagePhoto(input.afterRepairPhoto, intakeId) : null;
+    if (!repairDate) {
+      throw new WarehouseIntakeDeleteError("A repair date is required.", 400, "invalid_repair_date");
+    }
+    if (input.afterRepairPhoto && !afterRepairPhoto) {
+      throw new WarehouseIntakeDeleteError("The after-repair photo is invalid for this contract.", 400, "invalid_after_repair_photo");
+    }
+
+    const linkedBodyIds = new Set(links.damageRecordIds);
+    const linkedWheelIds = new Set(links.wheelDamageRecordIds);
+    const vehicleReport = getVehicleReport(data);
+    const bodyRecords = Array.isArray(vehicleReport.damageRecords)
+      ? vehicleReport.damageRecords as Array<Record<string, unknown>>
+      : [];
+    const wheelRecords = Array.isArray(vehicleReport.wheelDamageRecords)
+      ? vehicleReport.wheelDamageRecords as Array<Record<string, unknown>>
+      : [];
+    const matchingPhotoIds = new Set<string>([photoId]);
+    if (repairVerified) {
+      for (const record of [...bodyRecords, ...wheelRecords]) {
+        const recordId = typeof record.id === "string" ? record.id : "";
+        if (!linkedBodyIds.has(recordId) && !linkedWheelIds.has(recordId)) continue;
+        if (Array.isArray(record.photoIds)) {
+          record.photoIds.forEach((linkedPhotoId) => {
+            if (typeof linkedPhotoId === "string") matchingPhotoIds.add(linkedPhotoId);
+          });
+        }
+      }
+    }
+    const repairMetadata = {
+      repairStatus: repairVerified ? "verified" : "reported",
+      repairDate,
+      repairDescription,
+      repairConfirmedAt: repairVerified ? Timestamp.now() : null,
+      repairConfirmedByUid: repairVerified ? input.actorUid : "",
+      repairConfirmedByName: repairVerified ? actorName : "",
+      afterRepairPhotoId: afterRepairPhoto?.id || "",
+    };
+    updates["vehicleReport.damageRecords"] = bodyRecords.map((record) => (
+      linkedBodyIds.has(typeof record.id === "string" ? record.id : "") ? { ...record, ...repairMetadata } : record
+    ));
+    updates["vehicleReport.wheelDamageRecords"] = wheelRecords.map((record) => (
+      linkedWheelIds.has(typeof record.id === "string" ? record.id : "") ? { ...record, ...repairMetadata } : record
+    ));
+    const archivedPhotos = repairVerified
+      ? photos.filter((entry) => entry.category === "damagePhotos" && matchingPhotoIds.has(entry.id))
+      : [];
+    updates.photos = repairVerified
+      ? photos.filter((entry) => !matchingPhotoIds.has(entry.id))
+      : photos;
+    updates.photoCount = (updates.photos as Array<Record<string, unknown>>).length;
+    updates.damagePhotoHistory = [
+      ...existingHistory,
+      ...(repairVerified ? archivedPhotos : [photo]).map((archivedPhoto) => (
+        createDamagePhotoHistoryEntry({
+          intakeId,
+          vehicleId,
+          photo: archivedPhoto,
+          action: "repaired",
+          actorUid: input.actorUid,
+          actorName,
+          linkedDamageRecordIds: getLinkedDamageRecordIds(data, String(archivedPhoto.id)).damageRecordIds,
+          linkedWheelDamageRecordIds: getLinkedDamageRecordIds(data, String(archivedPhoto.id)).wheelDamageRecordIds,
+          originalDamageNotes: getLinkedDamageRecordIds(data, String(archivedPhoto.id)).damageNotes,
+          reason: sanitizeDeletionReason(input.reason),
+          afterRepairPhoto: archivedPhoto.id === photoId ? afterRepairPhoto : null,
+          repairDate,
+          repairDescription,
+          repairVerified,
+        })
+      )),
+    ];
+    auditDetails = repairVerified
+      ? `Repair verified and active damage evidence archived for photo ${photoId} on warehouse intake ${intakeId}.`
+      : `Repair recorded for photo ${photoId} on warehouse intake ${intakeId}; admin verification is pending.`;
+  }
+
+  try {
+    await ref.update(updates);
+    await writeDamagePhotoAuditEvent({
+      intakeId,
+      photoId,
+      action: input.action,
+      actorUid: input.actorUid,
+      actorEmail: input.actorEmail,
+      vehicleId,
+      details: auditDetails,
+    }).catch((error) => {
+      console.error("[warehouse-intake-damage] Photo audit log failed.", {
+        intakeId,
+        photoId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  } catch (error) {
+    console.error("[warehouse-intake-damage] Damage photo update failed.", {
+      intakeId,
+      photoId,
+      action: input.action,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw new WarehouseIntakeDeleteError("The damage photo could not be updated safely. Please try again.", 500, "damage_photo_update_failed");
+  }
+
+  return {
+    photoId,
+    action: input.action,
+    archived: input.action === "mark_repaired" && input.repairVerified === true,
     pdfRegenerationRequired: pdfExisted,
     pdfRegenerationRequiredAt: pdfRegenerationRequiredAt?.toDate().toISOString() ?? "",
   };

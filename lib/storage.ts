@@ -3,7 +3,7 @@
 import { deleteObject, getBlob, getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { isFirebaseStorageConfigured, storage } from "@/lib/firebase";
 import { compressVehicleImage } from "@/lib/image-processing";
-import { PreparedVehicleImageUpload, VehicleImageAsset } from "@/types";
+import { PreparedVehicleImageUpload, VehicleImageAsset, WarehouseIntakePhotoRecord } from "@/types";
 
 const DEALER_PROOF_ALLOWED_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png"];
 const DEALER_PROOF_ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/png"];
@@ -580,6 +580,44 @@ export async function deleteAdminWarehouseIntakePhoto(intakeId: string, photoId:
   );
 
   return await readAdminWarehouseIntakeMutationResponse(response, "Unable to delete this photo right now. Please try again.");
+}
+
+export async function manageAdminWarehouseIntakeDamagePhoto(
+  intakeId: string,
+  photoId: string,
+  idToken: string,
+  payload: {
+    action: "replace" | "mark_repaired" | "update_note";
+    replacementPhoto?: WarehouseIntakePhotoRecord;
+    afterRepairPhoto?: WarehouseIntakePhotoRecord;
+    note?: string;
+    repairDate?: string;
+    repairDescription?: string;
+    repairVerified?: boolean;
+    reason?: string;
+  }
+) {
+  if (!intakeId || !photoId) {
+    throw new Error("Damage photo management requires a storage contract and photo reference.");
+  }
+  if (!idToken) {
+    throw new Error("Admin authentication token is required.");
+  }
+
+  const response = await fetch(
+    `/api/admin/warehouse-intake/${encodeURIComponent(intakeId)}/photos/${encodeURIComponent(photoId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${idToken}`
+      },
+      body: JSON.stringify(payload),
+      cache: "no-store"
+    }
+  );
+
+  return await readAdminWarehouseIntakeMutationResponse(response, "Unable to update this damage photo right now. Please try again.");
 }
 
 export async function deleteAdminWarehouseIntakeDraft(intakeId: string, idToken: string) {

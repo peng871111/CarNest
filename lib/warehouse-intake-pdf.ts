@@ -57,7 +57,7 @@ function collectConditionEvidence(record: WarehouseIntakeRecord) {
   );
 
   const bodyDamageRecords = (record.vehicleReport.damageRecords ?? [])
-    .filter((damageRecord) => Boolean(damageRecord.gridCellId?.trim()))
+    .filter((damageRecord) => Boolean(damageRecord.gridCellId?.trim()) && damageRecord.repairStatus !== "verified")
     .map((damageRecord) => {
       const cell = getVehicleBodyDamageGridCell(damageRecord.gridCellId);
       const linkedPhotos = damageRecord.photoIds
@@ -82,6 +82,7 @@ function collectConditionEvidence(record: WarehouseIntakeRecord) {
     });
 
   const wheelDamageRecords = (record.vehicleReport.wheelDamageRecords ?? [])
+    .filter((damageRecord) => damageRecord.repairStatus !== "verified")
     .map((damageRecord) => {
       const linkedPhotos = damageRecord.photoIds
         .map((photoId) => {
