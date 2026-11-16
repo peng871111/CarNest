@@ -902,7 +902,8 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
   const [selectedDamageGridCellId, setSelectedDamageGridCellId] = useState<string>(VEHICLE_BODY_DAMAGE_GRID_CELLS[0]?.id || "");
   const [selectedDamageRecordId, setSelectedDamageRecordId] = useState<string>("");
-  const [selectedWheelPosition, setSelectedWheelPosition] = useState<VehicleWheelPosition>(VEHICLE_WHEEL_POSITIONS[0] ?? "front-left");
+  const [selectedWheelPosition, setSelectedWheelPosition] = useState<VehicleWheelPosition | null>(null);
+  const [wheelDetailsOpen, setWheelDetailsOpen] = useState(false);
   const [selectedWheelZones, setSelectedWheelZones] = useState<Record<VehicleWheelPosition, VehicleWheelZone>>(DEFAULT_SELECTED_WHEEL_ZONES);
   const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
   const [photoDeletionReason, setPhotoDeletionReason] = useState("");
@@ -938,11 +939,14 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     () => draft.vehicleReport.wheelDamageRecords ?? [],
     [draft.vehicleReport.wheelDamageRecords]
   );
-  const selectedWheelZone = selectedWheelZones[selectedWheelPosition] ?? "outer_rim_top";
+  const selectedWheelZone = selectedWheelPosition ? selectedWheelZones[selectedWheelPosition] ?? "outer_rim_top" : "outer_rim_top";
   const selectedWheelRecords = useMemo(
-    () => wheelDamageRecords.filter((record) => record.wheelPosition === selectedWheelPosition),
+    () => selectedWheelPosition ? wheelDamageRecords.filter((record) => record.wheelPosition === selectedWheelPosition) : [],
     [selectedWheelPosition, wheelDamageRecords]
   );
+  const selectedWheelStatus = selectedWheelPosition
+    ? getWarehouseWheelSelectorStatus(wheelDamageRecords, selectedWheelPosition)
+    : null;
   const activeWheelRecord = selectedWheelRecords.find((record) => record.wheelZone === selectedWheelZone) ?? null;
   const activeWheelPhotos = activeWheelRecord
     ? draft.photos.filter((photo) => activeWheelRecord.photoIds.includes(photo.id))
@@ -2807,7 +2811,10 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           key={wheelPosition}
                           type="button"
                           aria-pressed={isSelected}
-                          onClick={() => setSelectedWheelPosition(wheelPosition)}
+                          onClick={() => {
+                            setSelectedWheelPosition(wheelPosition);
+                            setWheelDetailsOpen(wheelStatus !== "original");
+                          }}
                           className={`min-h-[96px] rounded-[20px] border px-3 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-bronze focus:ring-offset-2 ${
                             isSelected
                               ? "border-bronze bg-white text-ink shadow-sm"
@@ -2820,7 +2827,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           </span>
                           <span className="mt-2 block text-xs font-semibold text-ink">{VEHICLE_WHEEL_POSITION_LABELS[wheelPosition].replace(" Wheel", "")}</span>
                           <span className={`mt-1 block text-[11px] font-semibold ${
-                            wheelStatus === "damage_recorded"
+                            wheelStatus === "damage_recorded" || wheelStatus === "mixed_condition"
                               ? "text-amber-700"
                               : wheelStatus === "repaired"
                                 ? "text-emerald-700"
@@ -2833,16 +2840,45 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     })}
                   </div>
 
-                  <div className="mt-5 rounded-[26px] border border-black/6 bg-shell p-4">
-                    <WheelRimConditionMap
-                      position={selectedWheelPosition}
-                      records={selectedWheelRecords}
-                      selectedZone={selectedWheelZone}
-                      editable
-                      onZoneSelect={handleWheelZoneSelect}
-                    />
+                  {selectedWheelPosition && selectedWheelStatus === "original" && !wheelDetailsOpen ? (
+                    <div className="mt-5 flex flex-col gap-4 rounded-[22px] border border-black/6 bg-shell p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{VEHICLE_WHEEL_POSITION_LABELS[selectedWheelPosition]}</p>
+                        <p className="mt-1 text-sm text-ink/60">Status: Original</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setWheelDetailsOpen(true)}
+                        className="min-h-11 rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white transition hover:bg-ink/85 focus:outline-none focus:ring-2 focus:ring-bronze focus:ring-offset-2"
+                      >
+                        Record Damage
+                      </button>
+                    </div>
+                  ) : null}
 
-                    <div className="mt-4 rounded-[22px] border border-black/6 bg-white p-4">
+                  {wheelDetailsOpen && selectedWheelPosition ? (
+                    <div className="mt-5 rounded-[26px] border border-black/6 bg-shell p-4">
+                      <div className="mb-4 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setWheelDetailsOpen(false);
+                            setSelectedWheelPosition(null);
+                          }}
+                          className="min-h-11 rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-bronze hover:text-bronze focus:outline-none focus:ring-2 focus:ring-bronze focus:ring-offset-2"
+                        >
+                          Close Wheel Details
+                        </button>
+                      </div>
+                      <WheelRimConditionMap
+                        position={selectedWheelPosition}
+                        records={selectedWheelRecords}
+                        selectedZone={selectedWheelZone}
+                        editable
+                        onZoneSelect={handleWheelZoneSelect}
+                      />
+
+                      <div className="mt-4 rounded-[22px] border border-black/6 bg-white p-4">
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                           <FieldLabel>Selected wheel area</FieldLabel>
@@ -2918,8 +2954,9 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                           </div>
                         )}
                       </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
 
                 <div className="rounded-[24px] border border-black/6 bg-white p-5">
