@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { CircleDot } from "lucide-react";
 import {
   createEmptyWarehouseServiceFeeItem,
   createEmptyWarehouseIntakeRecord,
@@ -46,6 +47,11 @@ import {
   VEHICLE_WHEEL_ZONE_LABELS,
   VEHICLE_WHEEL_ZONES,
 } from "@/lib/vehicle-wheel-condition";
+import {
+  getWarehouseWheelSelectorStatus,
+  WAREHOUSE_WHEEL_POSITION_SHORT_LABELS,
+  WAREHOUSE_WHEEL_SELECTOR_STATUS_LABELS,
+} from "@/lib/warehouse-wheel-selector";
 import {
   createEmptyVehicleServiceHistoryRecord,
   formatVehicleServiceHistoryDate,
@@ -896,6 +902,7 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
   const [expandedInternalNotes, setExpandedInternalNotes] = useState<Record<string, boolean>>({});
   const [selectedDamageGridCellId, setSelectedDamageGridCellId] = useState<string>(VEHICLE_BODY_DAMAGE_GRID_CELLS[0]?.id || "");
   const [selectedDamageRecordId, setSelectedDamageRecordId] = useState<string>("");
+  const [selectedWheelPosition, setSelectedWheelPosition] = useState<VehicleWheelPosition>(VEHICLE_WHEEL_POSITIONS[0] ?? "front-left");
   const [selectedWheelZones, setSelectedWheelZones] = useState<Record<VehicleWheelPosition, VehicleWheelZone>>(DEFAULT_SELECTED_WHEEL_ZONES);
   const [photoPendingDelete, setPhotoPendingDelete] = useState<WarehouseIntakePhotoRecord | null>(null);
   const [photoDeletionReason, setPhotoDeletionReason] = useState("");
@@ -931,6 +938,15 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
     () => draft.vehicleReport.wheelDamageRecords ?? [],
     [draft.vehicleReport.wheelDamageRecords]
   );
+  const selectedWheelZone = selectedWheelZones[selectedWheelPosition] ?? "outer_rim_top";
+  const selectedWheelRecords = useMemo(
+    () => wheelDamageRecords.filter((record) => record.wheelPosition === selectedWheelPosition),
+    [selectedWheelPosition, wheelDamageRecords]
+  );
+  const activeWheelRecord = selectedWheelRecords.find((record) => record.wheelZone === selectedWheelZone) ?? null;
+  const activeWheelPhotos = activeWheelRecord
+    ? draft.photos.filter((photo) => activeWheelRecord.photoIds.includes(photo.id))
+    : [];
   const serviceHistoryRecords = useMemo(
     () => sortVehicleServiceHistoryRecords(draft.vehicleDetails.serviceHistoryRecords),
     [draft.vehicleDetails.serviceHistoryRecords]
@@ -2781,105 +2797,128 @@ export function WarehouseIntakeWorkspace({ intakeId }: { intakeId?: string }) {
                     </div>
                   </div>
 
-                  <div className="mt-5 grid gap-5 xl:grid-cols-2">
+                  <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4" role="group" aria-label="Wheel position">
                     {VEHICLE_WHEEL_POSITIONS.map((wheelPosition) => {
-                      const selectedWheelZone = selectedWheelZones[wheelPosition] ?? "outer_rim_top";
-                      const wheelRecordsForPosition = wheelDamageRecords.filter((record) => record.wheelPosition === wheelPosition);
-                      const activeWheelRecord = wheelRecordsForPosition.find((record) => record.wheelZone === selectedWheelZone) ?? null;
-                      const activeWheelPhotos = activeWheelRecord
-                        ? draft.photos.filter((photo) => activeWheelRecord.photoIds.includes(photo.id))
-                        : [];
+                      const wheelStatus = getWarehouseWheelSelectorStatus(wheelDamageRecords, wheelPosition);
+                      const isSelected = wheelPosition === selectedWheelPosition;
 
                       return (
-                        <div key={wheelPosition} className="rounded-[26px] border border-black/6 bg-shell p-4">
-                          <WheelRimConditionMap
-                            position={wheelPosition}
-                            records={wheelRecordsForPosition}
-                            selectedZone={selectedWheelZone}
-                            editable
-                            onZoneSelect={handleWheelZoneSelect}
-                          />
-
-                          <div className="mt-4 rounded-[22px] border border-black/6 bg-white p-4">
-                            <div className="grid gap-4 sm:grid-cols-2">
-                              <div className="space-y-2">
-                                <FieldLabel>Selected wheel area</FieldLabel>
-                                <SelectInput
-                                  value={selectedWheelZone}
-                                  onChange={(event) => handleWheelZoneSelect(wheelPosition, event.target.value as VehicleWheelZone)}
-                                >
-                                  {VEHICLE_WHEEL_ZONES.map((zone) => (
-                                    <option key={zone} value={zone}>{VEHICLE_WHEEL_ZONE_LABELS[zone]}</option>
-                                  ))}
-                                </SelectInput>
-                              </div>
-                              <div className="space-y-2">
-                                <FieldLabel>Condition type</FieldLabel>
-                                <SelectInput
-                                  value={activeWheelRecord?.damageType ?? "original"}
-                                  onChange={(event) => updateWheelZoneRecord(wheelPosition, selectedWheelZone, {
-                                    damageType: event.target.value as VehicleWheelDamageType
-                                  })}
-                                >
-                                  {VEHICLE_WHEEL_DAMAGE_TYPES.map((damageType) => (
-                                    <option key={damageType} value={damageType}>{VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[damageType]}</option>
-                                  ))}
-                                </SelectInput>
-                              </div>
-                            </div>
-
-                            <div className="mt-4 space-y-2">
-                              <FieldLabel>Wheel / rim note</FieldLabel>
-                              <TextAreaInput
-                                className="min-h-[84px]"
-                                value={activeWheelRecord?.notes ?? ""}
-                                onChange={(event) => updateWheelZoneRecord(wheelPosition, selectedWheelZone, { notes: event.target.value })}
-                                placeholder="Optional note for this exact wheel area."
-                              />
-                            </div>
-
-                            <div className="mt-4 space-y-2">
-                              <FieldLabel>Linked wheel photos</FieldLabel>
-                              <TextInput
-                                type="file"
-                                accept="image/*"
-                                capture="environment"
-                                multiple
-                                disabled={!recordId || !activeWheelRecord}
-                                onChange={(event) => activeWheelRecord ? void handleWheelDamageRecordPhotoUpload(activeWheelRecord.id, event.target.files) : undefined}
-                              />
-                              <FieldNote>
-                                {activeWheelRecord
-                                  ? "Take or upload photos for this exact wheel/rim zone."
-                                  : "Choose a condition type or add a note first, then upload photos for this wheel/rim zone."}
-                              </FieldNote>
-                            </div>
-
-                            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                              {activeWheelRecord && activeWheelPhotos.length ? (
-                                activeWheelPhotos.map((photo) => (
-                                  <WarehouseIntakePhotoCard
-                                    key={photo.id}
-                                    photo={photo}
-                                    alt={photo.label || getWheelDamagePhotoLabel(activeWheelRecord)}
-                                    canDelete={canDeletePhotos}
-                                    listingLinked={listingLinked}
-                                    deleting={deletingPhotoId === photo.id}
-                                    onRequestDelete={setPhotoPendingDelete}
-                                    onViewDamagePhoto={(damagePhoto) => void handleViewDamagePhoto(damagePhoto)}
-                                    onManageDamagePhoto={openDamagePhotoManagement}
-                                  />
-                                ))
-                              ) : (
-                                <div className="rounded-[18px] border border-dashed border-black/10 bg-shell px-4 py-5 text-sm text-ink/55">
-                                  No photos linked to this wheel/rim area yet.
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                        <button
+                          key={wheelPosition}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => setSelectedWheelPosition(wheelPosition)}
+                          className={`min-h-[96px] rounded-[20px] border px-3 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-bronze focus:ring-offset-2 ${
+                            isSelected
+                              ? "border-bronze bg-white text-ink shadow-sm"
+                              : "border-black/8 bg-shell text-ink/68 hover:border-bronze/60 hover:bg-white"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <CircleDot aria-hidden="true" className={`h-5 w-5 ${isSelected ? "text-bronze" : "text-ink/45"}`} />
+                            <span className="text-sm font-semibold">{WAREHOUSE_WHEEL_POSITION_SHORT_LABELS[wheelPosition]}</span>
+                          </span>
+                          <span className="mt-2 block text-xs font-semibold text-ink">{VEHICLE_WHEEL_POSITION_LABELS[wheelPosition].replace(" Wheel", "")}</span>
+                          <span className={`mt-1 block text-[11px] font-semibold ${
+                            wheelStatus === "damage_recorded"
+                              ? "text-amber-700"
+                              : wheelStatus === "repaired"
+                                ? "text-emerald-700"
+                                : "text-ink/48"
+                          }`}>
+                            {WAREHOUSE_WHEEL_SELECTOR_STATUS_LABELS[wheelStatus]}
+                          </span>
+                        </button>
                       );
                     })}
+                  </div>
+
+                  <div className="mt-5 rounded-[26px] border border-black/6 bg-shell p-4">
+                    <WheelRimConditionMap
+                      position={selectedWheelPosition}
+                      records={selectedWheelRecords}
+                      selectedZone={selectedWheelZone}
+                      editable
+                      onZoneSelect={handleWheelZoneSelect}
+                    />
+
+                    <div className="mt-4 rounded-[22px] border border-black/6 bg-white p-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <FieldLabel>Selected wheel area</FieldLabel>
+                          <SelectInput
+                            value={selectedWheelZone}
+                            onChange={(event) => handleWheelZoneSelect(selectedWheelPosition, event.target.value as VehicleWheelZone)}
+                          >
+                            {VEHICLE_WHEEL_ZONES.map((zone) => (
+                              <option key={zone} value={zone}>{VEHICLE_WHEEL_ZONE_LABELS[zone]}</option>
+                            ))}
+                          </SelectInput>
+                        </div>
+                        <div className="space-y-2">
+                          <FieldLabel>Condition type</FieldLabel>
+                          <SelectInput
+                            value={activeWheelRecord?.damageType ?? "original"}
+                            onChange={(event) => updateWheelZoneRecord(selectedWheelPosition, selectedWheelZone, {
+                              damageType: event.target.value as VehicleWheelDamageType
+                            })}
+                          >
+                            {VEHICLE_WHEEL_DAMAGE_TYPES.map((damageType) => (
+                              <option key={damageType} value={damageType}>{VEHICLE_WHEEL_DAMAGE_TYPE_LABELS[damageType]}</option>
+                            ))}
+                          </SelectInput>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        <FieldLabel>Wheel / rim note</FieldLabel>
+                        <TextAreaInput
+                          className="min-h-[84px]"
+                          value={activeWheelRecord?.notes ?? ""}
+                          onChange={(event) => updateWheelZoneRecord(selectedWheelPosition, selectedWheelZone, { notes: event.target.value })}
+                          placeholder="Optional note for this exact wheel area."
+                        />
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        <FieldLabel>Linked wheel photos</FieldLabel>
+                        <TextInput
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          multiple
+                          disabled={!recordId || !activeWheelRecord}
+                          onChange={(event) => activeWheelRecord ? void handleWheelDamageRecordPhotoUpload(activeWheelRecord.id, event.target.files) : undefined}
+                        />
+                        <FieldNote>
+                          {activeWheelRecord
+                            ? "Take or upload photos for this exact wheel/rim zone."
+                            : "Choose a condition type or add a note first, then upload photos for this wheel/rim zone."}
+                        </FieldNote>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {activeWheelRecord && activeWheelPhotos.length ? (
+                          activeWheelPhotos.map((photo) => (
+                            <WarehouseIntakePhotoCard
+                              key={photo.id}
+                              photo={photo}
+                              alt={photo.label || getWheelDamagePhotoLabel(activeWheelRecord)}
+                              canDelete={canDeletePhotos}
+                              listingLinked={listingLinked}
+                              deleting={deletingPhotoId === photo.id}
+                              onRequestDelete={setPhotoPendingDelete}
+                              onViewDamagePhoto={(damagePhoto) => void handleViewDamagePhoto(damagePhoto)}
+                              onManageDamagePhoto={openDamagePhotoManagement}
+                            />
+                          ))
+                        ) : (
+                          <div className="rounded-[18px] border border-dashed border-black/10 bg-shell px-4 py-5 text-sm text-ink/55">
+                            No photos linked to this wheel/rim area yet.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
